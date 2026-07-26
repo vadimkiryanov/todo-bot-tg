@@ -839,6 +839,7 @@ func (b *Bot) topicHint(userID int64) string {
 
 func (b *Bot) send(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ReplyMarkup = tgbotapi.NewRemoveKeyboard(true)
 	b.api.Send(msg)
 }
 
