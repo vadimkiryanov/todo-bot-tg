@@ -1,6 +1,7 @@
 services:
   bot:
     build: .
+    restart: unless-stopped
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL не задан}
@@ -10,6 +11,7 @@ services:
 
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: todobot
       POSTGRES_PASSWORD: todobot

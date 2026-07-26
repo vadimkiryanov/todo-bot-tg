@@ -36,6 +36,14 @@ if ! command -v docker &>/dev/null; then
     log "Docker установлен. Возможно, потребуется перезайти в сессию."
 fi
 
+# --- Автозапуск Docker при старте системы ---
+if systemctl is-enabled docker &>/dev/null; then
+    true
+else
+    log "Включаю автозапуск Docker..."
+    sudo systemctl enable docker
+fi
+
 # --- Установка git ---
 if ! command -v git &>/dev/null; then
     log "Устанавливаю git..."
