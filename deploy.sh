@@ -3,7 +3,14 @@ set -e
 
 # ============================================================
 # deploy.sh — развёртывание todo-bot-tg на Ubuntu
-# Запуск: bash deploy.sh <TELEGRAM_BOT_TOKEN>
+#
+# Перед первым запуском создай .env:
+#   cat > .env << 'EOF'
+#   TELEGRAM_BOT_TOKEN=123456:ABC...DEF
+#   DATABASE_URL=postgres://user:password@db:5432/dbname?sslmode=disable
+#   EOF
+#
+# Дальше просто: bash deploy.sh
 # ============================================================
 
 RED='\033[0;31m'
@@ -13,13 +20,7 @@ NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $1"; }
 err()  { echo -e "${RED}[!]${NC} $1"; exit 1; }
 
-# --- Токен: аргумент или переменная окружения ---
-TOKEN="${1:-$TELEGRAM_BOT_TOKEN}"
-if [ -z "$TOKEN" ]; then
-    err "Укажи токен: bash deploy.sh 123456:ABC...DEF"
-fi
-
-# --- Установка Docker, если нет ---
+# --- Установка Docker ---
 if ! command -v docker &>/dev/null; then
     log "Устанавливаю Docker..."
     sudo apt-get update -qq
@@ -32,10 +33,10 @@ if ! command -v docker &>/dev/null; then
     sudo apt-get update -qq
     sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     sudo usermod -aG docker "$USER"
-    log "Docker установлен. Возможно, потребуется перезайти в сессию для прав docker."
+    log "Docker установлен. Возможно, потребуется перезайти в сессию."
 fi
 
-# --- Установка git, если нет ---
+# --- Установка git ---
 if ! command -v git &>/dev/null; then
     log "Устанавливаю git..."
     sudo apt-get install -y -qq git
@@ -53,15 +54,9 @@ else
     cd "$DIR"
 fi
 
-# --- Создаём .env ---
+# --- Проверяем .env ---
 if [ ! -f .env ]; then
-    cat > .env <<EOF
-TELEGRAM_BOT_TOKEN=$TOKEN
-DATABASE_URL=[MASKED]
-EOF
-    log ".env создан"
-else
-    log ".env уже существует, не трогаю"
+    err "Файл .env не найден. Создай его вручную (см. комментарий в начале скрипта)"
 fi
 
 # --- Сборка и запуск ---
