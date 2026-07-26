@@ -35,6 +35,12 @@ if ! command -v docker &>/dev/null; then
     log "Docker установлен. Возможно, потребуется перезайти в сессию для прав docker."
 fi
 
+# --- Установка git, если нет ---
+if ! command -v git &>/dev/null; then
+    log "Устанавливаю git..."
+    sudo apt-get install -y -qq git
+fi
+
 # --- Клонирование / обновление репозитория ---
 DIR="$HOME/todo-bot-tg"
 if [ -d "$DIR/.git" ]; then
@@ -43,7 +49,7 @@ if [ -d "$DIR/.git" ]; then
     git pull
 else
     log "Клонирую репозиторий..."
-    git clone https://github.com/YOUR_USER/todo-bot-tg.git "$DIR"
+    git clone https://github.com/vadimkiryanov/todo-bot-tg.git "$DIR"
     cd "$DIR"
 fi
 
