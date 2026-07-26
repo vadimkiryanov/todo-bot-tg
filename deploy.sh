@@ -3,7 +3,7 @@ set -e
 
 # ============================================================
 # deploy.sh — развёртывание todo-bot-tg на Ubuntu
-# Запуск: TELEGRAM_BOT_TOKEN=... bash deploy.sh
+# Запуск: bash deploy.sh <TELEGRAM_BOT_TOKEN>
 # ============================================================
 
 RED='\033[0;31m'
@@ -13,9 +13,10 @@ NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $1"; }
 err()  { echo -e "${RED}[!]${NC} $1"; exit 1; }
 
-# --- Проверка токена ---
-if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
-    err "Укажи TELEGRAM_BOT_TOKEN: TELEGRAM_BOT_TOKEN=... bash deploy.sh"
+# --- Токен: аргумент или переменная окружения ---
+TOKEN="${1:-$TELEGRAM_BOT_TOKEN}"
+if [ -z "$TOKEN" ]; then
+    err "Укажи токен: bash deploy.sh 123456:ABC...DEF"
 fi
 
 # --- Установка Docker, если нет ---
@@ -34,7 +35,7 @@ if ! command -v docker &>/dev/null; then
     log "Docker установлен. Возможно, потребуется перезайти в сессию для прав docker."
 fi
 
-# --- Сборка и запуск ---
+# --- Клонирование / обновление репозитория ---
 DIR="$HOME/todo-bot-tg"
 if [ -d "$DIR/.git" ]; then
     log "Обновляю репозиторий..."
@@ -46,8 +47,15 @@ else
     cd "$DIR"
 fi
 
+# --- Создаём .env ---
+cat > .env <<EOF
+TELEGRAM_BOT_TOKEN=$TOKEN
+DATABASE_URL=[MASKED]
+EOF
+log ".env создан"
+
+# --- Сборка и запуск ---
 log "Собираю и запускаю..."
-export TELEGRAM_BOT_TOKEN
 docker compose up -d --build
 
-log "Готово. Проверь: docker compose logs -f"
+log "Готово. Проверить логи: docker compose -f $DIR/docker-compose.yml logs -f"
