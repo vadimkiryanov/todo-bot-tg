@@ -265,6 +265,20 @@ func (b *Bot) cmdTopics(msg *tgbotapi.Message, userID int64) {
 	}
 
 	var rows [][]tgbotapi.InlineKeyboardButton
+
+	// Кнопка «Все заметки»
+	allCount, _ := b.store.CountNotes(userID, 0)
+	allPrefix := "  "
+	if currentID == 0 {
+		allPrefix = "✅ "
+	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData(
+			fmt.Sprintf("%s📂 Все (%d)", allPrefix, allCount),
+			"settopic:0",
+		),
+	))
+
 	for _, t := range topics {
 		count, _ := b.store.CountNotes(userID, t.ID)
 
@@ -634,10 +648,10 @@ func (b *Bot) doSetTopic(chatID int64, userID int64, topicID int64) {
 			return
 		}
 		b.states.Get(userID).CurrentTopicID = topicID
-		b.sendReply(chatID, userID, fmt.Sprintf("📂 Перешли в топик «%s» (#%d).", t.Name, t.ID))
+		b.send(chatID, fmt.Sprintf("📂 Перешли в топик «%s» (#%d).", t.Name, t.ID))
 	} else {
 		b.states.Get(userID).CurrentTopicID = 0
-		b.sendReply(chatID, userID, "📂 Топик сброшен. Заметки будут создаваться без топика.")
+		b.send(chatID, "📂 Просмотр всех топиков.")
 	}
 }
 
