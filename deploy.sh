@@ -54,11 +54,15 @@ else
 fi
 
 # --- Создаём .env ---
-cat > .env <<EOF
+if [ ! -f .env ]; then
+    cat > .env <<EOF
 TELEGRAM_BOT_TOKEN=$TOKEN
 DATABASE_URL=[MASKED]
 EOF
-log ".env создан"
+    log ".env создан"
+else
+    log ".env уже существует, не трогаю"
+fi
 
 # --- Сборка и запуск ---
 log "Собираю и запускаю..."
