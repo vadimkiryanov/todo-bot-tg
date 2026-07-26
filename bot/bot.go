@@ -2,6 +2,9 @@ package bot
 
 import (
 	"fmt"
+	"net/url"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -91,6 +94,8 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdDelete(msg, userID, args)
 	case "archive":
 		b.cmdArchive(msg, userID, args)
+	case "backup":
+		b.cmdBackup(msg)
 	default:
 		b.send(msg.Chat.ID, "Неизвестная команда. Введите /help для списка команд.")
 	}
@@ -449,6 +454,50 @@ func (b *Bot) cmdArchive(msg *tgbotapi.Message, userID int64, args string) {
 	b.doArchive(msg.Chat.ID, userID, id)
 }
 
+func (b *Bot) cmdBackup(msg *tgbotapi.Message) {
+	b.send(msg.Chat.ID, "⏳ Делаю бэкап...")
+
+	dbURL := os.Getenv("DATABASE_URL")
+	// pg_dump принимает отдельные флаги, парсим из URL: postgres://user:pass@host:port/db
+	host, user, pass, dbname := "db", "todobot", "todobot", "todobot"
+	if u, err := url.Parse(dbURL); err == nil {
+		host = u.Hostname()
+		if u.Port() != "" {
+			host = u.Hostname()
+		}
+		user = u.User.Username()
+		pass, _ = u.User.Password()
+		dbname = strings.TrimPrefix(u.Path, "/")
+	}
+
+	f, err := os.CreateTemp("", "todobot-backup-*.sql")
+	if err != nil {
+		b.send(msg.Chat.ID, fmt.Sprintf("❌ Ошибка создания файла: %v", err))
+		return
+	}
+	defer os.Remove(f.Name())
+
+	cmd := exec.Command("pg_dump",
+		"-h", host,
+		"-U", user,
+		dbname,
+	)
+	cmd.Env = append(os.Environ(), "PGPASSWORD="+pass)
+	cmd.Stdout = f
+
+	if err := cmd.Run(); err != nil {
+		f.Close()
+		b.send(msg.Chat.ID, fmt.Sprintf("❌ Ошибка бэкапа: %v", err))
+		return
+	}
+	f.Close()
+
+	doc := tgbotapi.NewDocument(msg.Chat.ID, tgbotapi.FilePath(f.Name()))
+	b.api.Send(doc)
+
+	b.send(msg.Chat.ID, "✅ Бэкап готов.")
+}
+
 // ============================================================
 // Interactive state completions
 // ============================================================
@@ -769,6 +818,7 @@ func (b *Bot) registerCommands() error {
 		{Command: "start", Description: "Начать"},
 		{Command: "list", Description: "Список"},
 		{Command: "topics", Description: "Список топиков"},
+		{Command: "backup", Description: "Скачать бэкап базы"},
 	}
 	setCmd := tgbotapi.NewSetMyCommands(cmds...)
 	_, err := b.api.Request(setCmd)

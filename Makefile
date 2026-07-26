@@ -29,3 +29,14 @@ db-down:
 	docker rm -f todobot-pg 2>/dev/null || true
 
 db-reset: db-down db-up
+
+# --- Бэкап и восстановление (docker compose) ---
+
+db-backup:
+	docker compose exec db pg_dump -U todobot todobot > backup-$$(date +%Y%m%d-%H%M).sql
+	@echo "Бэкап сохранён: backup-$$(date +%Y%m%d-%H%M).sql"
+
+db-restore:
+	@test -n "$(FILE)" || (echo "Укажи файл: make db-restore FILE=backup.sql"; exit 1)
+	docker compose exec -T db psql -U todobot todobot < $(FILE)
+	@echo "Восстановлено из $(FILE)"

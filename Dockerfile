@@ -8,9 +8,10 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /todobot .
 
-FROM scratch
+FROM alpine:3.20
 
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+RUN apk --no-cache add ca-certificates postgresql-client
+
 COPY --from=builder /todobot /todobot
 
 ENTRYPOINT ["/todobot"]
