@@ -98,6 +98,7 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdBackup(msg)
 	case "archived":
 		b.deleteUserMsg(msg)
+		b.deleteLastBotMsg(msg.Chat.ID, userID)
 		b.showArchived(msg.Chat.ID, 0, userID)
 	default:
 		b.send(msg.Chat.ID, "Неизвестная команда. Введите /help для списка команд.")
@@ -265,6 +266,7 @@ func (b *Bot) cmdHelp(msg *tgbotapi.Message) {
 
 func (b *Bot) cmdTopics(msg *tgbotapi.Message, userID int64) {
 	b.deleteUserMsg(msg)
+	b.deleteLastBotMsg(msg.Chat.ID, userID)
 	b.showTopics(msg.Chat.ID, 0, userID)
 }
 
@@ -325,7 +327,10 @@ func (b *Bot) showTopics(chatID int64, msgID int, userID int64) {
 		msg := b.newMsg(chatID, text)
 		msg.ParseMode = tgbotapi.ModeMarkdown
 		msg.ReplyMarkup = markup
-		b.api.Send(msg)
+		sent, err := b.api.Send(msg)
+		if err == nil {
+			b.states.Get(userID).LastListMsgID = sent.MessageID
+		}
 	} else {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 		edit.ParseMode = tgbotapi.ModeMarkdown
@@ -391,7 +396,17 @@ func (b *Bot) cmdAdd(msg *tgbotapi.Message, userID int64, args string) {
 
 func (b *Bot) cmdList(msg *tgbotapi.Message, userID int64) {
 	b.deleteUserMsg(msg)
+	b.deleteLastBotMsg(msg.Chat.ID, userID)
 	b.showList(msg.Chat.ID, userID)
+}
+
+func (b *Bot) deleteLastBotMsg(chatID int64, userID int64) {
+	lastMsgID := b.states.Get(userID).LastListMsgID
+	if lastMsgID != 0 {
+		del := tgbotapi.NewDeleteMessage(chatID, lastMsgID)
+		b.api.Request(del)
+		b.states.Get(userID).LastListMsgID = 0
+	}
 }
 
 // showList отправляет список заметок в чат (первая страница).
@@ -915,9 +930,12 @@ func (b *Bot) showArchived(chatID int64, msgID int, userID int64) {
 		)
 		markup := tgbotapi.NewInlineKeyboardMarkup(backBtn)
 		if msgID == 0 {
-			msg := tgbotapi.NewMessage(chatID, text)
+			msg := b.newMsg(chatID, text)
 			msg.ReplyMarkup = markup
-			b.api.Send(msg)
+			sent, err := b.api.Send(msg)
+			if err == nil {
+				b.states.Get(userID).LastListMsgID = sent.MessageID
+			}
 		} else {
 			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 			b.api.Send(edit)
@@ -941,9 +959,12 @@ func (b *Bot) showArchived(chatID int64, msgID int, userID int64) {
 	markup := tgbotapi.NewInlineKeyboardMarkup(rows...)
 
 	if msgID == 0 {
-		msg2 := tgbotapi.NewMessage(chatID, header)
+		msg2 := b.newMsg(chatID, header)
 		msg2.ReplyMarkup = markup
-		b.api.Send(msg2)
+		sent, err := b.api.Send(msg2)
+		if err == nil {
+			b.states.Get(userID).LastListMsgID = sent.MessageID
+		}
 	} else {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, header, markup)
 		b.api.Send(edit)
