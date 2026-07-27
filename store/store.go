@@ -38,7 +38,10 @@ type Store interface {
 	Edit(userID int64, noteID int64, text string) error
 	Delete(userID int64, noteID int64) error
 	Archive(userID int64, noteID int64) error
+	Unarchive(userID int64, noteID int64) error
 	CountNotes(userID int64, topicID int64) (int, error)
+	ListArchived(userID int64) ([]Note, error)
+	CountArchived(userID int64) (int, error)
 }
 
 // MemStore — in-memory реализация Store.
@@ -250,4 +253,45 @@ func (s *MemStore) Archive(userID int64, noteID int64) error {
 	}
 	note.Archived = true
 	return nil
+}
+
+func (s *MemStore) Unarchive(userID int64, noteID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	note, ok := s.notes[noteID]
+	if !ok || note.UserID != userID {
+		return fmt.Errorf("заметка #%d не найдена", noteID)
+	}
+	note.Archived = false
+	return nil
+}
+
+func (s *MemStore) ListArchived(userID int64) ([]Note, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := s.userNotes[userID]
+	result := make([]Note, 0, len(ids))
+	for _, id := range ids {
+		note := s.notes[id]
+		if note != nil && note.Archived {
+			result = append(result, *note)
+		}
+	}
+	return result, nil
+}
+
+func (s *MemStore) CountArchived(userID int64) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, id := range s.userNotes[userID] {
+		note := s.notes[id]
+		if note != nil && note.Archived {
+			count++
+		}
+	}
+	return count, nil
 }

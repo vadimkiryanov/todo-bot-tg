@@ -20,6 +20,7 @@ type UserSession struct {
 	CurrentTopicID   int64 // 0 — без топика
 	EditNoteID       int64 // ID заметки для редактирования в StateWaitingEditText
 	LastViewedNoteID int64 // ID последней просмотренной заметки (для SwitchInlineQuery)
+	LastListMsgID    int   // ID последнего сообщения со списком
 }
 
 // StateManager управляет состояниями пользователей.

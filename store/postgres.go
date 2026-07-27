@@ -270,5 +270,55 @@ func (s *PostgresStore) CountNotes(userID int64, topicID int64) (int, error) {
 	return count, nil
 }
 
+func (s *PostgresStore) Unarchive(userID int64, noteID int64) error {
+	res, err := s.db.Exec(
+		`UPDATE notes SET archived = FALSE WHERE id = $1 AND user_id = $2`,
+		noteID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("разархивация: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("заметка #%d не найдена", noteID)
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListArchived(userID int64) ([]Note, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, topic_id, text, created_at, archived
+		 FROM notes WHERE user_id = $1 AND archived = TRUE
+		 ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("чтение архива: %w", err)
+	}
+	defer rows.Close()
+
+	var result []Note
+	for rows.Next() {
+		var n Note
+		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.CreatedAt, &n.Archived); err != nil {
+			return nil, fmt.Errorf("чтение заметки: %w", err)
+		}
+		result = append(result, n)
+	}
+	return result, rows.Err()
+}
+
+func (s *PostgresStore) CountArchived(userID int64) (int, error) {
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND archived = TRUE`,
+		userID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("подсчёт архива: %w", err)
+	}
+	return count, nil
+}
+
 // compile-time check: PostgresStore implements Store
 var _ Store = (*PostgresStore)(nil)
