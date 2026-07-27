@@ -10,7 +10,8 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /todobot ./cmd/bot/
 
 FROM alpine:3.20
 
-RUN apk --no-cache add ca-certificates postgresql-client
+ENV TZ=Europe/Moscow
+RUN apk --no-cache add ca-certificates postgresql-client tzdata
 
 COPY --from=builder /todobot /todobot
 

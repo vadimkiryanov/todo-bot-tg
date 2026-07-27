@@ -24,9 +24,14 @@ CREATE TABLE IF NOT EXISTS notes (
     user_id BIGINT NOT NULL,
     topic_id BIGINT NOT NULL DEFAULT 0,
     text TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    reminder_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     archived BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_notes_user_topic ON notes(user_id, topic_id);
 `
@@ -147,10 +152,10 @@ func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 	rec := entity.NoteToRecord(note)
 	err := s.db.QueryRow(
-		`INSERT INTO notes (user_id, topic_id, text, created_at) VALUES ($1, $2, $3, $4)
-		 RETURNING id, user_id, topic_id, text, created_at, archived`,
-		rec.UserID, rec.TopicID, rec.Text, rec.CreatedAt,
-	).Scan(&rec.ID, &rec.UserID, &rec.TopicID, &rec.Text, &rec.CreatedAt, &rec.Archived)
+		`INSERT INTO notes (user_id, topic_id, text, priority, reminder_at, created_at) VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, user_id, topic_id, text, priority, reminder_at, created_at, archived`,
+		rec.UserID, rec.TopicID, rec.Text, rec.Priority, rec.ReminderAt, rec.CreatedAt,
+	).Scan(&rec.ID, &rec.UserID, &rec.TopicID, &rec.Text, &rec.Priority, &rec.ReminderAt, &rec.CreatedAt, &rec.Archived)
 	if err != nil {
 		return model.Note{}, fmt.Errorf("добавление заметки: %w", err)
 	}
@@ -163,13 +168,13 @@ func (s *PostgresStore) ListNotes(userID, topicID int64) ([]model.Note, error) {
 
 	if topicID == 0 {
 		rows, err = s.db.Query(
-			`SELECT id, user_id, topic_id, text, created_at, archived
+			`SELECT id, user_id, topic_id, text, priority, reminder_at, created_at, archived
 			 FROM notes WHERE user_id = $1 AND archived = FALSE
 			 ORDER BY id DESC`, userID,
 		)
 	} else {
 		rows, err = s.db.Query(
-			`SELECT id, user_id, topic_id, text, created_at, archived
+			`SELECT id, user_id, topic_id, text, priority, reminder_at, created_at, archived
 			 FROM notes WHERE user_id = $1 AND topic_id = $2 AND archived = FALSE
 			 ORDER BY id DESC`, userID, topicID,
 		)
@@ -182,7 +187,7 @@ func (s *PostgresStore) ListNotes(userID, topicID int64) ([]model.Note, error) {
 	var result []model.Note
 	for rows.Next() {
 		var n entity.NoteRecord
-		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.CreatedAt, &n.Archived); err != nil {
+		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.Priority, &n.ReminderAt, &n.CreatedAt, &n.Archived); err != nil {
 			return nil, fmt.Errorf("чтение заметки: %w", err)
 		}
 		result = append(result, entity.NoteFromRecord(n))
@@ -193,10 +198,26 @@ func (s *PostgresStore) ListNotes(userID, topicID int64) ([]model.Note, error) {
 func (s *PostgresStore) GetNote(userID, noteID int64) (model.Note, error) {
 	var n entity.NoteRecord
 	err := s.db.QueryRow(
-		`SELECT id, user_id, topic_id, text, created_at, archived
+		`SELECT id, user_id, topic_id, text, priority, reminder_at, created_at, archived
 		 FROM notes WHERE id = $1 AND user_id = $2`,
 		noteID, userID,
-	).Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.CreatedAt, &n.Archived)
+	).Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.Priority, &n.ReminderAt, &n.CreatedAt, &n.Archived)
+	if err == sql.ErrNoRows {
+		return model.Note{}, errors.ErrNoteNotFound
+	}
+	if err != nil {
+		return model.Note{}, fmt.Errorf("поиск заметки: %w", err)
+	}
+	return entity.NoteFromRecord(n), nil
+}
+
+func (s *PostgresStore) GetNoteByID(noteID int64) (model.Note, error) {
+	var n entity.NoteRecord
+	err := s.db.QueryRow(
+		`SELECT id, user_id, topic_id, text, priority, reminder_at, created_at, archived
+		 FROM notes WHERE id = $1`,
+		noteID,
+	).Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.Priority, &n.ReminderAt, &n.CreatedAt, &n.Archived)
 	if err == sql.ErrNoRows {
 		return model.Note{}, errors.ErrNoteNotFound
 	}
@@ -209,8 +230,8 @@ func (s *PostgresStore) GetNote(userID, noteID int64) (model.Note, error) {
 func (s *PostgresStore) UpdateNote(note model.Note) error {
 	rec := entity.NoteToRecord(note)
 	res, err := s.db.Exec(
-		`UPDATE notes SET text = $1, archived = $2 WHERE id = $3 AND user_id = $4`,
-		rec.Text, rec.Archived, rec.ID, rec.UserID,
+		`UPDATE notes SET text = $1, priority = $2, reminder_at = $3, archived = $4 WHERE id = $5 AND user_id = $6`,
+		rec.Text, rec.Priority, rec.ReminderAt, rec.Archived, rec.ID, rec.UserID,
 	)
 	if err != nil {
 		return fmt.Errorf("обновление заметки: %w", err)
@@ -260,7 +281,7 @@ func (s *PostgresStore) CountNotes(userID, topicID int64) (int, error) {
 
 func (s *PostgresStore) ListArchived(userID int64) ([]model.Note, error) {
 	rows, err := s.db.Query(
-		`SELECT id, user_id, topic_id, text, created_at, archived
+		`SELECT id, user_id, topic_id, text, priority, reminder_at, created_at, archived
 		 FROM notes WHERE user_id = $1 AND archived = TRUE
 		 ORDER BY created_at DESC`,
 		userID,
@@ -273,7 +294,7 @@ func (s *PostgresStore) ListArchived(userID int64) ([]model.Note, error) {
 	var result []model.Note
 	for rows.Next() {
 		var n entity.NoteRecord
-		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.CreatedAt, &n.Archived); err != nil {
+		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.Priority, &n.ReminderAt, &n.CreatedAt, &n.Archived); err != nil {
 			return nil, fmt.Errorf("чтение заметки: %w", err)
 		}
 		result = append(result, entity.NoteFromRecord(n))
@@ -291,6 +312,28 @@ func (s *PostgresStore) CountArchived(userID int64) (int, error) {
 		return 0, fmt.Errorf("подсчёт архива: %w", err)
 	}
 	return count, nil
+}
+
+// GetPendingReminders возвращает заметки с просроченными напоминаниями.
+func (s *PostgresStore) GetPendingReminders() ([]model.Note, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, topic_id, text, priority, reminder_at, created_at, archived
+		 FROM notes WHERE reminder_at IS NOT NULL AND reminder_at <= NOW() AND archived = FALSE`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("поиск просроченных напоминаний: %w", err)
+	}
+	defer rows.Close()
+
+	var result []model.Note
+	for rows.Next() {
+		var n entity.NoteRecord
+		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.Priority, &n.ReminderAt, &n.CreatedAt, &n.Archived); err != nil {
+			return nil, fmt.Errorf("чтение заметки: %w", err)
+		}
+		result = append(result, entity.NoteFromRecord(n))
+	}
+	return result, rows.Err()
 }
 
 // HasAnyData возвращает true, если у пользователя уже есть данные.

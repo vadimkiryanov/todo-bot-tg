@@ -6,17 +6,41 @@ import (
 	"todo-bot-tg/internal/errors"
 )
 
+// Приоритеты заметок.
+const (
+	PriorityNone   = 0
+	PriorityLow    = 1
+	PriorityMedium = 2
+	PriorityHigh   = 3
+)
+
 // Note — агрегат, представляющий заметку пользователя.
 type Note struct {
-	ID        int64
-	UserID    int64
-	TopicID   int64 // 0 — без топика
-	Text      string
-	CreatedAt time.Time
-	Archived  bool
+	ID         int64
+	UserID     int64
+	TopicID    int64 // 0 — без топика
+	Text       string
+	Priority   int        // PriorityNone / Low / Medium / High
+	ReminderAt *time.Time // nil — без напоминания
+	CreatedAt  time.Time
+	Archived   bool
 }
 
-// NewNote создаёт новую заметку с валидацией.
+// PriorityEmoji возвращает эмодзи приоритета (пустая строка для None).
+func (n *Note) PriorityEmoji() string {
+	switch n.Priority {
+	case PriorityHigh:
+		return "🔥"
+	case PriorityMedium:
+		return "⚡"
+	case PriorityLow:
+		return "🌿"
+	default:
+		return ""
+	}
+}
+
+// NewNote создаёт новую заметку с валидацией (по умолчанию без приоритета).
 func NewNote(userID, topicID int64, text string) (*Note, error) {
 	if text == "" {
 		return nil, errors.ErrEmptyText
@@ -25,6 +49,7 @@ func NewNote(userID, topicID int64, text string) (*Note, error) {
 		UserID:    userID,
 		TopicID:   topicID,
 		Text:      text,
+		Priority:  PriorityNone,
 		CreatedAt: time.Now(),
 	}, nil
 }

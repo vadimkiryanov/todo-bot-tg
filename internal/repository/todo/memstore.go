@@ -3,6 +3,7 @@ package todo
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"todo-bot-tg/internal/errors"
 	"todo-bot-tg/internal/model"
@@ -156,6 +157,17 @@ func (s *MemStore) GetNote(userID, noteID int64) (model.Note, error) {
 	return entity.NoteFromRecord(n), nil
 }
 
+func (s *MemStore) GetNoteByID(noteID int64) (model.Note, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	n, ok := s.notes[noteID]
+	if !ok {
+		return model.Note{}, errors.ErrNoteNotFound
+	}
+	return entity.NoteFromRecord(n), nil
+}
+
 func (s *MemStore) UpdateNote(note model.Note) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -231,6 +243,21 @@ func (s *MemStore) CountArchived(userID int64) (int, error) {
 		}
 	}
 	return count, nil
+}
+
+// GetPendingReminders возвращает заметки с просроченными напоминаниями.
+func (s *MemStore) GetPendingReminders() ([]model.Note, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	var result []model.Note
+	for _, n := range s.notes {
+		if n.ReminderAt != nil && !n.ReminderAt.After(now) && !n.Archived {
+			result = append(result, entity.NoteFromRecord(n))
+		}
+	}
+	return result, nil
 }
 
 // HasAnyData возвращает true, если у пользователя уже есть данные.

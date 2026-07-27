@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -14,13 +15,18 @@ import (
 
 // NoteService — интерфейс сервиса заметок (определён потребителем — handler'ом).
 type NoteService interface {
-	AddNote(userID, topicID int64, text string) (model.Note, error)
+	AddNote(userID, topicID int64, text string, priority int) (model.Note, error)
 	ListNotes(userID, topicID int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
 	EditNote(userID, noteID int64, text string) error
 	DeleteNote(userID, noteID int64) error
 	ArchiveNote(userID, noteID int64) error
 	UnarchiveNote(userID, noteID int64) error
+	SetPriority(userID, noteID int64, priority int) error
+	SetReminder(userID, noteID int64, at time.Time) error
+	ClearReminder(userID, noteID int64) error
+	GetNoteByID(noteID int64) (model.Note, error)
+	ProcessPendingReminders() ([]model.Note, error)
 	CountNotes(userID, topicID int64) (int, error)
 	ListArchived(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
@@ -89,6 +95,24 @@ func (h *Handler) Run() error {
 	return nil
 }
 
+// StartReminderWorker запускает фоновый воркер проверки напоминаний.
+func (h *Handler) StartReminderWorker() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			notes, err := h.noteService.ProcessPendingReminders()
+			if err != nil {
+				continue
+			}
+			for _, n := range notes {
+				text := fmt.Sprintf("⏰ Напоминание:\n\n%s", n.Text)
+				h.send(n.UserID, text)
+			}
+		}
+	}()
+}
+
 // --- Commands ---
 
 func (h *Handler) handleCommand(msg *tgbotapi.Message) {
@@ -143,6 +167,10 @@ func (h *Handler) handleMessage(msg *tgbotapi.Message) {
 	switch s.State {
 	case StateWaitingAddText:
 		h.finishAdd(msg, userID, text)
+	case StateWaitingPriority:
+		// Пользователь ввёл новый текст вместо выбора приоритета — начинаем заново
+		h.states.Reset(userID)
+		h.doAdd(msg.Chat.ID, userID, text, msg.MessageID)
 	case StateWaitingDeleteID:
 		h.finishDelete(msg, userID, text)
 	case StateWaitingEditArgs:
@@ -274,6 +302,38 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		h.doUnarchive(chatID, msgID, userID, id)
+	case "prio":
+		priority, err := strconv.Atoi(idStr)
+		if err != nil {
+			return
+		}
+		h.callbackSetPriority(chatID, msgID, userID, priority)
+	case "chprio":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackChangePriority(chatID, msgID, userID, id)
+	case "remcal":
+		h.callbackReminderCalendar(chatID, msgID, idStr)
+	case "remday":
+		h.callbackReminderDay(chatID, msgID, idStr)
+	case "remhour":
+		h.callbackReminderHour(chatID, msgID, idStr)
+	case "remmin":
+		h.callbackReminderMinute(chatID, msgID, idStr)
+	case "remclear":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackClearReminder(chatID, msgID, userID, id)
+	case "remmenu":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackReminderMenu(chatID, msgID, userID, id)
 	}
 }
 
@@ -588,8 +648,8 @@ func (h *Handler) cmdBackup(msg *tgbotapi.Message) {
 // ============================================================
 
 func (h *Handler) finishAdd(msg *tgbotapi.Message, userID int64, text string) {
-	h.states.Reset(userID)
 	if text == "" {
+		h.states.Reset(userID)
 		h.send(msg.Chat.ID, "❌ Текст заметки не может быть пустым.")
 		return
 	}
@@ -662,19 +722,26 @@ func (h *Handler) finishSetTopic(msg *tgbotapi.Message, userID int64, text strin
 // ============================================================
 
 func (h *Handler) doAdd(chatID int64, userID int64, text string, userMsgID int) {
-	topicID := h.states.Get(userID).CurrentTopicID
-	_, err := h.noteService.AddNote(userID, topicID, text)
-	if err != nil {
-		h.send(chatID, fmt.Sprintf("❌ %v", err))
+	if text == "" {
+		h.send(chatID, "❌ Текст заметки не может быть пустым.")
 		return
 	}
+
+	session := h.states.Get(userID)
+	session.State = StateWaitingPriority
+	session.PendingNoteText = text
+	session.PendingNoteTopicID = session.CurrentTopicID
 
 	if userMsgID != 0 {
 		del := tgbotapi.NewDeleteMessage(chatID, userMsgID)
 		h.api.Request(del)
 	}
 
-	h.refreshList(chatID, userID)
+	text2, markup := buildPriorityMessage(text)
+	msg := h.newMsg(chatID, text2)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = markup
+	h.api.Send(msg)
 }
 
 func (h *Handler) doEdit(chatID int64, userID int64, noteID int64, text string, userMsgID int) {
@@ -788,8 +855,213 @@ func (h *Handler) callbackArchiveNote(chatID, userID, noteID int64) {
 	h.doArchive(chatID, userID, noteID)
 }
 
+func (h *Handler) callbackSetPriority(chatID int64, msgID int, userID int64, priority int) {
+	session := h.states.Get(userID)
+	text := session.PendingNoteText
+	topicID := session.PendingNoteTopicID
+
+	h.states.Reset(userID)
+
+	_, err := h.noteService.AddNote(userID, topicID, text, priority)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	del := tgbotapi.NewDeleteMessage(chatID, msgID)
+	h.api.Request(del)
+
+	h.refreshList(chatID, userID)
+}
+
+func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, noteID int64) {
+	note, err := h.noteService.GetNote(userID, noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	// Циклическое переключение: None→Low→Medium→High→None
+	newPriority := (note.Priority + 1) % 4
+	if err := h.noteService.SetPriority(userID, noteID, newPriority); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	// Обновляем заметку в памяти для перерисовки
+	note.Priority = newPriority
+
+	// Перерисовываем экран просмотра
+	text, markup := buildViewNoteMessage(note)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+
+	// Обновляем список в фоне
+	lastMsgID := h.states.Get(userID).LastListMsgID
+	if lastMsgID != 0 && lastMsgID != msgID {
+		h.showListPage(chatID, lastMsgID, userID, 0)
+	}
+}
+
 func (h *Handler) callbackBackToList(chatID int64, msgID int, userID int64) {
 	h.showListPage(chatID, msgID, userID, 0)
+}
+
+// --- Reminder callbacks ---
+
+func (h *Handler) callbackReminderCalendar(chatID int64, msgID int, params string) {
+	noteID, year, month := parseReminder3(params)
+	if noteID == 0 {
+		return
+	}
+	text, markup := buildCalendar(noteID, year, time.Month(month))
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	h.api.Send(edit)
+}
+
+func (h *Handler) callbackReminderDay(chatID int64, msgID int, params string) {
+	noteID, year, month, day := parseReminder4(params)
+	if noteID == 0 {
+		return
+	}
+	text, markup := buildHourPicker(noteID, year, time.Month(month), day)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	h.api.Send(edit)
+}
+
+func (h *Handler) callbackReminderHour(chatID int64, msgID int, params string) {
+	noteID, year, month, day, hour := parseReminder5(params)
+	if noteID == 0 {
+		return
+	}
+	text, markup := buildMinutePicker(noteID, year, time.Month(month), day, hour)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	h.api.Send(edit)
+}
+
+func (h *Handler) callbackReminderMinute(chatID int64, msgID int, params string) {
+	noteID, year, month, day, hour, minute := parseReminder6(params)
+	if noteID == 0 {
+		return
+	}
+
+	// Определяем userID через noteID
+	userID, err := h.getNoteOwner(noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, "❌ Заметка не найдена")
+		return
+	}
+
+	at := time.Date(year, time.Month(month), day, hour, minute, 0, 0, time.Local)
+	if err := h.noteService.SetReminder(userID, noteID, at); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	// Перерисовываем просмотр заметки
+	note, _ := h.noteService.GetNote(userID, noteID)
+	text, markup := buildViewNoteMessage(note)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+
+	// Обновляем список
+	lastMsgID := h.states.Get(userID).LastListMsgID
+	if lastMsgID != 0 && lastMsgID != msgID {
+		h.showListPage(chatID, lastMsgID, userID, 0)
+	}
+}
+
+func (h *Handler) callbackReminderMenu(chatID int64, msgID int, userID int64, noteID int64) {
+	note, err := h.noteService.GetNote(userID, noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	text, markup := buildReminderMenu(note)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	h.api.Send(edit)
+}
+
+func (h *Handler) callbackClearReminder(chatID int64, msgID int, userID int64, noteID int64) {
+	if err := h.noteService.ClearReminder(userID, noteID); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	note, _ := h.noteService.GetNote(userID, noteID)
+	text, markup := buildViewNoteMessage(note)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+
+	lastMsgID := h.states.Get(userID).LastListMsgID
+	if lastMsgID != 0 && lastMsgID != msgID {
+		h.showListPage(chatID, lastMsgID, userID, 0)
+	}
+}
+
+// --- Reminder params parsing helpers ---
+
+func parseReminder3(params string) (noteID int64, a, b int) {
+	parts := strings.Split(params, ":")
+	if len(parts) != 3 {
+		return 0, 0, 0
+	}
+	noteID, _ = strconv.ParseInt(parts[0], 10, 64)
+	a, _ = strconv.Atoi(parts[1])
+	b, _ = strconv.Atoi(parts[2])
+	return
+}
+
+func parseReminder4(params string) (noteID int64, a, b, c int) {
+	parts := strings.Split(params, ":")
+	if len(parts) != 4 {
+		return 0, 0, 0, 0
+	}
+	noteID, _ = strconv.ParseInt(parts[0], 10, 64)
+	a, _ = strconv.Atoi(parts[1])
+	b, _ = strconv.Atoi(parts[2])
+	c, _ = strconv.Atoi(parts[3])
+	return
+}
+
+func parseReminder5(params string) (noteID int64, a, b, c, d int) {
+	parts := strings.Split(params, ":")
+	if len(parts) != 5 {
+		return 0, 0, 0, 0, 0
+	}
+	noteID, _ = strconv.ParseInt(parts[0], 10, 64)
+	a, _ = strconv.Atoi(parts[1])
+	b, _ = strconv.Atoi(parts[2])
+	c, _ = strconv.Atoi(parts[3])
+	d, _ = strconv.Atoi(parts[4])
+	return
+}
+
+func parseReminder6(params string) (noteID int64, a, b, c, d, e int) {
+	parts := strings.Split(params, ":")
+	if len(parts) != 6 {
+		return 0, 0, 0, 0, 0, 0
+	}
+	noteID, _ = strconv.ParseInt(parts[0], 10, 64)
+	a, _ = strconv.Atoi(parts[1])
+	b, _ = strconv.Atoi(parts[2])
+	c, _ = strconv.Atoi(parts[3])
+	d, _ = strconv.Atoi(parts[4])
+	e, _ = strconv.Atoi(parts[5])
+	return
+}
+
+// getNoteOwner возвращает userID владельца заметки.
+func (h *Handler) getNoteOwner(noteID int64) (int64, error) {
+	note, err := h.noteService.GetNoteByID(noteID)
+	if err != nil {
+		return 0, err
+	}
+	return note.UserID, nil
 }
 
 func (h *Handler) showArchived(chatID int64, msgID int, userID int64) {

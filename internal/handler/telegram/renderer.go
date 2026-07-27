@@ -93,6 +93,9 @@ func buildListMessage(notes []model.Note, header string, topicID int64, page, to
 		if label == "" {
 			label = "..."
 		}
+		if emoji := n.PriorityEmoji(); emoji != "" {
+			label = emoji + " " + label
+		}
 		btn := tgbotapi.NewInlineKeyboardButtonData(
 			label,
 			fmt.Sprintf("view:%d", n.ID),
@@ -149,19 +152,63 @@ func buildArchivedMessage(notes []model.Note) (string, tgbotapi.InlineKeyboardMa
 
 // buildViewNoteMessage строит текст и разметку для просмотра заметки.
 func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarkup) {
-	text := fmt.Sprintf("📝 *#%d*\n%s", note.ID, note.Text)
+	prefix := ""
+	if emoji := note.PriorityEmoji(); emoji != "" {
+		prefix = emoji + " "
+	}
+
+	reminderLine := ""
+	if note.ReminderAt != nil {
+		reminderLine = fmt.Sprintf("\n⏰ %s", note.ReminderAt.Format("02.01.2006 15:04"))
+	}
+
+	text := fmt.Sprintf("%s*#%d*\n%s%s", prefix, note.ID, note.Text, reminderLine)
 	query := fmt.Sprintf("\n\n%s", note.Text)
 
 	editBtn := tgbotapi.InlineKeyboardButton{
-		Text:                         "✏️ Изменить",
+		Text:                         "✏️",
 		SwitchInlineQueryCurrentChat: &query,
 	}
-	delBtn := tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("askdel:%d", note.ID))
-	archBtn := tgbotapi.NewInlineKeyboardButtonData("📦 Архив", fmt.Sprintf("archnote:%d", note.ID))
+	delBtn := tgbotapi.NewInlineKeyboardButtonData("🗑", fmt.Sprintf("askdel:%d", note.ID))
+	archBtn := tgbotapi.NewInlineKeyboardButtonData("📦", fmt.Sprintf("archnote:%d", note.ID))
+	prioBtn := tgbotapi.NewInlineKeyboardButtonData(
+		prioBtnLabel(note.Priority, note.PriorityEmoji()),
+		fmt.Sprintf("chprio:%d", note.ID),
+	)
+
+	// ⏰ — единая точка входа: если таймер есть → меню, иначе сразу календарь
+	remCallback := fmt.Sprintf("remcal:%d:%d:%d", note.ID, now().Year(), now().Month())
+	if note.ReminderAt != nil {
+		remCallback = fmt.Sprintf("remmenu:%d", note.ID)
+	}
+	remBtn := tgbotapi.NewInlineKeyboardButtonData("⏰", remCallback)
+
 	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist")
 
 	return text, tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn, archBtn),
+		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn, archBtn, prioBtn, remBtn),
+		tgbotapi.NewInlineKeyboardRow(backBtn),
+	)
+}
+
+// buildReminderMenu строит меню управления напоминанием.
+func buildReminderMenu(note model.Note) (string, tgbotapi.InlineKeyboardMarkup) {
+	reminderLine := ""
+	if note.ReminderAt != nil {
+		reminderLine = fmt.Sprintf("\n⏰ %s", note.ReminderAt.Format("02.01.2006 15:04"))
+	}
+
+	text := fmt.Sprintf("⏰ Напоминание (местное)%s", reminderLine)
+
+	editBtn := tgbotapi.NewInlineKeyboardButtonData(
+		"✏️ Изменить",
+		fmt.Sprintf("remcal:%d:%d:%d", note.ID, now().Year(), now().Month()),
+	)
+	delBtn := tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("remclear:%d", note.ID))
+	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("view:%d", note.ID))
+
+	return text, tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)
 }
@@ -190,3 +237,141 @@ func buildHelpMessage() (string, tgbotapi.InlineKeyboardMarkup) {
 
 // now возвращает текущее время (для подстановки в тестах).
 var now = time.Now
+
+// buildPriorityMessage строит сообщение выбора приоритета.
+func buildPriorityMessage(pendingText string) (string, tgbotapi.InlineKeyboardMarkup) {
+	text := fmt.Sprintf("📝 Приоритет:\n\n_%s_", formatPreview(pendingText, 100, 3))
+	markup := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔥 Высокий", "prio:3"),
+			tgbotapi.NewInlineKeyboardButtonData("⚡ Средний", "prio:2"),
+			tgbotapi.NewInlineKeyboardButtonData("🌿 Низкий", "prio:1"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("— Без приоритета", "prio:0"),
+		),
+	)
+	return text, markup
+}
+
+// prioBtnLabel возвращает текст кнопки переключения приоритета.
+func prioBtnLabel(priority int, emoji string) string {
+	if priority == model.PriorityNone {
+		return "🔄 —"
+	}
+	return "🔄" + emoji
+}
+
+// --- Календарь для напоминаний ---
+
+var monthNames = []string{
+	"Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+	"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+}
+
+var dayNames = []string{"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"}
+
+// buildCalendar строит календарь на указанный месяц.
+func buildCalendar(noteID int64, year int, month time.Month) (string, tgbotapi.InlineKeyboardMarkup) {
+	t := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
+	header := fmt.Sprintf("📅 %s %d", monthNames[t.Month()-1], t.Year())
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	// Навигация по месяцам
+	prevMonth := t.AddDate(0, -1, 0)
+	nextMonth := t.AddDate(0, 1, 0)
+	nav := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("◀️", fmt.Sprintf("remcal:%d:%d:%d", noteID, prevMonth.Year(), prevMonth.Month())),
+		tgbotapi.NewInlineKeyboardButtonData(header, "none"),
+		tgbotapi.NewInlineKeyboardButtonData("▶️", fmt.Sprintf("remcal:%d:%d:%d", noteID, nextMonth.Year(), nextMonth.Month())),
+	)
+	rows = append(rows, nav)
+
+	// Дни недели
+	var dayRow []tgbotapi.InlineKeyboardButton
+	for _, d := range dayNames {
+		dayRow = append(dayRow, tgbotapi.NewInlineKeyboardButtonData(d, "none"))
+	}
+	rows = append(rows, dayRow)
+
+	// Дни месяца
+	firstDay := int(t.Weekday())
+	if firstDay == 0 {
+		firstDay = 7 // Воскресенье → 7 (пн-вс)
+	}
+	daysInMonth := time.Date(year, month+1, 0, 0, 0, 0, 0, time.Local).Day()
+
+	day := 1
+	for week := 0; week < 6 && day <= daysInMonth; week++ {
+		var row []tgbotapi.InlineKeyboardButton
+		for col := 1; col <= 7; col++ {
+			if (week == 0 && col < firstDay) || day > daysInMonth {
+				row = append(row, tgbotapi.NewInlineKeyboardButtonData(" ", "none"))
+			} else {
+				row = append(row, tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("%d", day),
+					fmt.Sprintf("remday:%d:%d:%d:%d", noteID, year, month, day),
+				))
+				day++
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	// Кнопки быстрого выбора
+	today := now()
+	tomorrow := today.AddDate(0, 0, 1)
+	quick := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("Сегодня", fmt.Sprintf("remday:%d:%d:%d:%d", noteID, today.Year(), today.Month(), today.Day())),
+		tgbotapi.NewInlineKeyboardButtonData("Завтра", fmt.Sprintf("remday:%d:%d:%d:%d", noteID, tomorrow.Year(), tomorrow.Month(), tomorrow.Day())),
+	)
+	rows = append(rows, quick)
+
+	back := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("view:%d", noteID)),
+	)
+	rows = append(rows, back)
+
+	return "📅 Выбери дату (местное):", tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// buildHourPicker строит выбор часа.
+func buildHourPicker(noteID int64, year int, month time.Month, day int) (string, tgbotapi.InlineKeyboardMarkup) {
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	for start := 0; start < 24; start += 6 {
+		var row []tgbotapi.InlineKeyboardButton
+		for h := start; h < start+6 && h < 24; h++ {
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData(
+				fmt.Sprintf("%02d:00", h),
+				fmt.Sprintf("remhour:%d:%d:%d:%d:%d", noteID, year, month, day, h),
+			))
+		}
+		rows = append(rows, row)
+	}
+
+	back := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("remcal:%d:%d:%d", noteID, year, month)),
+	)
+	rows = append(rows, back)
+
+	return fmt.Sprintf("⏰ Выбери час (%02d.%02d):", day, month), tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// buildMinutePicker строит выбор минут.
+func buildMinutePicker(noteID int64, year int, month time.Month, day, hour int) (string, tgbotapi.InlineKeyboardMarkup) {
+	minutes := []int{0, 15, 30, 45}
+	var row []tgbotapi.InlineKeyboardButton
+	for _, m := range minutes {
+		row = append(row, tgbotapi.NewInlineKeyboardButtonData(
+			fmt.Sprintf(":%02d", m),
+			fmt.Sprintf("remmin:%d:%d:%d:%d:%d:%d", noteID, year, month, day, hour, m),
+		))
+	}
+
+	back := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("remhour:%d:%d:%d:%d:%d", noteID, year, month, day, hour)),
+	)
+	return fmt.Sprintf("⏰ Выбери минуты (%02d.%02d %02d:00):", day, month, hour), tgbotapi.NewInlineKeyboardMarkup(row, back)
+}

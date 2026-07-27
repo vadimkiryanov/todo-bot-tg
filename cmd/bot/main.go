@@ -45,6 +45,7 @@ func main() {
 	}
 
 	log.Println("Бот запущен...")
+	h.StartReminderWorker()
 	if err := h.Run(); err != nil {
 		log.Fatalf("Ошибка работы бота: %v", err)
 	}

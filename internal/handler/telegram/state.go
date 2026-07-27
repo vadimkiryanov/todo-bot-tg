@@ -6,6 +6,7 @@ type State int
 const (
 	StateIdle State = iota
 	StateWaitingAddText
+	StateWaitingPriority // выбор приоритета (текст уже получен)
 	StateWaitingDeleteID
 	StateWaitingEditArgs
 	StateWaitingEditText // только текст (ID уже известен)
@@ -16,11 +17,13 @@ const (
 
 // UserSession хранит состояние и контекст пользователя.
 type UserSession struct {
-	State            State
-	CurrentTopicID   int64 // 0 — без топика
-	EditNoteID       int64 // ID заметки для редактирования в StateWaitingEditText
-	LastViewedNoteID int64 // ID последней просмотренной заметки (для SwitchInlineQuery)
-	LastListMsgID    int   // ID последнего сообщения со списком
+	State              State
+	CurrentTopicID     int64  // 0 — без топика
+	EditNoteID         int64  // ID заметки для редактирования в StateWaitingEditText
+	LastViewedNoteID   int64  // ID последней просмотренной заметки (для SwitchInlineQuery)
+	LastListMsgID      int    // ID последнего сообщения со списком
+	PendingNoteText    string // текст заметки, ожидающий выбора приоритета
+	PendingNoteTopicID int64  // топик для заметки, ожидающей приоритет
 }
 
 // StateManager управляет состояниями пользователей.
@@ -53,4 +56,5 @@ func (sm *StateManager) Reset(userID int64) {
 	s := sm.Get(userID)
 	s.State = StateIdle
 	s.EditNoteID = 0
+	s.PendingNoteText = ""
 }

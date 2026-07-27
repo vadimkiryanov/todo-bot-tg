@@ -3,6 +3,7 @@ services:
     build: .
     restart: unless-stopped
     environment:
+      - TZ=Europe/Moscow
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL не задан}
     depends_on:
@@ -13,9 +14,10 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: todobot
-      POSTGRES_PASSWORD: todobot
-      POSTGRES_DB: todobot
+      - TZ=Europe/Moscow
+      - POSTGRES_USER=todobot
+      - POSTGRES_PASSWORD=todobot
+      - POSTGRES_DB=todobot
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

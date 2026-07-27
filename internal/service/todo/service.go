@@ -2,6 +2,7 @@ package todo
 
 import (
 	"sync"
+	"time"
 
 	"todo-bot-tg/internal/model"
 )
@@ -11,12 +12,14 @@ type NoteRepository interface {
 	CreateNote(note model.Note) (model.Note, error)
 	ListNotes(userID, topicID int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
+	GetNoteByID(noteID int64) (model.Note, error)
 	UpdateNote(note model.Note) error
 	DeleteNote(userID, noteID int64) error
 	CountNotes(userID, topicID int64) (int, error)
 	ListArchived(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
 	HasAnyData(userID int64) bool
+	GetPendingReminders() ([]model.Note, error)
 }
 
 // TopicRepository — интерфейс хранилища топиков (определён потребителем — сервисом).
@@ -76,8 +79,8 @@ func (s *Service) DeleteTopic(userID, topicID int64) error {
 
 // --- Notes ---
 
-// AddNote добавляет новую заметку.
-func (s *Service) AddNote(userID, topicID int64, text string) (model.Note, error) {
+// AddNote добавляет новую заметку с указанным приоритетом.
+func (s *Service) AddNote(userID, topicID int64, text string, priority int) (model.Note, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -86,6 +89,7 @@ func (s *Service) AddNote(userID, topicID int64, text string) (model.Note, error
 		return model.Note{}, err
 	}
 
+	note.Priority = priority
 	return s.noteRepo.CreateNote(*note)
 }
 
@@ -149,6 +153,71 @@ func (s *Service) UnarchiveNote(userID, noteID int64) error {
 
 	note.Unarchive()
 	return s.noteRepo.UpdateNote(note)
+}
+
+// SetPriority меняет приоритет заметки.
+func (s *Service) SetPriority(userID, noteID int64, priority int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+
+	note.Priority = priority
+	return s.noteRepo.UpdateNote(note)
+}
+
+// SetReminder устанавливает напоминание на заметку.
+func (s *Service) SetReminder(userID, noteID int64, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+
+	note.ReminderAt = &at
+	return s.noteRepo.UpdateNote(note)
+}
+
+// ClearReminder убирает напоминание с заметки.
+func (s *Service) ClearReminder(userID, noteID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+
+	note.ReminderAt = nil
+	return s.noteRepo.UpdateNote(note)
+}
+
+// GetNoteByID возвращает заметку по ID (без проверки userID).
+func (s *Service) GetNoteByID(noteID int64) (model.Note, error) {
+	return s.noteRepo.GetNoteByID(noteID)
+}
+
+// ProcessPendingReminders возвращает заметки с просроченными напоминаниями и сбрасывает их.
+func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	notes, err := s.noteRepo.GetPendingReminders()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range notes {
+		notes[i].ReminderAt = nil
+		_ = s.noteRepo.UpdateNote(notes[i])
+	}
+
+	return notes, nil
 }
 
 // CountNotes возвращает количество активных заметок.
