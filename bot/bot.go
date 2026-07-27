@@ -426,7 +426,13 @@ func (b *Bot) showListPage(chatID int64, msgID int, userID int64, page int) {
 		return
 	}
 
-	header := "..."
+	header := fmt.Sprintf("📝 Все · %d", len(notes))
+	if topicID != 0 {
+		t, err := b.store.GetTopic(userID, topicID)
+		if err == nil {
+			header = fmt.Sprintf("%s · %d", t.Name, len(notes))
+		}
+	}
 
 	totalPages := (len(notes) + perPage - 1) / perPage
 	if totalPages == 0 {
@@ -440,26 +446,14 @@ func (b *Bot) showListPage(chatID int64, msgID int, userID int64, page int) {
 	}
 
 	if len(notes) == 0 {
-		topicLabel := "📂 Все топики"
-		if topicID != 0 {
-			t, err := b.store.GetTopic(userID, topicID)
-			if err == nil {
-				topicLabel = fmt.Sprintf("📌 %s", t.Name)
-			}
-		}
-		topicBtn := tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(topicLabel, "topics:0"),
-		)
-		markup := tgbotapi.NewInlineKeyboardMarkup(topicBtn)
 		if msgID == 0 {
-			msg := b.newMsg(chatID, "📭 Пусто")
-			msg.ReplyMarkup = markup
+			msg := b.newMsg(chatID, header+"\n\n📭 Пусто")
 			sent, err := b.api.Send(msg)
 			if err == nil {
 				b.states.Get(userID).LastListMsgID = sent.MessageID
 			}
 		} else {
-			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, "📭 Пусто", markup)
+			edit := tgbotapi.NewEditMessageText(chatID, msgID, header+"\n\n📭 Пусто")
 			b.api.Send(edit)
 		}
 		return
@@ -490,21 +484,6 @@ func (b *Bot) showListPage(chatID int64, msgID int, userID int64, page int) {
 // buildListMessage строит текст и разметку для списка заметок.
 func (b *Bot) buildListMessage(notes []store.Note, header string, userID int64, topicID int64, page, totalPages int, totalCount int) (string, tgbotapi.InlineKeyboardMarkup) {
 	var btnRows [][]tgbotapi.InlineKeyboardButton
-
-	// Статус топика — первый ряд, сверху
-	var topicLabel string
-	if topicID == 0 {
-		topicLabel = fmt.Sprintf("📂 Все топики (%d)", totalCount)
-	} else {
-		t, err := b.store.GetTopic(userID, topicID)
-		if err == nil {
-			topicLabel = fmt.Sprintf("📌 %s (%d)", t.Name, totalCount)
-		} else {
-			topicLabel = fmt.Sprintf("📂 Топик (%d)", totalCount)
-		}
-	}
-	topicBtn := tgbotapi.NewInlineKeyboardButtonData(topicLabel, "topics:0")
-	btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(topicBtn))
 
 	for _, n := range notes {
 		label := formatPreview(n.Text, 50, 1)
