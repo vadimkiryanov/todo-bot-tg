@@ -7,10 +7,10 @@ DB_PORT ?= 5432
 DATABASE_URL ?= [MASKED]
 
 build:
-	go build -o bin/todobot .
+	go build -o bin/todobot ./cmd/bot/
 
 run:
-	go run .
+	go run ./cmd/bot/
 
 # --- PostgreSQL ---
 

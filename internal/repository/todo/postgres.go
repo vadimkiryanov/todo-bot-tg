@@ -1,10 +1,14 @@
-package store
+package todo
 
 import (
 	"database/sql"
 	"fmt"
 
 	_ "github.com/lib/pq"
+
+	"todo-bot-tg/internal/errors"
+	"todo-bot-tg/internal/model"
+	"todo-bot-tg/internal/repository/todo/entity"
 )
 
 const schema = `
@@ -27,7 +31,7 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_user_topic ON notes(user_id, topic_id);
 `
 
-// PostgresStore — реализация Store на PostgreSQL.
+// PostgresStore — реализация репозитория на PostgreSQL.
 type PostgresStore struct {
 	db *sql.DB
 }
@@ -59,8 +63,8 @@ func (s *PostgresStore) Close() error {
 
 // --- Topics ---
 
-func (s *PostgresStore) CreateTopic(userID int64, name string) (*Topic, error) {
-	var t Topic
+func (s *PostgresStore) CreateTopic(userID int64, name string) (model.Topic, error) {
+	var t entity.TopicRecord
 	err := s.db.QueryRow(
 		`INSERT INTO topics (user_id, name) VALUES ($1, $2)
 		 ON CONFLICT (user_id, name) DO NOTHING
@@ -68,15 +72,15 @@ func (s *PostgresStore) CreateTopic(userID int64, name string) (*Topic, error) {
 		userID, name,
 	).Scan(&t.ID, &t.UserID, &t.Name)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("топик «%s» уже существует", name)
+		return model.Topic{}, errors.ErrTopicAlreadyExists
 	}
 	if err != nil {
-		return nil, fmt.Errorf("создание топика: %w", err)
+		return model.Topic{}, fmt.Errorf("создание топика: %w", err)
 	}
-	return &t, nil
+	return entity.TopicFromRecord(t), nil
 }
 
-func (s *PostgresStore) ListTopics(userID int64) ([]Topic, error) {
+func (s *PostgresStore) ListTopics(userID int64) ([]model.Topic, error) {
 	rows, err := s.db.Query(
 		`SELECT id, user_id, name FROM topics WHERE user_id = $1 ORDER BY id`, userID,
 	)
@@ -85,47 +89,45 @@ func (s *PostgresStore) ListTopics(userID int64) ([]Topic, error) {
 	}
 	defer rows.Close()
 
-	var result []Topic
+	var result []model.Topic
 	for rows.Next() {
-		var t Topic
+		var t entity.TopicRecord
 		if err := rows.Scan(&t.ID, &t.UserID, &t.Name); err != nil {
 			return nil, fmt.Errorf("чтение топика: %w", err)
 		}
-		result = append(result, t)
+		result = append(result, entity.TopicFromRecord(t))
 	}
 	return result, rows.Err()
 }
 
-func (s *PostgresStore) GetTopic(userID int64, topicID int64) (*Topic, error) {
-	var t Topic
+func (s *PostgresStore) GetTopic(userID, topicID int64) (model.Topic, error) {
+	var t entity.TopicRecord
 	err := s.db.QueryRow(
 		`SELECT id, user_id, name FROM topics WHERE id = $1 AND user_id = $2`,
 		topicID, userID,
 	).Scan(&t.ID, &t.UserID, &t.Name)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("топик #%d не найден", topicID)
+		return model.Topic{}, errors.ErrTopicNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("поиск топика: %w", err)
+		return model.Topic{}, fmt.Errorf("поиск топика: %w", err)
 	}
-	return &t, nil
+	return entity.TopicFromRecord(t), nil
 }
 
-func (s *PostgresStore) DeleteTopic(userID int64, topicID int64) error {
+func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("начало транзакции: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Удаляем заметки в топике
 	if _, err := tx.Exec(
 		`DELETE FROM notes WHERE user_id = $1 AND topic_id = $2`, userID, topicID,
 	); err != nil {
 		return fmt.Errorf("удаление заметок топика: %w", err)
 	}
 
-	// Удаляем сам топик
 	res, err := tx.Exec(
 		`DELETE FROM topics WHERE id = $1 AND user_id = $2`, topicID, userID,
 	)
@@ -134,7 +136,7 @@ func (s *PostgresStore) DeleteTopic(userID int64, topicID int64) error {
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		return fmt.Errorf("топик #%d не найден", topicID)
+		return errors.ErrTopicNotFound
 	}
 
 	return tx.Commit()
@@ -142,20 +144,20 @@ func (s *PostgresStore) DeleteTopic(userID int64, topicID int64) error {
 
 // --- Notes ---
 
-func (s *PostgresStore) Add(userID int64, topicID int64, text string) (*Note, error) {
-	var note Note
+func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
+	rec := entity.NoteToRecord(note)
 	err := s.db.QueryRow(
-		`INSERT INTO notes (user_id, topic_id, text) VALUES ($1, $2, $3)
+		`INSERT INTO notes (user_id, topic_id, text, created_at) VALUES ($1, $2, $3, $4)
 		 RETURNING id, user_id, topic_id, text, created_at, archived`,
-		userID, topicID, text,
-	).Scan(&note.ID, &note.UserID, &note.TopicID, &note.Text, &note.CreatedAt, &note.Archived)
+		rec.UserID, rec.TopicID, rec.Text, rec.CreatedAt,
+	).Scan(&rec.ID, &rec.UserID, &rec.TopicID, &rec.Text, &rec.CreatedAt, &rec.Archived)
 	if err != nil {
-		return nil, fmt.Errorf("добавление заметки: %w", err)
+		return model.Note{}, fmt.Errorf("добавление заметки: %w", err)
 	}
-	return &note, nil
+	return entity.NoteFromRecord(rec), nil
 }
 
-func (s *PostgresStore) List(userID int64, topicID int64) ([]Note, error) {
+func (s *PostgresStore) ListNotes(userID, topicID int64) ([]model.Note, error) {
 	var rows *sql.Rows
 	var err error
 
@@ -177,49 +179,50 @@ func (s *PostgresStore) List(userID int64, topicID int64) ([]Note, error) {
 	}
 	defer rows.Close()
 
-	var result []Note
+	var result []model.Note
 	for rows.Next() {
-		var n Note
+		var n entity.NoteRecord
 		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.CreatedAt, &n.Archived); err != nil {
 			return nil, fmt.Errorf("чтение заметки: %w", err)
 		}
-		result = append(result, n)
+		result = append(result, entity.NoteFromRecord(n))
 	}
 	return result, rows.Err()
 }
 
-func (s *PostgresStore) Get(userID int64, noteID int64) (*Note, error) {
-	var n Note
+func (s *PostgresStore) GetNote(userID, noteID int64) (model.Note, error) {
+	var n entity.NoteRecord
 	err := s.db.QueryRow(
 		`SELECT id, user_id, topic_id, text, created_at, archived
 		 FROM notes WHERE id = $1 AND user_id = $2`,
 		noteID, userID,
 	).Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.CreatedAt, &n.Archived)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("заметка #%d не найдена", noteID)
+		return model.Note{}, errors.ErrNoteNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("поиск заметки: %w", err)
+		return model.Note{}, fmt.Errorf("поиск заметки: %w", err)
 	}
-	return &n, nil
+	return entity.NoteFromRecord(n), nil
 }
 
-func (s *PostgresStore) Edit(userID int64, noteID int64, text string) error {
+func (s *PostgresStore) UpdateNote(note model.Note) error {
+	rec := entity.NoteToRecord(note)
 	res, err := s.db.Exec(
-		`UPDATE notes SET text = $1 WHERE id = $2 AND user_id = $3`,
-		text, noteID, userID,
+		`UPDATE notes SET text = $1, archived = $2 WHERE id = $3 AND user_id = $4`,
+		rec.Text, rec.Archived, rec.ID, rec.UserID,
 	)
 	if err != nil {
 		return fmt.Errorf("обновление заметки: %w", err)
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		return fmt.Errorf("заметка #%d не найдена", noteID)
+		return errors.ErrNoteNotFound
 	}
 	return nil
 }
 
-func (s *PostgresStore) Delete(userID int64, noteID int64) error {
+func (s *PostgresStore) DeleteNote(userID, noteID int64) error {
 	res, err := s.db.Exec(
 		`DELETE FROM notes WHERE id = $1 AND user_id = $2`,
 		noteID, userID,
@@ -229,27 +232,12 @@ func (s *PostgresStore) Delete(userID int64, noteID int64) error {
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		return fmt.Errorf("заметка #%d не найдена", noteID)
+		return errors.ErrNoteNotFound
 	}
 	return nil
 }
 
-func (s *PostgresStore) Archive(userID int64, noteID int64) error {
-	res, err := s.db.Exec(
-		`UPDATE notes SET archived = TRUE WHERE id = $1 AND user_id = $2`,
-		noteID, userID,
-	)
-	if err != nil {
-		return fmt.Errorf("архивация заметки: %w", err)
-	}
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		return fmt.Errorf("заметка #%d не найдена", noteID)
-	}
-	return nil
-}
-
-func (s *PostgresStore) CountNotes(userID int64, topicID int64) (int, error) {
+func (s *PostgresStore) CountNotes(userID, topicID int64) (int, error) {
 	var count int
 	var err error
 
@@ -270,22 +258,7 @@ func (s *PostgresStore) CountNotes(userID int64, topicID int64) (int, error) {
 	return count, nil
 }
 
-func (s *PostgresStore) Unarchive(userID int64, noteID int64) error {
-	res, err := s.db.Exec(
-		`UPDATE notes SET archived = FALSE WHERE id = $1 AND user_id = $2`,
-		noteID, userID,
-	)
-	if err != nil {
-		return fmt.Errorf("разархивация: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("заметка #%d не найдена", noteID)
-	}
-	return nil
-}
-
-func (s *PostgresStore) ListArchived(userID int64) ([]Note, error) {
+func (s *PostgresStore) ListArchived(userID int64) ([]model.Note, error) {
 	rows, err := s.db.Query(
 		`SELECT id, user_id, topic_id, text, created_at, archived
 		 FROM notes WHERE user_id = $1 AND archived = TRUE
@@ -297,13 +270,13 @@ func (s *PostgresStore) ListArchived(userID int64) ([]Note, error) {
 	}
 	defer rows.Close()
 
-	var result []Note
+	var result []model.Note
 	for rows.Next() {
-		var n Note
+		var n entity.NoteRecord
 		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.Text, &n.CreatedAt, &n.Archived); err != nil {
 			return nil, fmt.Errorf("чтение заметки: %w", err)
 		}
-		result = append(result, n)
+		result = append(result, entity.NoteFromRecord(n))
 	}
 	return result, rows.Err()
 }
@@ -320,5 +293,11 @@ func (s *PostgresStore) CountArchived(userID int64) (int, error) {
 	return count, nil
 }
 
-// compile-time check: PostgresStore implements Store
-var _ Store = (*PostgresStore)(nil)
+// HasAnyData возвращает true, если у пользователя уже есть данные.
+func (s *PostgresStore) HasAnyData(userID int64) bool {
+	var count int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM notes WHERE user_id = $1`, userID,
+	).Scan(&count)
+	return count > 0
+}

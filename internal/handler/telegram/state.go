@@ -1,4 +1,4 @@
-package bot
+package telegram
 
 // State — состояние диалога с пользователем.
 type State int
