@@ -238,15 +238,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 // ============================================================
 
 func (b *Bot) cmdStart(msg *tgbotapi.Message) {
-	userID := msg.From.ID
 	b.deleteUserMsg(msg)
-	b.ensureKeyboard(msg.Chat.ID)
-	b.showList(msg.Chat.ID, userID)
-}
 
-func (b *Bot) ensureKeyboard(chatID int64) {
-	kbd := tgbotapi.NewMessage(chatID, "📝 Быстрые действия")
-	kbd.ReplyMarkup = b.replyKeyboard()
+	kbd := b.newMsg(msg.Chat.ID, "👋 Выбери действие:")
 	b.api.Send(kbd)
 }
 
@@ -255,13 +249,11 @@ func (b *Bot) cmdHelp(msg *tgbotapi.Message) {
 
 	listBtn := tgbotapi.NewInlineKeyboardButtonData("📝 Список", "backtolist")
 	topicsBtn := tgbotapi.NewInlineKeyboardButtonData("📂 Топики", "topics:0")
-	archivedBtn := tgbotapi.NewInlineKeyboardButtonData("📦 Архив", "archived:0")
 
 	text := "📋 *Справка*\n\nВыберите действие или используйте команды:"
 	markup := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(listBtn),
 		tgbotapi.NewInlineKeyboardRow(topicsBtn),
-		tgbotapi.NewInlineKeyboardRow(archivedBtn),
 	)
 	msg2 := b.newMsg(msg.Chat.ID, text)
 	msg2.ParseMode = tgbotapi.ModeMarkdown
@@ -419,13 +411,7 @@ func (b *Bot) showListPage(chatID int64, msgID int, userID int64, page int) {
 		return
 	}
 
-	header := fmt.Sprintf("📝 Все заметки (%d):", len(notes))
-	if topicID != 0 {
-		t, err := b.store.GetTopic(userID, topicID)
-		if err == nil {
-			header = fmt.Sprintf("📝 Заметки в «%s» (%d):", t.Name, len(notes))
-		}
-	}
+	header := "..."
 
 	totalPages := (len(notes) + perPage - 1) / perPage
 	if totalPages == 0 {
@@ -443,7 +429,7 @@ func (b *Bot) showListPage(chatID int64, msgID int, userID int64, page int) {
 		if topicID != 0 {
 			t, err := b.store.GetTopic(userID, topicID)
 			if err == nil {
-				topicLabel = fmt.Sprintf("📂 %s", t.Name)
+				topicLabel = fmt.Sprintf("📌 %s", t.Name)
 			}
 		}
 		topicBtn := tgbotapi.NewInlineKeyboardRow(
@@ -451,14 +437,14 @@ func (b *Bot) showListPage(chatID int64, msgID int, userID int64, page int) {
 		)
 		markup := tgbotapi.NewInlineKeyboardMarkup(topicBtn)
 		if msgID == 0 {
-			msg := tgbotapi.NewMessage(chatID, header+"\n\n📭 Пусто.")
+			msg := b.newMsg(chatID, "📭 Пусто")
 			msg.ReplyMarkup = markup
 			sent, err := b.api.Send(msg)
 			if err == nil {
 				b.states.Get(userID).LastListMsgID = sent.MessageID
 			}
 		} else {
-			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, header+"\n\n📭 Пусто.", markup)
+			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, "📭 Пусто", markup)
 			b.api.Send(edit)
 		}
 		return
@@ -471,7 +457,7 @@ func (b *Bot) showListPage(chatID int64, msgID int, userID int64, page int) {
 	}
 	pageNotes := notes[start:end]
 
-	text, markup := b.buildListMessage(pageNotes, header, userID, topicID, page, totalPages)
+	text, markup := b.buildListMessage(pageNotes, header, userID, topicID, page, totalPages, len(notes))
 
 	if msgID == 0 {
 		msg2 := tgbotapi.NewMessage(chatID, text)
@@ -487,8 +473,23 @@ func (b *Bot) showListPage(chatID int64, msgID int, userID int64, page int) {
 }
 
 // buildListMessage строит текст и разметку для списка заметок.
-func (b *Bot) buildListMessage(notes []store.Note, header string, userID int64, topicID int64, page, totalPages int) (string, tgbotapi.InlineKeyboardMarkup) {
+func (b *Bot) buildListMessage(notes []store.Note, header string, userID int64, topicID int64, page, totalPages int, totalCount int) (string, tgbotapi.InlineKeyboardMarkup) {
 	var btnRows [][]tgbotapi.InlineKeyboardButton
+
+	// Статус топика — первый ряд, сверху
+	var topicLabel string
+	if topicID == 0 {
+		topicLabel = fmt.Sprintf("📂 Все топики (%d)", totalCount)
+	} else {
+		t, err := b.store.GetTopic(userID, topicID)
+		if err == nil {
+			topicLabel = fmt.Sprintf("📌 %s (%d)", t.Name, totalCount)
+		} else {
+			topicLabel = fmt.Sprintf("📂 Топик (%d)", totalCount)
+		}
+	}
+	topicBtn := tgbotapi.NewInlineKeyboardButtonData(topicLabel, "topics:0")
+	btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(topicBtn))
 
 	for _, n := range notes {
 		label := formatPreview(n.Text, 50, 1)
@@ -500,31 +501,6 @@ func (b *Bot) buildListMessage(notes []store.Note, header string, userID int64, 
 			fmt.Sprintf("view:%d", n.ID),
 		)
 		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(btn))
-	}
-
-	// Кнопка топика — переключает или показывает статус
-	var topicLabel string
-	if topicID == 0 {
-		topicLabel = "📂 Все топики"
-	} else {
-		t, err := b.store.GetTopic(userID, topicID)
-		if err == nil {
-			topicLabel = fmt.Sprintf("📂 %s", t.Name)
-		} else {
-			topicLabel = "📂 Топик"
-		}
-	}
-	topicBtn := tgbotapi.NewInlineKeyboardButtonData(topicLabel, "topics:0")
-	btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(topicBtn))
-
-	// Кнопка архива
-	archivedCount, err := b.store.CountArchived(userID)
-	if err == nil && archivedCount > 0 {
-		archBtn := tgbotapi.NewInlineKeyboardButtonData(
-			fmt.Sprintf("📦 Архив (%d)", archivedCount),
-			"archived:0",
-		)
-		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(archBtn))
 	}
 
 	// Пагинация
@@ -867,38 +843,12 @@ func (b *Bot) callbackViewNote(chatID int64, msgID int, userID int64, noteID int
 	}
 	delBtn := tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("askdel:%d", note.ID))
 	archBtn := tgbotapi.NewInlineKeyboardButtonData("📦 Архив", fmt.Sprintf("archnote:%d", note.ID))
+	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist")
 
-	rows := [][]tgbotapi.InlineKeyboardButton{
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn, archBtn),
-	}
-
-	// Навигация ← Пред / След →
-	topicID := b.states.Get(userID).CurrentTopicID
-	notes, _ := b.store.List(userID, topicID)
-	var prevID, nextID int64
-	for i, n := range notes {
-		if n.ID == noteID {
-			if i+1 < len(notes) {
-				prevID = notes[i+1].ID // в обратном порядке (DESC): следующая в списке = "пред" по навигации
-			}
-			if i-1 >= 0 {
-				nextID = notes[i-1].ID
-			}
-			break
-		}
-	}
-
-	var navRow []tgbotapi.InlineKeyboardButton
-	if prevID != 0 {
-		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("← Пред", fmt.Sprintf("view:%d", prevID)))
-	}
-	navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist"))
-	if nextID != 0 {
-		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("След →", fmt.Sprintf("view:%d", nextID)))
-	}
-	rows = append(rows, navRow)
-
-	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, tgbotapi.NewInlineKeyboardMarkup(rows...))
+		tgbotapi.NewInlineKeyboardRow(backBtn),
+	))
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	b.api.Send(edit)
 }
