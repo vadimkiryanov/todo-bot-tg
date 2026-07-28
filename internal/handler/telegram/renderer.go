@@ -88,6 +88,11 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 func buildListMessage(notes []model.Note, header string, topicID int64, page, totalPages int) (string, tgbotapi.InlineKeyboardMarkup) {
 	var btnRows [][]tgbotapi.InlineKeyboardButton
 
+	// Заголовок как кнопка — клик открывает выбор топика
+	btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData(header, "topics:0"),
+	))
+
 	for _, n := range notes {
 		label := formatPreview(n.Text, 50, 1)
 		if label == "" {
@@ -119,7 +124,7 @@ func buildListMessage(notes []model.Note, header string, topicID int64, page, to
 		btnRows = append(btnRows, navRow)
 	}
 
-	return header, tgbotapi.NewInlineKeyboardMarkup(btnRows...)
+	return "📝", tgbotapi.NewInlineKeyboardMarkup(btnRows...)
 }
 
 // buildArchivedMessage строит текст и разметку для архива.
@@ -162,7 +167,7 @@ func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarku
 		reminderLine = fmt.Sprintf("\n⏰ %s", note.ReminderAt.Format("02.01.2006 15:04"))
 	}
 
-	text := fmt.Sprintf("%s*#%d*\n%s%s", prefix, note.ID, note.Text, reminderLine)
+	text := fmt.Sprintf("%s*#%d*\n%s%s", prefix, note.ID, tgbotapi.EscapeText(tgbotapi.ModeMarkdown, note.Text), reminderLine)
 	query := fmt.Sprintf("\n\n%s", note.Text)
 
 	editBtn := tgbotapi.InlineKeyboardButton{

@@ -149,8 +149,7 @@ func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 		h.cmdBackup(msg)
 	case "archived":
 		h.deleteUserMsg(msg)
-		h.deleteLastBotMsg(msg.Chat.ID, userID)
-		h.showArchived(msg.Chat.ID, 0, userID)
+		h.showArchived(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID)
 	default:
 		h.send(msg.Chat.ID, "Неизвестная команда. Введите /help для списка команд.")
 	}
@@ -355,7 +354,10 @@ func (h *Handler) cmdStart(msg *tgbotapi.Message) {
 	}
 
 	kbd := h.newMsg(msg.Chat.ID, "👋 Выбери действие:")
-	h.api.Send(kbd)
+	sent, err := h.api.Send(kbd)
+	if err == nil {
+		h.states.Get(userID).LastListMsgID = sent.MessageID
+	}
 }
 
 func (h *Handler) cmdHelp(msg *tgbotapi.Message) {
@@ -365,15 +367,17 @@ func (h *Handler) cmdHelp(msg *tgbotapi.Message) {
 	msg2 := h.newMsg(msg.Chat.ID, text)
 	msg2.ParseMode = tgbotapi.ModeMarkdown
 	msg2.ReplyMarkup = markup
-	h.api.Send(msg2)
+	sent, err := h.api.Send(msg2)
+	if err == nil {
+		h.states.Get(msg.From.ID).LastListMsgID = sent.MessageID
+	}
 }
 
 // --- Topics ---
 
 func (h *Handler) cmdTopics(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
-	h.deleteLastBotMsg(msg.Chat.ID, userID)
-	h.showTopics(msg.Chat.ID, 0, userID)
+	h.showTopics(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID)
 }
 
 func (h *Handler) cmdTopicsFromList(chatID int64, msgID int, userID int64) {
@@ -390,12 +394,13 @@ func (h *Handler) showTopics(chatID int64, msgID int, userID int64) {
 
 	if len(topics) == 0 {
 		text := "📂 Топиков пока нет. Создайте новый: /newtopic <название>"
-		if msgID == 0 {
-			h.send(chatID, text)
-		} else {
+		if msgID != 0 {
 			edit := tgbotapi.NewEditMessageText(chatID, msgID, text)
-			h.api.Send(edit)
+			if _, err := h.api.Send(edit); err == nil {
+				return
+			}
 		}
+		h.send(chatID, text)
 		return
 	}
 
@@ -407,18 +412,19 @@ func (h *Handler) showTopics(chatID int64, msgID int, userID int64) {
 
 	text, markup := buildTopicsMessage(topics, currentID, userID, counts)
 
-	if msgID == 0 {
-		msg := h.newMsg(chatID, text)
-		msg.ParseMode = tgbotapi.ModeMarkdown
-		msg.ReplyMarkup = markup
-		sent, err := h.api.Send(msg)
-		if err == nil {
-			h.states.Get(userID).LastListMsgID = sent.MessageID
-		}
-	} else {
+	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 		edit.ParseMode = tgbotapi.ModeMarkdown
-		h.api.Send(edit)
+		if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+			return
+		}
+	}
+	msg := h.newMsg(chatID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = markup
+	sent, err := h.api.Send(msg)
+	if err == nil {
+		h.states.Get(userID).LastListMsgID = sent.MessageID
 	}
 }
 
@@ -479,8 +485,7 @@ func (h *Handler) cmdAdd(msg *tgbotapi.Message, userID int64, args string) {
 
 func (h *Handler) cmdList(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
-	h.deleteLastBotMsg(msg.Chat.ID, userID)
-	h.showList(msg.Chat.ID, userID)
+	h.showListPage(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID, 0)
 }
 
 func (h *Handler) showList(chatID int64, userID int64) {
@@ -497,11 +502,11 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		return
 	}
 
-	header := fmt.Sprintf("📝 Все · %d", len(notes))
+	header := fmt.Sprintf("┄ 📝 Все · %d ┄", len(notes))
 	if topicID != 0 {
 		t, err := h.topicService.GetTopic(userID, topicID)
 		if err == nil {
-			header = fmt.Sprintf("%s · %d", t.Name, len(notes))
+			header = fmt.Sprintf("┄ %s · %d ┄", t.Name, len(notes))
 		}
 	}
 
@@ -516,17 +521,24 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		page = totalPages - 1
 	}
 
-	emptyText := header + "\n\n📭 Пусто"
+	emptyText := "📝"
+	headerBtn := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(header, "topics:0"),
+		),
+	)
 	if len(notes) == 0 {
-		if msgID == 0 {
-			msg := h.newMsg(chatID, emptyText)
-			sent, err := h.api.Send(msg)
-			if err == nil {
-				h.states.Get(userID).LastListMsgID = sent.MessageID
+		if msgID != 0 {
+			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, emptyText, headerBtn)
+			if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+				return
 			}
-		} else {
-			edit := tgbotapi.NewEditMessageText(chatID, msgID, emptyText)
-			h.api.Send(edit)
+		}
+		msg := h.newMsg(chatID, emptyText)
+		msg.ReplyMarkup = headerBtn
+		sent, err := h.api.Send(msg)
+		if err == nil {
+			h.states.Get(userID).LastListMsgID = sent.MessageID
 		}
 		return
 	}
@@ -540,16 +552,17 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 
 	text, markup := buildListMessage(pageNotes, header, topicID, page, totalPages)
 
-	if msgID == 0 {
-		msg2 := tgbotapi.NewMessage(chatID, text)
-		msg2.ReplyMarkup = markup
-		sent, err := h.api.Send(msg2)
-		if err == nil {
-			h.states.Get(userID).LastListMsgID = sent.MessageID
-		}
-	} else {
+	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-		h.api.Send(edit)
+		if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+			return
+		}
+	}
+	msg2 := tgbotapi.NewMessage(chatID, text)
+	msg2.ReplyMarkup = markup
+	sent, err := h.api.Send(msg2)
+	if err == nil {
+		h.states.Get(userID).LastListMsgID = sent.MessageID
 	}
 }
 
@@ -814,10 +827,18 @@ func (h *Handler) refreshList(chatID int64, userID int64) {
 // ============================================================
 
 func (h *Handler) callbackSetTopic(chatID int64, msgID int, userID int64, topicID int64) {
-	h.callbackAnswer(chatID, msgID, "✅")
-	del := tgbotapi.NewDeleteMessage(chatID, msgID)
-	h.api.Request(del)
-	h.doSetTopic(chatID, userID, topicID)
+	if topicID != 0 {
+		_, err := h.topicService.GetTopic(userID, topicID)
+		if err != nil {
+			h.send(chatID, fmt.Sprintf("❌ %v", err))
+			return
+		}
+		h.states.Get(userID).CurrentTopicID = topicID
+	} else {
+		h.states.Get(userID).CurrentTopicID = 0
+	}
+	h.states.Get(userID).LastListMsgID = msgID
+	h.showListPage(chatID, msgID, userID, 0)
 }
 
 func (h *Handler) callbackViewNote(chatID int64, msgID int, userID int64, noteID int64) {
@@ -868,10 +889,8 @@ func (h *Handler) callbackSetPriority(chatID int64, msgID int, userID int64, pri
 		return
 	}
 
-	del := tgbotapi.NewDeleteMessage(chatID, msgID)
-	h.api.Request(del)
-
-	h.refreshList(chatID, userID)
+	h.states.Get(userID).LastListMsgID = msgID
+	h.showListPage(chatID, msgID, userID, 0)
 }
 
 func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, noteID int64) {
@@ -1077,16 +1096,19 @@ func (h *Handler) showArchived(chatID int64, msgID int, userID int64) {
 
 	text, markup := buildArchivedMessage(notes)
 
-	if msgID == 0 {
-		msg2 := h.newMsg(chatID, text)
-		msg2.ReplyMarkup = markup
-		sent, err := h.api.Send(msg2)
-		if err == nil {
-			h.states.Get(userID).LastListMsgID = sent.MessageID
-		}
-	} else {
+	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-		h.api.Send(edit)
+		if _, err := h.api.Send(edit); err == nil {
+			return
+		} else if isNotModified(err) {
+			return
+		}
+	}
+	msg2 := h.newMsg(chatID, text)
+	msg2.ReplyMarkup = markup
+	sent, err := h.api.Send(msg2)
+	if err == nil {
+		h.states.Get(userID).LastListMsgID = sent.MessageID
 	}
 }
 
@@ -1100,6 +1122,11 @@ func (h *Handler) doUnarchive(chatID int64, msgID int, userID int64, noteID int6
 	if lastMsgID != 0 && lastMsgID != msgID {
 		h.showListPage(chatID, lastMsgID, userID, 0)
 	}
+}
+
+// isNotModified возвращает true, если ошибка означает "сообщение не изменилось".
+func isNotModified(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "not modified")
 }
 
 func (h *Handler) callbackAnswer(chatID int64, msgID int, text string) {
