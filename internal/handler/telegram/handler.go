@@ -880,6 +880,7 @@ func (h *Handler) callbackSetPriority(chatID int64, msgID int, userID int64, pri
 	session := h.states.Get(userID)
 	text := session.PendingNoteText
 	topicID := session.PendingNoteTopicID
+	lastMsgID := session.LastListMsgID
 
 	h.states.Reset(userID)
 
@@ -889,8 +890,12 @@ func (h *Handler) callbackSetPriority(chatID int64, msgID int, userID int64, pri
 		return
 	}
 
-	h.states.Get(userID).LastListMsgID = msgID
-	h.showListPage(chatID, msgID, userID, 0)
+	// Удаляем сообщение с выбором приоритета
+	del := tgbotapi.NewDeleteMessage(chatID, msgID)
+	h.api.Request(del)
+
+	// Редактируем существующий список (или шлём новый, если не было)
+	h.showListPage(chatID, lastMsgID, userID, 0)
 }
 
 func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, noteID int64) {
