@@ -124,7 +124,7 @@ func buildListMessage(notes []model.Note, header string, topicID int64, page, to
 		btnRows = append(btnRows, navRow)
 	}
 
-	return "📝", tgbotapi.NewInlineKeyboardMarkup(btnRows...)
+	return "                                  __Заметки__", tgbotapi.NewInlineKeyboardMarkup(btnRows...)
 }
 
 // buildArchivedMessage строит текст и разметку для архива.
