@@ -87,39 +87,23 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 // buildListMessage строит текст и разметку для списка заметок и папок.
 // pageItems — элементы текущей страницы (папки и заметки).
 // folderChain — цепочка папок для breadcrumb (nil если не в папке).
-func buildListMessage(pageItems []listItem, topicID int64, currentFolderID *int64, folderChain []model.Folder, page, totalPages int) (string, tgbotapi.InlineKeyboardMarkup) {
-	var btnRows [][]tgbotapi.InlineKeyboardButton
+func buildListMessage(pageItems []listItem, topicID int64, topicName string, currentFolderID *int64, folderChain []model.Folder, page, totalPages int) (string, tgbotapi.InlineKeyboardMarkup) {
+	btnRows := make([][]tgbotapi.InlineKeyboardButton, 0)
 
-	// Breadcrumb + заголовок
+	// Текст сообщения — breadcrumb
+	var text string
 	if topicID != 0 {
-		// Breadcrumb: Топик / Папка1 / Папка2
-		var bcButtons []tgbotapi.InlineKeyboardButton
-		bcButtons = append(bcButtons, tgbotapi.NewInlineKeyboardButtonData("🔝", "topics:0"))
-
-		for _, f := range folderChain {
-			label := f.Name
-			if f.ID == folderChain[len(folderChain)-1].ID {
-				label = "📁 " + label
-			} else {
-				label = "/ " + label
-			}
-			bcButtons = append(bcButtons, tgbotapi.NewInlineKeyboardButtonData(
-				label,
-				fmt.Sprintf("openfolder:%d", f.ID),
-			))
+		text = "🏠 /topics"
+		if topicName != "" {
+			text += fmt.Sprintf(" › /%s", sanitize(topicName))
 		}
-		btnRows = append(btnRows, bcButtons)
-
-		// Кнопка «назад» если мы внутри папки
-		if currentFolderID != nil {
-			btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("⬆️ Наверх", "backfolder"),
-			))
+		for _, f := range folderChain {
+			text += fmt.Sprintf(" › /%s", sanitize(f.Name))
 		}
 	} else {
-		// Нет активного топика — показываем заголовок с возможностью выбора
+		text = "📝 Все заметки"
 		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📝 Все заметки", "topics:0"),
+			tgbotapi.NewInlineKeyboardButtonData("🔝 Топики", "topics:0"),
 		))
 	}
 
@@ -150,6 +134,13 @@ func buildListMessage(pageItems []listItem, topicID int64, currentFolderID *int6
 		}
 	}
 
+	// Если список пуст — кнопка «добавить»
+	if len(btnRows) == 0 {
+		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📝 Добавить заметку", "addnote"),
+		))
+	}
+
 	// Пагинация
 	if totalPages > 1 {
 		var navRow []tgbotapi.InlineKeyboardButton
@@ -165,8 +156,6 @@ func buildListMessage(pageItems []listItem, topicID int64, currentFolderID *int6
 		}
 		btnRows = append(btnRows, navRow)
 	}
-
-	text := "                                  __Заметки__"
 
 	return text, tgbotapi.NewInlineKeyboardMarkup(btnRows...)
 }
@@ -284,7 +273,21 @@ func buildHelpMessage() (string, tgbotapi.InlineKeyboardMarkup) {
 	listBtn := tgbotapi.NewInlineKeyboardButtonData("📝 Список", "backtolist")
 	topicsBtn := tgbotapi.NewInlineKeyboardButtonData("📂 Топики", "topics:0")
 
-	text := "📋 *Справка*\n\nВыберите действие или используйте команды:"
+	text := "Команды:\n\n" +
+		"/add [текст] — добавить заметку\n" +
+		"/edit <id> <текст> — изменить заметку\n" +
+		"/delete <id> — удалить заметку\n" +
+		"/archive <id> — архивировать заметку\n" +
+		"/archived — архив заметок\n" +
+		"/list — список заметок\n" +
+		"/topics — список топиков\n" +
+		"/newtopic [название] — создать топик\n" +
+		"/settopic <id> — установить текущий топик\n" +
+		"/deltopic <id> — удалить топик\n" +
+		"/newfolder [название] — создать папку\n" +
+		"/backup — скачать бэкап\n" +
+		"/help — справка"
+
 	return text, tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(listBtn),
 		tgbotapi.NewInlineKeyboardRow(topicsBtn),
@@ -316,6 +319,50 @@ func prioBtnLabel(priority int, emoji string) string {
 		return "🔄 —"
 	}
 	return "🔄" + emoji
+}
+
+// --- Транслитерация кириллицы для команд ---
+
+var translitMap = map[rune]string{
+	'а': "a", 'б': "b", 'в': "v", 'г': "g", 'д': "d", 'е': "e", 'ё': "yo",
+	'ж': "zh", 'з': "z", 'и': "i", 'й': "y", 'к': "k", 'л': "l", 'м': "m",
+	'н': "n", 'о': "o", 'п': "p", 'р': "r", 'с': "s", 'т': "t", 'у': "u",
+	'ф': "f", 'х': "h", 'ц': "ts", 'ч': "ch", 'ш': "sh", 'щ': "sch",
+	'ъ': "", 'ы': "y", 'ь': "", 'э': "e", 'ю': "yu", 'я': "ya",
+	'А': "A", 'Б': "B", 'В': "V", 'Г': "G", 'Д': "D", 'Е': "E", 'Ё': "Yo",
+	'Ж': "Zh", 'З': "Z", 'И': "I", 'Й': "Y", 'К': "K", 'Л': "L", 'М': "M",
+	'Н': "N", 'О': "O", 'П': "P", 'Р': "R", 'С': "S", 'Т': "T", 'У': "U",
+	'Ф': "F", 'Х': "H", 'Ц': "Ts", 'Ч': "Ch", 'Ш': "Sh", 'Щ': "Sch",
+	'Ъ': "", 'Ы': "Y", 'Ь': "", 'Э': "E", 'Ю': "Yu", 'Я': "Ya",
+}
+
+// translit преобразует кириллицу в латиницу для использования в /командах.
+func translit(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if lat, ok := translitMap[r]; ok {
+			b.WriteString(lat)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// sanitize подготавливает имя для использования в /команде:
+// пробелы → _, кириллица → латиница, спецсимволы → _.
+func sanitize(name string) string {
+	s := strings.ReplaceAll(name, " ", "_")
+	s = translit(s)
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
 
 // --- Календарь для напоминаний ---

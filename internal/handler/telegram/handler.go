@@ -163,6 +163,9 @@ func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 	case "newfolder":
 		h.cmdNewFolder(msg, userID, args)
 	default:
+		if h.tryNavigateFolder(msg, userID, cmd, args) {
+			return
+		}
 		h.send(msg.Chat.ID, "Неизвестная команда. Введите /help для списка команд.")
 	}
 }
@@ -254,6 +257,10 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 	}
 	if data == "backfolder" {
 		h.callbackBackFolder(chatID, msgID, userID)
+		return
+	}
+	if data == "addnote" {
+		h.callbackAddNote(chatID, userID)
 		return
 	}
 
@@ -457,28 +464,33 @@ func (h *Handler) showTopics(chatID int64, msgID int, userID int64) {
 func (h *Handler) cmdNewTopic(msg *tgbotapi.Message, userID int64, args string) {
 	name := strings.TrimSpace(args)
 	if name == "" {
+		h.states.Get(userID).PendingCmdMsgID = msg.MessageID
 		h.states.SetState(userID, StateWaitingNewTopic)
-		h.send(msg.Chat.ID, "📂 Введите название нового топика:")
+		h.sendPrompt(msg.Chat.ID, userID, "📂 Введите название нового топика:")
 		return
 	}
+	h.deleteUserMsg(msg)
 	h.doNewTopic(msg.Chat.ID, userID, name)
 }
 
 func (h *Handler) cmdNewFolder(msg *tgbotapi.Message, userID int64, args string) {
 	name := strings.TrimSpace(args)
 	if name == "" {
+		h.states.Get(userID).PendingCmdMsgID = msg.MessageID
 		h.states.SetState(userID, StateWaitingNewFolder)
-		h.send(msg.Chat.ID, "📁 Введите название новой папки:")
+		h.sendPrompt(msg.Chat.ID, userID, "📁 Введите название новой папки:")
 		return
 	}
+	h.deleteUserMsg(msg)
 	h.doNewFolder(msg.Chat.ID, userID, name)
 }
 
 func (h *Handler) cmdSetTopic(msg *tgbotapi.Message, userID int64, args string) {
 	idStr := strings.TrimSpace(args)
 	if idStr == "" {
+		h.states.Get(userID).PendingCmdMsgID = msg.MessageID
 		h.states.SetState(userID, StateWaitingSetTopic)
-		h.send(msg.Chat.ID, "📂 Введите ID топика (можно посмотреть в /topics):")
+		h.sendPrompt(msg.Chat.ID, userID, "📂 Введите ID топика (можно посмотреть в /topics):")
 		return
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -512,8 +524,9 @@ func (h *Handler) cmdDelTopic(msg *tgbotapi.Message, userID int64, args string) 
 func (h *Handler) cmdAdd(msg *tgbotapi.Message, userID int64, args string) {
 	text := strings.TrimSpace(args)
 	if text == "" {
+		h.states.Get(userID).PendingCmdMsgID = msg.MessageID
 		h.states.SetState(userID, StateWaitingAddText)
-		h.send(msg.Chat.ID, "📝 Введите текст заметки:")
+		h.sendPrompt(msg.Chat.ID, userID, "📝 Введите текст заметки:")
 		return
 	}
 	h.doAdd(msg.Chat.ID, userID, text, msg.MessageID)
@@ -537,10 +550,14 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	// Получаем папки в текущем контексте (только если выбран топик)
 	var folders []model.Folder
 	var folderChain []model.Folder
+	var topicName string
 	if topicID != 0 {
 		folders, _ = h.folderService.ListFolders(userID, topicID, folderID)
 		if folderID != nil {
 			folderChain, _ = h.folderService.GetFolderChain(*folderID)
+		}
+		if t, err := h.topicService.GetTopic(userID, topicID); err == nil {
+			topicName = t.Name
 		}
 	}
 
@@ -554,7 +571,7 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 
 	// Пустой список
 	if totalItems == 0 {
-		text, markup := buildListMessage(nil, topicID, folderID, folderChain, 0, 1)
+		text, markup := buildListMessage(nil, topicID, topicName, folderID, folderChain, 0, 1)
 		if msgID != 0 {
 			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 			if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
@@ -600,7 +617,7 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		}
 	}
 
-	text, markup := buildListMessage(pageItems, topicID, folderID, folderChain, page, totalPages)
+	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -619,8 +636,9 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 func (h *Handler) cmdEdit(msg *tgbotapi.Message, userID int64, args string) {
 	args = strings.TrimSpace(args)
 	if args == "" {
+		h.states.Get(userID).PendingCmdMsgID = msg.MessageID
 		h.states.SetState(userID, StateWaitingEditArgs)
-		h.send(msg.Chat.ID, "✏️ Введите ID заметки и новый текст:\n`<id> <текст>`")
+		h.sendPrompt(msg.Chat.ID, userID, "✏️ Введите ID заметки и новый текст:\n`<id> <текст>`")
 		return
 	}
 	parts := strings.SplitN(args, " ", 2)
@@ -639,8 +657,9 @@ func (h *Handler) cmdEdit(msg *tgbotapi.Message, userID int64, args string) {
 func (h *Handler) cmdDelete(msg *tgbotapi.Message, userID int64, args string) {
 	idStr := strings.TrimSpace(args)
 	if idStr == "" {
+		h.states.Get(userID).PendingCmdMsgID = msg.MessageID
 		h.states.SetState(userID, StateWaitingDeleteID)
-		h.send(msg.Chat.ID, "🗑 Введите ID заметки для удаления:")
+		h.sendPrompt(msg.Chat.ID, userID, "🗑 Введите ID заметки для удаления:")
 		return
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -654,8 +673,9 @@ func (h *Handler) cmdDelete(msg *tgbotapi.Message, userID int64, args string) {
 func (h *Handler) cmdArchive(msg *tgbotapi.Message, userID int64, args string) {
 	idStr := strings.TrimSpace(args)
 	if idStr == "" {
+		h.states.Get(userID).PendingCmdMsgID = msg.MessageID
 		h.states.SetState(userID, StateWaitingArchiveID)
-		h.send(msg.Chat.ID, "📦 Введите ID заметки для архивации:")
+		h.sendPrompt(msg.Chat.ID, userID, "📦 Введите ID заметки для архивации:")
 		return
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -716,10 +736,16 @@ func (h *Handler) finishAdd(msg *tgbotapi.Message, userID int64, text string) {
 		h.send(msg.Chat.ID, "❌ Текст заметки не может быть пустым.")
 		return
 	}
+	h.clearPrompt(msg.Chat.ID, userID)
+	h.clearCmd(msg.Chat.ID, userID)
+	h.deleteUserMsg(msg)
 	h.doAdd(msg.Chat.ID, userID, text, msg.MessageID)
 }
 
 func (h *Handler) finishDelete(msg *tgbotapi.Message, userID int64, text string) {
+	h.clearPrompt(msg.Chat.ID, userID)
+	h.clearCmd(msg.Chat.ID, userID)
+	h.deleteUserMsg(msg)
 	h.states.Reset(userID)
 	id, err := strconv.ParseInt(text, 10, 64)
 	if err != nil {
@@ -730,6 +756,9 @@ func (h *Handler) finishDelete(msg *tgbotapi.Message, userID int64, text string)
 }
 
 func (h *Handler) finishEdit(msg *tgbotapi.Message, userID int64, text string) {
+	h.clearPrompt(msg.Chat.ID, userID)
+	h.clearCmd(msg.Chat.ID, userID)
+	h.deleteUserMsg(msg)
 	h.states.Reset(userID)
 	parts := strings.SplitN(text, " ", 2)
 	if len(parts) < 2 {
@@ -745,6 +774,8 @@ func (h *Handler) finishEdit(msg *tgbotapi.Message, userID int64, text string) {
 }
 
 func (h *Handler) finishEditText(msg *tgbotapi.Message, userID int64, text string) {
+	h.clearPrompt(msg.Chat.ID, userID)
+	h.deleteUserMsg(msg)
 	session := h.states.Get(userID)
 	noteID := session.EditNoteID
 	h.states.Reset(userID)
@@ -756,6 +787,9 @@ func (h *Handler) finishEditText(msg *tgbotapi.Message, userID int64, text strin
 }
 
 func (h *Handler) finishArchive(msg *tgbotapi.Message, userID int64, text string) {
+	h.clearPrompt(msg.Chat.ID, userID)
+	h.clearCmd(msg.Chat.ID, userID)
+	h.deleteUserMsg(msg)
 	h.states.Reset(userID)
 	id, err := strconv.ParseInt(text, 10, 64)
 	if err != nil {
@@ -766,11 +800,17 @@ func (h *Handler) finishArchive(msg *tgbotapi.Message, userID int64, text string
 }
 
 func (h *Handler) finishNewTopic(msg *tgbotapi.Message, userID int64, text string) {
+	h.clearPrompt(msg.Chat.ID, userID)
+	h.clearCmd(msg.Chat.ID, userID)
+	h.deleteUserMsg(msg)
 	h.states.Reset(userID)
 	h.doNewTopic(msg.Chat.ID, userID, text)
 }
 
 func (h *Handler) finishSetTopic(msg *tgbotapi.Message, userID int64, text string) {
+	h.clearPrompt(msg.Chat.ID, userID)
+	h.clearCmd(msg.Chat.ID, userID)
+	h.deleteUserMsg(msg)
 	h.states.Reset(userID)
 	id, err := strconv.ParseInt(text, 10, 64)
 	if err != nil {
@@ -781,6 +821,9 @@ func (h *Handler) finishSetTopic(msg *tgbotapi.Message, userID int64, text strin
 }
 
 func (h *Handler) finishNewFolder(msg *tgbotapi.Message, userID int64, text string) {
+	h.clearPrompt(msg.Chat.ID, userID)
+	h.clearCmd(msg.Chat.ID, userID)
+	h.deleteUserMsg(msg)
 	h.states.Reset(userID)
 	h.doNewFolder(msg.Chat.ID, userID, text)
 }
@@ -845,12 +888,10 @@ func (h *Handler) doNewTopic(chatID int64, userID int64, name string) {
 		h.send(chatID, "❌ Название топика не может быть пустым.")
 		return
 	}
-	t, err := h.topicService.CreateTopic(userID, name)
-	if err != nil {
+	if _, err := h.topicService.CreateTopic(userID, name); err != nil {
 		h.send(chatID, fmt.Sprintf("❌ %v", err))
 		return
 	}
-	h.send(chatID, fmt.Sprintf("📂 Топик «%s» создан (#%d).", t.Name, t.ID))
 }
 
 func (h *Handler) doNewFolder(chatID int64, userID int64, name string) {
@@ -867,12 +908,10 @@ func (h *Handler) doNewFolder(chatID int64, userID int64, name string) {
 		return
 	}
 
-	f, err := h.folderService.CreateFolder(userID, topicID, session.CurrentFolderID, name)
-	if err != nil {
+	if _, err := h.folderService.CreateFolder(userID, topicID, session.CurrentFolderID, name); err != nil {
 		h.send(chatID, fmt.Sprintf("❌ %v", err))
 		return
 	}
-	h.send(chatID, fmt.Sprintf("📁 Папка «%s» создана (#%d).", f.Name, f.ID))
 	h.refreshList(chatID, userID)
 }
 
@@ -917,6 +956,7 @@ func (h *Handler) callbackSetTopic(chatID int64, msgID int, userID int64, topicI
 	} else {
 		h.states.Get(userID).CurrentTopicID = 0
 	}
+	h.states.Get(userID).CurrentFolderID = nil
 	h.states.Get(userID).LastListMsgID = msgID
 	h.showListPage(chatID, msgID, userID, 0)
 }
@@ -1034,6 +1074,74 @@ func (h *Handler) callbackBackFolder(chatID int64, msgID int, userID int64) {
 		session.CurrentFolderID = currentFolder.ParentFolderID
 	}
 	h.showListPage(chatID, msgID, userID, 0)
+}
+
+func (h *Handler) callbackAddNote(chatID int64, userID int64) {
+	h.states.SetState(userID, StateWaitingAddText)
+	h.sendPrompt(chatID, userID, "📝 Введите текст заметки:")
+}
+
+// tryNavigateFolder пытается интерпретировать неизвестную команду как имя папки
+// и перейти в неё. Используется для кликабельных имён папок в breadcrumb.
+func (h *Handler) tryNavigateFolder(msg *tgbotapi.Message, userID int64, cmd string, args string) bool {
+	session := h.states.Get(userID)
+	if session.CurrentTopicID == 0 {
+		return false
+	}
+
+	// Ключ для сравнения: команда + аргументы через _ (как в breadcrumb)
+	key := cmd
+	if args != "" {
+		key = cmd + "_" + strings.ReplaceAll(args, " ", "_")
+	}
+
+	// matchKey возвращает ключ для сравнения с командой
+	matchKey := func(name string) string {
+		return sanitize(name)
+	}
+
+	// Проверяем имя топика — переход в корень топика
+	if t, err := h.topicService.GetTopic(userID, session.CurrentTopicID); err == nil && matchKey(t.Name) == key {
+		session.CurrentFolderID = nil
+		h.deleteUserMsg(msg)
+		h.showListPage(msg.Chat.ID, session.LastListMsgID, userID, 0)
+		return true
+	}
+
+	// Ищем в цепочке папок (breadcrumb)
+	if session.CurrentFolderID != nil {
+		chain, err := h.folderService.GetFolderChain(*session.CurrentFolderID)
+		if err == nil {
+			for i, f := range chain {
+				if matchKey(f.Name) == key {
+					// Последняя в цепочке — текущая папка → на уровень выше
+					if i == len(chain)-1 {
+						session.CurrentFolderID = f.ParentFolderID
+					} else {
+						session.CurrentFolderID = &f.ID
+					}
+					h.deleteUserMsg(msg)
+					h.showListPage(msg.Chat.ID, session.LastListMsgID, userID, 0)
+					return true
+				}
+			}
+		}
+	}
+
+	// Ищем среди папок текущего уровня
+	folders, err := h.folderService.ListFolders(userID, session.CurrentTopicID, session.CurrentFolderID)
+	if err == nil {
+		for _, f := range folders {
+			if matchKey(f.Name) == key {
+				session.CurrentFolderID = &f.ID
+				h.deleteUserMsg(msg)
+				h.showListPage(msg.Chat.ID, session.LastListMsgID, userID, 0)
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // --- Reminder callbacks ---
@@ -1252,8 +1360,10 @@ func (h *Handler) registerCommands() error {
 		{Command: "start", Description: "Начать"},
 		{Command: "list", Description: "Список"},
 		{Command: "topics", Description: "Список топиков"},
+		{Command: "newfolder", Description: "Создать папку"},
 		{Command: "archived", Description: "Архив заметок"},
 		{Command: "backup", Description: "Скачать бэкап базы"},
+		{Command: "help", Description: "Помощь"},
 	}
 	setCmd := tgbotapi.NewSetMyCommands(cmds...)
 	_, err := h.api.Request(setCmd)
@@ -1268,6 +1378,33 @@ func (h *Handler) newMsg(chatID int64, text string) tgbotapi.MessageConfig {
 
 func (h *Handler) send(chatID int64, text string) {
 	h.api.Send(h.newMsg(chatID, text))
+}
+
+// sendPrompt отправляет сообщение-подсказку и сохраняет его ID для последующего удаления.
+func (h *Handler) sendPrompt(chatID int64, userID int64, text string) {
+	msg := h.newMsg(chatID, text)
+	sent, err := h.api.Send(msg)
+	if err == nil {
+		h.states.Get(userID).PromptMsgID = sent.MessageID
+	}
+}
+
+// clearPrompt удаляет сохранённое сообщение-подсказку.
+func (h *Handler) clearPrompt(chatID int64, userID int64) {
+	if promptID := h.states.Get(userID).PromptMsgID; promptID != 0 {
+		del := tgbotapi.NewDeleteMessage(chatID, promptID)
+		h.api.Request(del)
+		h.states.Get(userID).PromptMsgID = 0
+	}
+}
+
+// clearCmd удаляет сохранённое сообщение-команду.
+func (h *Handler) clearCmd(chatID int64, userID int64) {
+	if cmdID := h.states.Get(userID).PendingCmdMsgID; cmdID != 0 {
+		del := tgbotapi.NewDeleteMessage(chatID, cmdID)
+		h.api.Request(del)
+		h.states.Get(userID).PendingCmdMsgID = 0
+	}
 }
 
 func (h *Handler) sendReply(chatID int64, userID int64, text string) {

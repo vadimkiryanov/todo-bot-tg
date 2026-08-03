@@ -26,6 +26,8 @@ type UserSession struct {
 	LastListMsgID      int    // ID последнего сообщения со списком
 	PendingNoteText    string // текст заметки, ожидающий выбора приоритета
 	PendingNoteTopicID int64  // топик для заметки, ожидающей приоритет
+	PromptMsgID        int    // ID сообщения-подсказки для удаления
+	PendingCmdMsgID    int    // ID сообщения-команды (для удаления после finish)
 }
 
 // StateManager управляет состояниями пользователей.
