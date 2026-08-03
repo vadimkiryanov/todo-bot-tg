@@ -18,7 +18,8 @@ const (
 type Note struct {
 	ID         int64
 	UserID     int64
-	TopicID    int64 // 0 — без топика
+	TopicID    int64  // 0 — без топика
+	FolderID   *int64 // nil — в корне топика (не в папке)
 	Text       string
 	Priority   int        // PriorityNone / Low / Medium / High
 	ReminderAt *time.Time // nil — без напоминания
@@ -41,13 +42,14 @@ func (n *Note) PriorityEmoji() string {
 }
 
 // NewNote создаёт новую заметку с валидацией (по умолчанию без приоритета).
-func NewNote(userID, topicID int64, text string) (*Note, error) {
+func NewNote(userID, topicID int64, folderID *int64, text string) (*Note, error) {
 	if text == "" {
 		return nil, errors.ErrEmptyText
 	}
 	return &Note{
 		UserID:    userID,
 		TopicID:   topicID,
+		FolderID:  folderID,
 		Text:      text,
 		Priority:  PriorityNone,
 		CreatedAt: time.Now(),

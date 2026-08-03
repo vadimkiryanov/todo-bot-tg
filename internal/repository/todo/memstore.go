@@ -12,24 +12,30 @@ import (
 
 // MemStore — in-memory реализация репозитория.
 type MemStore struct {
-	mu          sync.RWMutex
-	topics      map[int64]entity.TopicRecord
-	notes       map[int64]entity.NoteRecord
-	nextTopicID int64
-	nextNoteID  int64
-	userTopics  map[int64][]int64 // userID → []topicID
-	userNotes   map[int64][]int64 // userID → []noteID
+	mu            sync.RWMutex
+	topics        map[int64]entity.TopicRecord
+	notes         map[int64]entity.NoteRecord
+	folders       map[int64]entity.FolderRecord
+	nextTopicID   int64
+	nextNoteID    int64
+	nextFolderID  int64
+	userTopics    map[int64][]int64 // userID → []topicID
+	userNotes     map[int64][]int64 // userID → []noteID
+	userFolders   map[int64][]int64 // userID → []folderID
 }
 
 // NewMemStore создаёт новый MemStore.
 func NewMemStore() *MemStore {
 	return &MemStore{
-		topics:     make(map[int64]entity.TopicRecord),
-		notes:      make(map[int64]entity.NoteRecord),
-		userTopics: make(map[int64][]int64),
-		userNotes:  make(map[int64][]int64),
-		nextTopicID: 1,
-		nextNoteID:  1,
+		topics:      make(map[int64]entity.TopicRecord),
+		notes:       make(map[int64]entity.NoteRecord),
+		folders:     make(map[int64]entity.FolderRecord),
+		userTopics:  make(map[int64][]int64),
+		userNotes:   make(map[int64][]int64),
+		userFolders: make(map[int64][]int64),
+		nextTopicID:  1,
+		nextNoteID:   1,
+		nextFolderID: 1,
 	}
 }
 
@@ -128,7 +134,7 @@ func (s *MemStore) CreateNote(note model.Note) (model.Note, error) {
 	return entity.NoteFromRecord(n), nil
 }
 
-func (s *MemStore) ListNotes(userID, topicID int64) ([]model.Note, error) {
+func (s *MemStore) ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -139,9 +145,15 @@ func (s *MemStore) ListNotes(userID, topicID int64) ([]model.Note, error) {
 		if !ok || n.Archived {
 			continue
 		}
-		if topicID == 0 || n.TopicID == topicID {
-			result = append(result, entity.NoteFromRecord(n))
+		if topicID != 0 && n.TopicID != topicID {
+			continue
 		}
+		if folderID != nil {
+			if n.FolderID == nil || *n.FolderID != *folderID {
+				continue
+			}
+		}
+		result = append(result, entity.NoteFromRecord(n))
 	}
 	return result, nil
 }
@@ -199,7 +211,7 @@ func (s *MemStore) DeleteNote(userID, noteID int64) error {
 	return nil
 }
 
-func (s *MemStore) CountNotes(userID, topicID int64) (int, error) {
+func (s *MemStore) CountNotes(userID, topicID int64, folderID *int64) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -209,9 +221,15 @@ func (s *MemStore) CountNotes(userID, topicID int64) (int, error) {
 		if !ok || n.Archived {
 			continue
 		}
-		if topicID == 0 || n.TopicID == topicID {
-			count++
+		if topicID != 0 && n.TopicID != topicID {
+			continue
 		}
+		if folderID != nil {
+			if n.FolderID == nil || *n.FolderID != *folderID {
+				continue
+			}
+		}
+		count++
 	}
 	return count, nil
 }
@@ -265,6 +283,93 @@ func (s *MemStore) HasAnyData(userID int64) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.userTopics[userID]) > 0 || len(s.userNotes[userID]) > 0
+}
+
+// --- Folders ---
+
+func (s *MemStore) CreateFolder(folder model.Folder) (model.Folder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Проверяем уникальность имени в рамках родителя
+	for _, fid := range s.userFolders[folder.UserID] {
+		f := s.folders[fid]
+		if f.TopicID == folder.TopicID && f.Name == folder.Name {
+			if (folder.ParentFolderID == nil && f.ParentFolderID == nil) ||
+				(folder.ParentFolderID != nil && f.ParentFolderID != nil && *f.ParentFolderID == *folder.ParentFolderID) {
+				return model.Folder{}, errors.ErrFolderAlreadyExists
+			}
+		}
+	}
+
+	folder.ID = s.nextFolderID
+	s.nextFolderID++
+
+	f := entity.FolderToRecord(folder)
+	s.folders[f.ID] = f
+	s.userFolders[folder.UserID] = append(s.userFolders[folder.UserID], f.ID)
+	return entity.FolderFromRecord(f), nil
+}
+
+func (s *MemStore) ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := s.userFolders[userID]
+	result := make([]model.Folder, 0, len(ids))
+	for _, id := range ids {
+		f, ok := s.folders[id]
+		if !ok || f.TopicID != topicID {
+			continue
+		}
+		if parentFolderID == nil {
+			if f.ParentFolderID != nil {
+				continue
+			}
+		} else {
+			if f.ParentFolderID == nil || *f.ParentFolderID != *parentFolderID {
+				continue
+			}
+		}
+		result = append(result, entity.FolderFromRecord(f))
+	}
+	return result, nil
+}
+
+func (s *MemStore) GetFolder(userID, folderID int64) (model.Folder, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	f, ok := s.folders[folderID]
+	if !ok || f.UserID != userID {
+		return model.Folder{}, errors.ErrFolderNotFound
+	}
+	return entity.FolderFromRecord(f), nil
+}
+
+func (s *MemStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var chain []model.Folder
+	currentID := &folderID
+	visited := make(map[int64]bool)
+
+	for currentID != nil {
+		if visited[*currentID] {
+			break // защита от циклов
+		}
+		visited[*currentID] = true
+
+		f, ok := s.folders[*currentID]
+		if !ok {
+			break
+		}
+		// Вставляем в начало (идём от потомка к корню)
+		chain = append([]model.Folder{entity.FolderFromRecord(f)}, chain...)
+		currentID = f.ParentFolderID
+	}
+	return chain, nil
 }
 
 // compile-time assertion

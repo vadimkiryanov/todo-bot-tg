@@ -84,28 +84,70 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 	return text, tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// buildListMessage строит текст и разметку для списка заметок.
-func buildListMessage(notes []model.Note, header string, topicID int64, page, totalPages int) (string, tgbotapi.InlineKeyboardMarkup) {
+// buildListMessage строит текст и разметку для списка заметок и папок.
+// pageItems — элементы текущей страницы (папки и заметки).
+// folderChain — цепочка папок для breadcrumb (nil если не в папке).
+func buildListMessage(pageItems []listItem, topicID int64, currentFolderID *int64, folderChain []model.Folder, page, totalPages int) (string, tgbotapi.InlineKeyboardMarkup) {
 	var btnRows [][]tgbotapi.InlineKeyboardButton
 
-	// Заголовок как кнопка — клик открывает выбор топика
-	btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData(header, "topics:0"),
-	))
+	// Breadcrumb + заголовок
+	if topicID != 0 {
+		// Breadcrumb: Топик / Папка1 / Папка2
+		var bcButtons []tgbotapi.InlineKeyboardButton
+		bcButtons = append(bcButtons, tgbotapi.NewInlineKeyboardButtonData("🔝", "topics:0"))
 
-	for _, n := range notes {
-		label := formatPreview(n.Text, 50, 1)
-		if label == "" {
-			label = "..."
+		for _, f := range folderChain {
+			label := f.Name
+			if f.ID == folderChain[len(folderChain)-1].ID {
+				label = "📁 " + label
+			} else {
+				label = "/ " + label
+			}
+			bcButtons = append(bcButtons, tgbotapi.NewInlineKeyboardButtonData(
+				label,
+				fmt.Sprintf("openfolder:%d", f.ID),
+			))
 		}
-		if emoji := n.PriorityEmoji(); emoji != "" {
-			label = emoji + " " + label
+		btnRows = append(btnRows, bcButtons)
+
+		// Кнопка «назад» если мы внутри папки
+		if currentFolderID != nil {
+			btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬆️ Наверх", "backfolder"),
+			))
 		}
-		btn := tgbotapi.NewInlineKeyboardButtonData(
-			label,
-			fmt.Sprintf("view:%d", n.ID),
-		)
-		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(btn))
+	} else {
+		// Нет активного топика — показываем заголовок с возможностью выбора
+		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📝 Все заметки", "topics:0"),
+		))
+	}
+
+	// Элементы списка — каждый своей кнопкой
+	for _, item := range pageItems {
+		if item.isFolder {
+			btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("📁 %s", item.folder.Name),
+					fmt.Sprintf("openfolder:%d", item.folder.ID),
+				),
+			))
+		} else {
+			prefix := ""
+			if emoji := item.note.PriorityEmoji(); emoji != "" {
+				prefix = emoji + " "
+			}
+			preview := formatPreview(item.note.Text, 50, 1)
+			if preview == "" {
+				preview = "..."
+			}
+			btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("%s%s", prefix, preview),
+					fmt.Sprintf("view:%d", item.note.ID),
+				),
+			))
+		}
 	}
 
 	// Пагинация
@@ -124,7 +166,16 @@ func buildListMessage(notes []model.Note, header string, topicID int64, page, to
 		btnRows = append(btnRows, navRow)
 	}
 
-	return "                                  __Заметки__", tgbotapi.NewInlineKeyboardMarkup(btnRows...)
+	text := "                                  __Заметки__"
+
+	return text, tgbotapi.NewInlineKeyboardMarkup(btnRows...)
+}
+
+// listItem — элемент списка (папка или заметка).
+type listItem struct {
+	isFolder bool
+	folder   model.Folder
+	note     model.Note
 }
 
 // buildArchivedMessage строит текст и разметку для архива.

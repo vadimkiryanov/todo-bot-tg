@@ -8,6 +8,7 @@ func NoteToRecord(n model.Note) NoteRecord {
 		ID:         n.ID,
 		UserID:     n.UserID,
 		TopicID:    n.TopicID,
+		FolderID:   n.FolderID,
 		Text:       n.Text,
 		Priority:   n.Priority,
 		ReminderAt: n.ReminderAt,
@@ -22,6 +23,7 @@ func NoteFromRecord(r NoteRecord) model.Note {
 		ID:         r.ID,
 		UserID:     r.UserID,
 		TopicID:    r.TopicID,
+		FolderID:   r.FolderID,
 		Text:       r.Text,
 		Priority:   r.Priority,
 		ReminderAt: r.ReminderAt,
@@ -45,5 +47,27 @@ func TopicFromRecord(r TopicRecord) model.Topic {
 		ID:     r.ID,
 		UserID: r.UserID,
 		Name:   r.Name,
+	}
+}
+
+// FolderToRecord конвертирует доменную модель папки в persistence-record.
+func FolderToRecord(f model.Folder) FolderRecord {
+	return FolderRecord{
+		ID:             f.ID,
+		UserID:         f.UserID,
+		TopicID:        f.TopicID,
+		ParentFolderID: f.ParentFolderID,
+		Name:           f.Name,
+	}
+}
+
+// FolderFromRecord конвертирует persistence-record в доменную модель папки.
+func FolderFromRecord(r FolderRecord) model.Folder {
+	return model.Folder{
+		ID:             r.ID,
+		UserID:         r.UserID,
+		TopicID:        r.TopicID,
+		ParentFolderID: r.ParentFolderID,
+		Name:           r.Name,
 	}
 }

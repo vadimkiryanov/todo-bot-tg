@@ -15,8 +15,8 @@ import (
 
 // NoteService — интерфейс сервиса заметок (определён потребителем — handler'ом).
 type NoteService interface {
-	AddNote(userID, topicID int64, text string, priority int) (model.Note, error)
-	ListNotes(userID, topicID int64) ([]model.Note, error)
+	AddNote(userID, topicID int64, folderID *int64, text string, priority int) (model.Note, error)
+	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
 	EditNote(userID, noteID int64, text string) error
 	DeleteNote(userID, noteID int64) error
@@ -27,7 +27,7 @@ type NoteService interface {
 	ClearReminder(userID, noteID int64) error
 	GetNoteByID(noteID int64) (model.Note, error)
 	ProcessPendingReminders() ([]model.Note, error)
-	CountNotes(userID, topicID int64) (int, error)
+	CountNotes(userID, topicID int64, folderID *int64) (int, error)
 	ListArchived(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
 	SeedDefaults(userID int64) error
@@ -41,28 +41,38 @@ type TopicService interface {
 	DeleteTopic(userID, topicID int64) error
 }
 
+// FolderService — интерфейс сервиса папок (определён потребителем — handler'ом).
+type FolderService interface {
+	CreateFolder(userID, topicID int64, parentFolderID *int64, name string) (model.Folder, error)
+	ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error)
+	GetFolder(userID, folderID int64) (model.Folder, error)
+	GetFolderChain(folderID int64) ([]model.Folder, error)
+}
+
 // Handler — обработчик обновлений Telegram.
 type Handler struct {
-	api          *tgbotapi.BotAPI
-	noteService  NoteService
-	topicService TopicService
-	states       *StateManager
-	selfUsername string // @-имя бота для обрезки SwitchInlineQuery
+	api           *tgbotapi.BotAPI
+	noteService   NoteService
+	topicService  TopicService
+	folderService FolderService
+	states        *StateManager
+	selfUsername  string // @-имя бота для обрезки SwitchInlineQuery
 }
 
 // NewHandler создаёт новый Handler.
-func NewHandler(token string, noteService NoteService, topicService TopicService) (*Handler, error) {
+func NewHandler(token string, noteService NoteService, topicService TopicService, folderService FolderService) (*Handler, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка подключения к Telegram API: %w", err)
 	}
 
 	h := &Handler{
-		api:          api,
-		noteService:  noteService,
-		topicService: topicService,
-		states:       NewStateManager(),
-		selfUsername: "@" + api.Self.UserName,
+		api:           api,
+		noteService:   noteService,
+		topicService:  topicService,
+		folderService: folderService,
+		states:        NewStateManager(),
+		selfUsername:  "@" + api.Self.UserName,
 	}
 
 	if err := h.registerCommands(); err != nil {
@@ -150,6 +160,8 @@ func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 	case "archived":
 		h.deleteUserMsg(msg)
 		h.showArchived(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID)
+	case "newfolder":
+		h.cmdNewFolder(msg, userID, args)
 	default:
 		h.send(msg.Chat.ID, "Неизвестная команда. Введите /help для списка команд.")
 	}
@@ -182,6 +194,8 @@ func (h *Handler) handleMessage(msg *tgbotapi.Message) {
 		h.finishNewTopic(msg, userID, text)
 	case StateWaitingSetTopic:
 		h.finishSetTopic(msg, userID, text)
+	case StateWaitingNewFolder:
+		h.finishNewFolder(msg, userID, text)
 	default:
 		// Обрезаем @bot_username из SwitchInlineQuery
 		if idx := strings.Index(text, "\n"); idx != -1 {
@@ -236,6 +250,10 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 	if data == "backtolist" {
 		h.callbackBackToList(chatID, msgID, userID)
+		return
+	}
+	if data == "backfolder" {
+		h.callbackBackFolder(chatID, msgID, userID)
 		return
 	}
 
@@ -333,6 +351,14 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		h.callbackReminderMenu(chatID, msgID, userID, id)
+	case "openfolder":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackOpenFolder(chatID, msgID, userID, id)
+	case "backfolder":
+		h.callbackBackFolder(chatID, msgID, userID)
 	}
 }
 
@@ -406,7 +432,7 @@ func (h *Handler) showTopics(chatID int64, msgID int, userID int64) {
 
 	counts := make(map[int64]int)
 	for _, t := range topics {
-		c, _ := h.noteService.CountNotes(userID, t.ID)
+		c, _ := h.noteService.CountNotes(userID, t.ID, nil)
 		counts[t.ID] = c
 	}
 
@@ -436,6 +462,16 @@ func (h *Handler) cmdNewTopic(msg *tgbotapi.Message, userID int64, args string) 
 		return
 	}
 	h.doNewTopic(msg.Chat.ID, userID, name)
+}
+
+func (h *Handler) cmdNewFolder(msg *tgbotapi.Message, userID int64, args string) {
+	name := strings.TrimSpace(args)
+	if name == "" {
+		h.states.SetState(userID, StateWaitingNewFolder)
+		h.send(msg.Chat.ID, "📁 Введите название новой папки:")
+		return
+	}
+	h.doNewFolder(msg.Chat.ID, userID, name)
 }
 
 func (h *Handler) cmdSetTopic(msg *tgbotapi.Message, userID int64, args string) {
@@ -496,21 +532,45 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	const perPage = 10
 	session := h.states.Get(userID)
 	topicID := session.CurrentTopicID
-	notes, err := h.noteService.ListNotes(userID, topicID)
+	folderID := session.CurrentFolderID
+
+	// Получаем папки в текущем контексте (только если выбран топик)
+	var folders []model.Folder
+	var folderChain []model.Folder
+	if topicID != 0 {
+		folders, _ = h.folderService.ListFolders(userID, topicID, folderID)
+		if folderID != nil {
+			folderChain, _ = h.folderService.GetFolderChain(*folderID)
+		}
+	}
+
+	notes, err := h.noteService.ListNotes(userID, topicID, folderID)
 	if err != nil {
 		h.send(chatID, fmt.Sprintf("❌ %v", err))
 		return
 	}
 
-	header := fmt.Sprintf("┄ 📝 Все · %d ┄", len(notes))
-	if topicID != 0 {
-		t, err := h.topicService.GetTopic(userID, topicID)
-		if err == nil {
-			header = fmt.Sprintf("┄ %s · %d ┄", t.Name, len(notes))
+	totalItems := len(folders) + len(notes)
+
+	// Пустой список
+	if totalItems == 0 {
+		text, markup := buildListMessage(nil, topicID, folderID, folderChain, 0, 1)
+		if msgID != 0 {
+			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+			if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+				return
+			}
 		}
+		msg := h.newMsg(chatID, text)
+		msg.ReplyMarkup = markup
+		sent, err := h.api.Send(msg)
+		if err == nil {
+			h.states.Get(userID).LastListMsgID = sent.MessageID
+		}
+		return
 	}
 
-	totalPages := (len(notes) + perPage - 1) / perPage
+	totalPages := (totalItems + perPage - 1) / perPage
 	if totalPages == 0 {
 		totalPages = 1
 	}
@@ -521,36 +581,26 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		page = totalPages - 1
 	}
 
-	emptyText := "📝"
-	headerBtn := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(header, "topics:0"),
-		),
-	)
-	if len(notes) == 0 {
-		if msgID != 0 {
-			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, emptyText, headerBtn)
-			if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
-				return
-			}
-		}
-		msg := h.newMsg(chatID, emptyText)
-		msg.ReplyMarkup = headerBtn
-		sent, err := h.api.Send(msg)
-		if err == nil {
-			h.states.Get(userID).LastListMsgID = sent.MessageID
-		}
-		return
-	}
-
 	start := page * perPage
 	end := start + perPage
-	if end > len(notes) {
-		end = len(notes)
+	if end > totalItems {
+		end = totalItems
 	}
-	pageNotes := notes[start:end]
 
-	text, markup := buildListMessage(pageNotes, header, topicID, page, totalPages)
+	// Собираем элементы текущей страницы: сначала папки, потом заметки
+	var pageItems []listItem
+	for i := start; i < end; i++ {
+		if i < len(folders) {
+			pageItems = append(pageItems, listItem{isFolder: true, folder: folders[i]})
+		} else {
+			noteIdx := i - len(folders)
+			if noteIdx < len(notes) {
+				pageItems = append(pageItems, listItem{isFolder: false, note: notes[noteIdx]})
+			}
+		}
+	}
+
+	text, markup := buildListMessage(pageItems, topicID, folderID, folderChain, page, totalPages)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -730,6 +780,11 @@ func (h *Handler) finishSetTopic(msg *tgbotapi.Message, userID int64, text strin
 	h.doSetTopic(msg.Chat.ID, userID, id)
 }
 
+func (h *Handler) finishNewFolder(msg *tgbotapi.Message, userID int64, text string) {
+	h.states.Reset(userID)
+	h.doNewFolder(msg.Chat.ID, userID, text)
+}
+
 // ============================================================
 // Action implementations
 // ============================================================
@@ -798,17 +853,42 @@ func (h *Handler) doNewTopic(chatID int64, userID int64, name string) {
 	h.send(chatID, fmt.Sprintf("📂 Топик «%s» создан (#%d).", t.Name, t.ID))
 }
 
+func (h *Handler) doNewFolder(chatID int64, userID int64, name string) {
+	session := h.states.Get(userID)
+	topicID := session.CurrentTopicID
+
+	if topicID == 0 {
+		h.send(chatID, "❌ Сначала выберите топик — папки создаются внутри топика.")
+		return
+	}
+
+	if name == "" {
+		h.send(chatID, "❌ Название папки не может быть пустым.")
+		return
+	}
+
+	f, err := h.folderService.CreateFolder(userID, topicID, session.CurrentFolderID, name)
+	if err != nil {
+		h.send(chatID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	h.send(chatID, fmt.Sprintf("📁 Папка «%s» создана (#%d).", f.Name, f.ID))
+	h.refreshList(chatID, userID)
+}
+
 func (h *Handler) doSetTopic(chatID int64, userID int64, topicID int64) {
+	session := h.states.Get(userID)
 	if topicID != 0 {
 		_, err := h.topicService.GetTopic(userID, topicID)
 		if err != nil {
 			h.send(chatID, fmt.Sprintf("❌ %v", err))
 			return
 		}
-		h.states.Get(userID).CurrentTopicID = topicID
+		session.CurrentTopicID = topicID
 	} else {
-		h.states.Get(userID).CurrentTopicID = 0
+		session.CurrentTopicID = 0
 	}
+	session.CurrentFolderID = nil // сбрасываем папку при смене топика
 	h.showList(chatID, userID)
 }
 
@@ -880,11 +960,12 @@ func (h *Handler) callbackSetPriority(chatID int64, msgID int, userID int64, pri
 	session := h.states.Get(userID)
 	text := session.PendingNoteText
 	topicID := session.PendingNoteTopicID
+	folderID := session.CurrentFolderID
 	lastMsgID := session.LastListMsgID
 
 	h.states.Reset(userID)
 
-	_, err := h.noteService.AddNote(userID, topicID, text, priority)
+	_, err := h.noteService.AddNote(userID, topicID, folderID, text, priority)
 	if err != nil {
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
@@ -929,6 +1010,29 @@ func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, 
 }
 
 func (h *Handler) callbackBackToList(chatID int64, msgID int, userID int64) {
+	h.showListPage(chatID, msgID, userID, 0)
+}
+
+func (h *Handler) callbackOpenFolder(chatID int64, msgID int, userID int64, folderID int64) {
+	session := h.states.Get(userID)
+	session.CurrentFolderID = &folderID
+	h.states.Get(userID).LastListMsgID = msgID
+	h.showListPage(chatID, msgID, userID, 0)
+}
+
+func (h *Handler) callbackBackFolder(chatID int64, msgID int, userID int64) {
+	session := h.states.Get(userID)
+	if session.CurrentFolderID == nil {
+		// Уже в корне — возвращаемся к списку топиков
+		return
+	}
+	// Поднимаемся на уровень выше: ищем родительскую папку
+	currentFolder, err := h.folderService.GetFolder(userID, *session.CurrentFolderID)
+	if err != nil {
+		session.CurrentFolderID = nil
+	} else {
+		session.CurrentFolderID = currentFolder.ParentFolderID
+	}
 	h.showListPage(chatID, msgID, userID, 0)
 }
 

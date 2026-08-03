@@ -10,12 +10,12 @@ import (
 // NoteRepository — интерфейс хранилища заметок (определён потребителем — сервисом).
 type NoteRepository interface {
 	CreateNote(note model.Note) (model.Note, error)
-	ListNotes(userID, topicID int64) ([]model.Note, error)
+	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
 	GetNoteByID(noteID int64) (model.Note, error)
 	UpdateNote(note model.Note) error
 	DeleteNote(userID, noteID int64) error
-	CountNotes(userID, topicID int64) (int, error)
+	CountNotes(userID, topicID int64, folderID *int64) (int, error)
 	ListArchived(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
 	HasAnyData(userID int64) bool
@@ -30,18 +30,28 @@ type TopicRepository interface {
 	DeleteTopic(userID, topicID int64) error
 }
 
+// FolderRepository — интерфейс хранилища папок (определён потребителем — сервисом).
+type FolderRepository interface {
+	CreateFolder(folder model.Folder) (model.Folder, error)
+	ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error)
+	GetFolder(userID, folderID int64) (model.Folder, error)
+	GetFolderChain(folderID int64) ([]model.Folder, error) // путь от корня до папки
+}
+
 // Service — сервисный слой, оркеструет бизнес-операции.
 type Service struct {
-	mu        sync.Mutex
-	noteRepo  NoteRepository
-	topicRepo TopicRepository
+	mu         sync.Mutex
+	noteRepo   NoteRepository
+	topicRepo  TopicRepository
+	folderRepo FolderRepository
 }
 
 // NewService создаёт новый сервис.
-func NewService(noteRepo NoteRepository, topicRepo TopicRepository) *Service {
+func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo FolderRepository) *Service {
 	return &Service{
-		noteRepo:  noteRepo,
-		topicRepo: topicRepo,
+		noteRepo:   noteRepo,
+		topicRepo:  topicRepo,
+		folderRepo: folderRepo,
 	}
 }
 
@@ -80,11 +90,11 @@ func (s *Service) DeleteTopic(userID, topicID int64) error {
 // --- Notes ---
 
 // AddNote добавляет новую заметку с указанным приоритетом.
-func (s *Service) AddNote(userID, topicID int64, text string, priority int) (model.Note, error) {
+func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, priority int) (model.Note, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	note, err := model.NewNote(userID, topicID, text)
+	note, err := model.NewNote(userID, topicID, folderID, text)
 	if err != nil {
 		return model.Note{}, err
 	}
@@ -93,9 +103,9 @@ func (s *Service) AddNote(userID, topicID int64, text string, priority int) (mod
 	return s.noteRepo.CreateNote(*note)
 }
 
-// ListNotes возвращает список заметок пользователя (с фильтрацией по топику).
-func (s *Service) ListNotes(userID, topicID int64) ([]model.Note, error) {
-	return s.noteRepo.ListNotes(userID, topicID)
+// ListNotes возвращает список заметок пользователя (с фильтрацией по топику и папке).
+func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error) {
+	return s.noteRepo.ListNotes(userID, topicID, folderID)
 }
 
 // GetNote возвращает заметку по ID.
@@ -221,8 +231,8 @@ func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
 }
 
 // CountNotes возвращает количество активных заметок.
-func (s *Service) CountNotes(userID, topicID int64) (int, error) {
-	return s.noteRepo.CountNotes(userID, topicID)
+func (s *Service) CountNotes(userID, topicID int64, folderID *int64) (int, error) {
+	return s.noteRepo.CountNotes(userID, topicID, folderID)
 }
 
 // ListArchived возвращает список архивных заметок.
@@ -266,4 +276,34 @@ func (s *Service) SeedDefaults(userID int64) error {
 	_, _ = s.noteRepo.CreateNote(model.Note{UserID: userID, TopicID: work.ID, Text: "Созвон с командой в 15:00"})
 
 	return nil
+}
+
+// --- Folders ---
+
+// CreateFolder создаёт новую папку.
+func (s *Service) CreateFolder(userID, topicID int64, parentFolderID *int64, name string) (model.Folder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	folder, err := model.NewFolder(userID, topicID, parentFolderID, name)
+	if err != nil {
+		return model.Folder{}, err
+	}
+
+	return s.folderRepo.CreateFolder(*folder)
+}
+
+// ListFolders возвращает список папок в указанном месте.
+func (s *Service) ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error) {
+	return s.folderRepo.ListFolders(userID, topicID, parentFolderID)
+}
+
+// GetFolder возвращает папку по ID.
+func (s *Service) GetFolder(userID, folderID int64) (model.Folder, error) {
+	return s.folderRepo.GetFolder(userID, folderID)
+}
+
+// GetFolderChain возвращает цепочку папок от корня до указанной.
+func (s *Service) GetFolderChain(folderID int64) ([]model.Folder, error) {
+	return s.folderRepo.GetFolderChain(folderID)
 }

@@ -13,12 +13,14 @@ const (
 	StateWaitingArchiveID
 	StateWaitingNewTopic
 	StateWaitingSetTopic
+	StateWaitingNewFolder
 )
 
 // UserSession хранит состояние и контекст пользователя.
 type UserSession struct {
 	State              State
 	CurrentTopicID     int64  // 0 — без топика
+	CurrentFolderID    *int64 // nil — корень топика (не в папке)
 	EditNoteID         int64  // ID заметки для редактирования в StateWaitingEditText
 	LastViewedNoteID   int64  // ID последней просмотренной заметки (для SwitchInlineQuery)
 	LastListMsgID      int    // ID последнего сообщения со списком

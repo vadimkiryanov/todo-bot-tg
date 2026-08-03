@@ -18,6 +18,7 @@ func main() {
 	// 1. Репозитории
 	var noteRepo todo.NoteRepository
 	var topicRepo todo.TopicRepository
+	var folderRepo todo.FolderRepository
 
 	if cfg.DatabaseURL != "" {
 		pgStore, err := repo.NewPostgresStore(cfg.DatabaseURL)
@@ -27,19 +28,21 @@ func main() {
 		defer pgStore.Close()
 		noteRepo = pgStore
 		topicRepo = pgStore
+		folderRepo = pgStore
 		log.Println("Хранилище: PostgreSQL")
 	} else {
 		memStore := repo.NewMemStore()
 		noteRepo = memStore
 		topicRepo = memStore
+		folderRepo = memStore
 		log.Println("Хранилище: in-memory (DATABASE_URL не задан)")
 	}
 
 	// 2. Сервис
-	svc := todo.NewService(noteRepo, topicRepo)
+	svc := todo.NewService(noteRepo, topicRepo, folderRepo)
 
 	// 3. Handler
-	h, err := telegram.NewHandler(cfg.Token, svc, svc)
+	h, err := telegram.NewHandler(cfg.Token, svc, svc, svc)
 	if err != nil {
 		log.Fatalf("Ошибка создания бота: %v", err)
 	}
