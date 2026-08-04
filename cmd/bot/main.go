@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"todo-bot-tg/config"
 	"todo-bot-tg/internal/handler/telegram"
@@ -14,6 +18,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Ошибка конфигурации: %v", err)
 	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	// 1. Репозитории
 	var noteRepo todo.NoteRepository
@@ -49,7 +56,22 @@ func main() {
 
 	log.Println("Бот запущен...")
 	h.StartReminderWorker()
-	if err := h.Run(); err != nil {
-		log.Fatalf("Ошибка работы бота: %v", err)
+
+	// Запускаем Run в горутине, ждём сигнал или ошибку
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- h.Run()
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Println("Получен сигнал остановки, завершаем...")
+		h.Stop()
+	case err := <-errCh:
+		if err != nil {
+			log.Fatalf("Ошибка работы бота: %v", err)
+		}
 	}
+
+	log.Println("Бот остановлен.")
 }

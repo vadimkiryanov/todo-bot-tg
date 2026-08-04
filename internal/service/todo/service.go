@@ -20,6 +20,7 @@ type NoteRepository interface {
 	CountArchived(userID int64) (int, error)
 	HasAnyData(userID int64) bool
 	GetPendingReminders() ([]model.Note, error)
+	MoveNote(userID, noteID int64, topicID int64, folderID *int64) error
 }
 
 // TopicRepository — интерфейс хранилища топиков (определён потребителем — сервисом).
@@ -306,4 +307,11 @@ func (s *Service) GetFolder(userID, folderID int64) (model.Folder, error) {
 // GetFolderChain возвращает цепочку папок от корня до указанной.
 func (s *Service) GetFolderChain(folderID int64) ([]model.Folder, error) {
 	return s.folderRepo.GetFolderChain(folderID)
+}
+
+// MoveNote перемещает заметку в другой топик и/или папку.
+func (s *Service) MoveNote(userID, noteID int64, topicID int64, folderID *int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.noteRepo.MoveNote(userID, noteID, topicID, folderID)
 }

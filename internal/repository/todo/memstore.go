@@ -374,3 +374,18 @@ func (s *MemStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
 
 // compile-time assertion
 var _ = fmt.Sprintf("%T", (*MemStore)(nil))
+
+// MoveNote перемещает заметку в другой топик и/или папку.
+func (s *MemStore) MoveNote(userID, noteID int64, topicID int64, folderID *int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	n, ok := s.notes[noteID]
+	if !ok || n.UserID != userID {
+		return errors.ErrNoteNotFound
+	}
+	n.TopicID = topicID
+	n.FolderID = folderID
+	s.notes[noteID] = n
+	return nil
+}

@@ -228,10 +228,12 @@ func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarku
 	}
 	remBtn := tgbotapi.NewInlineKeyboardButtonData("⏰", remCallback)
 
+	moveBtn := tgbotapi.NewInlineKeyboardButtonData("🗂️♻️", fmt.Sprintf("move:%d", note.ID))
+
 	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist")
 
 	return text, tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn, archBtn, prioBtn, remBtn),
+		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn, archBtn, prioBtn, remBtn, moveBtn),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)
 }
@@ -347,6 +349,59 @@ func translit(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// buildMovePicker строит пикер для перемещения заметки в папку или топик.
+func buildMovePicker(note model.Note, currentTopicID int64, folders []model.Folder, allTopics []model.Topic) (string, tgbotapi.InlineKeyboardMarkup) {
+	text := fmt.Sprintf("📌 Переместить *#%d*", note.ID)
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	// Текущий топик: корень
+	currentTopicName := ""
+	for _, t := range allTopics {
+		if t.ID == currentTopicID {
+			currentTopicName = t.Name
+			break
+		}
+	}
+
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData(
+			fmt.Sprintf("[📌🗂️ %s]", currentTopicName),
+			fmt.Sprintf("moveto:%d:%d:-1", note.ID, currentTopicID),
+		),
+	))
+
+	// Папки текущего топика
+	for _, f := range folders {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(
+				fmt.Sprintf("[📁 %s]", f.Name),
+				fmt.Sprintf("moveto:%d:%d:%d", note.ID, currentTopicID, f.ID),
+			),
+		))
+	}
+
+	// Другие топики
+	for _, t := range allTopics {
+		if t.ID == currentTopicID {
+			continue
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(
+				fmt.Sprintf("[🗂️ %s]", t.Name),
+				fmt.Sprintf("moveto:%d:%d:-1", note.ID, t.ID),
+			),
+		))
+	}
+
+	backBtn := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("view:%d", note.ID)),
+	)
+	rows = append(rows, backBtn)
+
+	return text, tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
 // sanitize подготавливает имя для использования в /команде:

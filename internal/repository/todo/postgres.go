@@ -370,6 +370,22 @@ func (s *PostgresStore) HasAnyData(userID int64) bool {
 	return count > 0
 }
 
+// MoveNote перемещает заметку в другой топик и/или папку.
+func (s *PostgresStore) MoveNote(userID, noteID int64, topicID int64, folderID *int64) error {
+	res, err := s.db.Exec(
+		`UPDATE notes SET topic_id = $1, folder_id = $2 WHERE id = $3 AND user_id = $4`,
+		topicID, folderID, noteID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("перемещение заметки: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return errors.ErrNoteNotFound
+	}
+	return nil
+}
+
 // --- Folders ---
 
 func (s *PostgresStore) CreateFolder(folder model.Folder) (model.Folder, error) {

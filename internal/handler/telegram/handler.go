@@ -31,6 +31,7 @@ type NoteService interface {
 	ListArchived(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
 	SeedDefaults(userID int64) error
+	MoveNote(userID, noteID int64, topicID int64, folderID *int64) error
 }
 
 // TopicService — интерфейс сервиса топиков (определён потребителем — handler'ом).
@@ -57,6 +58,7 @@ type Handler struct {
 	folderService FolderService
 	states        *StateManager
 	selfUsername  string // @-имя бота для обрезки SwitchInlineQuery
+	stopCh        chan struct{}
 }
 
 // NewHandler создаёт новый Handler.
@@ -73,6 +75,7 @@ func NewHandler(token string, noteService NoteService, topicService TopicService
 		folderService: folderService,
 		states:        NewStateManager(),
 		selfUsername:  "@" + api.Self.UserName,
+		stopCh:        make(chan struct{}),
 	}
 
 	if err := h.registerCommands(); err != nil {
@@ -110,17 +113,28 @@ func (h *Handler) StartReminderWorker() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			notes, err := h.noteService.ProcessPendingReminders()
-			if err != nil {
-				continue
-			}
-			for _, n := range notes {
-				text := fmt.Sprintf("⏰ Напоминание:\n\n%s", n.Text)
-				h.send(n.UserID, text)
+		for {
+			select {
+			case <-h.stopCh:
+				return
+			case <-ticker.C:
+				notes, err := h.noteService.ProcessPendingReminders()
+				if err != nil {
+					continue
+				}
+				for _, n := range notes {
+					text := fmt.Sprintf("⏰ Напоминание:\n\n%s", n.Text)
+					h.send(n.UserID, text)
+				}
 			}
 		}
 	}()
+}
+
+// Stop останавливает получение обновлений и фоновые процессы.
+func (h *Handler) Stop() {
+	h.api.StopReceivingUpdates()
+	close(h.stopCh)
 }
 
 // --- Commands ---
@@ -358,12 +372,20 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		h.callbackReminderMenu(chatID, msgID, userID, id)
+	case "move":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackMovePicker(chatID, msgID, userID, id)
 	case "openfolder":
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			return
 		}
 		h.callbackOpenFolder(chatID, msgID, userID, id)
+	case "moveto":
+		h.callbackMoveTo(chatID, msgID, userID, idStr)
 	case "backfolder":
 		h.callbackBackFolder(chatID, msgID, userID)
 	}
@@ -1237,6 +1259,76 @@ func (h *Handler) callbackClearReminder(chatID int64, msgID int, userID int64, n
 	if lastMsgID != 0 && lastMsgID != msgID {
 		h.showListPage(chatID, lastMsgID, userID, 0)
 	}
+}
+
+// --- Reminder params parsing helpers ---
+
+// callbackMovePicker показывает пикер для перемещения заметки.
+func (h *Handler) callbackMovePicker(chatID int64, msgID int, userID int64, noteID int64) {
+	note, err := h.noteService.GetNote(userID, noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	// Определяем топик заметки (или берём текущий)
+	topicID := note.TopicID
+	if topicID == 0 {
+		topicID = h.states.Get(userID).CurrentTopicID
+	}
+
+	// Собираем папки текущего топика и все топики
+	allTopics, _ := h.topicService.ListTopics(userID)
+
+	if len(allTopics) == 0 {
+		// Нет топиков — показываем заглушку с кнопкой «назад»
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, "📁 Нет доступных топиков.", tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("view:%d", noteID)),
+			),
+		))
+		h.api.Send(edit)
+		return
+	}
+
+	if topicID == 0 {
+		topicID = allTopics[0].ID
+	}
+	folders, _ := h.folderService.ListFolders(userID, topicID, nil)
+
+	text, markup := buildMovePicker(note, topicID, folders, allTopics)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+}
+
+// callbackMoveTo выполняет перемещение заметки в выбранный топик/папку.
+func (h *Handler) callbackMoveTo(chatID int64, msgID int, userID int64, params string) {
+	parts := strings.Split(params, ":")
+	if len(parts) != 3 {
+		return
+	}
+
+	noteID, _ := strconv.ParseInt(parts[0], 10, 64)
+	topicID, _ := strconv.ParseInt(parts[1], 10, 64)
+	folderIDStr := parts[2]
+
+	var folderID *int64
+	if folderIDStr != "-1" {
+		fid, err := strconv.ParseInt(folderIDStr, 10, 64)
+		if err != nil {
+			return
+		}
+		folderID = &fid
+	}
+
+	if err := h.noteService.MoveNote(userID, noteID, topicID, folderID); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	// Перерисовываем список
+	h.refreshList(chatID, userID)
 }
 
 // --- Reminder params parsing helpers ---
