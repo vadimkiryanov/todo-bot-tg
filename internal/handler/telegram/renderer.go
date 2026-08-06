@@ -93,12 +93,12 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 	// Текст сообщения — breadcrumb
 	var text string
 	if topicID != 0 {
-		text = "🏠 /topics"
+		text = "🏠 /TOPICS"
 		if topicName != "" {
-			text += fmt.Sprintf(" › /%s", sanitize(topicName))
+			text += fmt.Sprintf(" › /%s", strings.ToUpper(sanitize(topicName)))
 		}
 		for _, f := range folderChain {
-			text += fmt.Sprintf(" › /%s", sanitize(f.Name))
+			text += fmt.Sprintf(" › /%s", strings.ToUpper(sanitize(f.Name)))
 		}
 	} else {
 		text = "📝 Все заметки"

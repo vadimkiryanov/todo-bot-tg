@@ -141,7 +141,7 @@ func (h *Handler) Stop() {
 
 func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 	userID := msg.From.ID
-	cmd := msg.Command()
+	cmd := strings.ToLower(msg.Command())
 	args := msg.CommandArguments()
 
 	h.states.Reset(userID)
@@ -1112,14 +1112,14 @@ func (h *Handler) tryNavigateFolder(msg *tgbotapi.Message, userID int64, cmd str
 	}
 
 	// Ключ для сравнения: команда + аргументы через _ (как в breadcrumb)
-	key := cmd
+	key := strings.ToUpper(cmd)
 	if args != "" {
-		key = cmd + "_" + strings.ReplaceAll(args, " ", "_")
+		key = strings.ToUpper(cmd) + "_" + strings.ToUpper(strings.ReplaceAll(args, " ", "_"))
 	}
 
 	// matchKey возвращает ключ для сравнения с командой
 	matchKey := func(name string) string {
-		return sanitize(name)
+		return strings.ToUpper(sanitize(name))
 	}
 
 	// Проверяем имя топика — переход в корень топика
