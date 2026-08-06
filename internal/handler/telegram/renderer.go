@@ -351,55 +351,76 @@ func translit(s string) string {
 	return b.String()
 }
 
-// buildMovePicker строит пикер для перемещения заметки в папку или топик.
-func buildMovePicker(note model.Note, currentTopicID int64, folders []model.Folder, allTopics []model.Topic) (string, tgbotapi.InlineKeyboardMarkup) {
-	text := fmt.Sprintf("📌 Переместить *#%d*", note.ID)
+// buildMoveNavigator строит навигатор для перемещения заметки — с возможностью
+// заходить в подпапки и вставлять на любом уровне.
+func buildMoveNavigator(
+	note model.Note,
+	currentTopicID int64,
+	currentFolderID *int64,
+	folders []model.Folder,
+	folderChain []model.Folder,
+	allTopics []model.Topic,
+) (string, tgbotapi.InlineKeyboardMarkup) {
+	text := fmt.Sprintf("Переместить *[#%d]*", note.ID)
 
-	var rows [][]tgbotapi.InlineKeyboardButton
-
-	// Текущий топик: корень
-	currentTopicName := ""
+	// Имя текущего топика
+	topicName := ""
 	for _, t := range allTopics {
 		if t.ID == currentTopicID {
-			currentTopicName = t.Name
+			topicName = fmt.Sprintf("Топик: [%s]", t.Name)
 			break
 		}
 	}
 
+	// Breadcrumb
+	if topicName != "" {
+		text += "\n🗓 " + tgbotapi.EscapeText(tgbotapi.ModeMarkdown, topicName)
+		for _, f := range folderChain {
+			text += " › " + tgbotapi.EscapeText(tgbotapi.ModeMarkdown, f.Name)
+		}
+	}
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	// 📌 Вставить сюда
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData(
-			fmt.Sprintf("[📌🗂️ %s]", currentTopicName),
-			fmt.Sprintf("moveto:%d:%d:-1", note.ID, currentTopicID),
-		),
+		tgbotapi.NewInlineKeyboardButtonData("[Вставить сюда 📩]", "moveinsert"),
 	))
 
-	// Папки текущего топика
+	// Папки (можно зайти внутрь)
 	for _, f := range folders {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(
-				fmt.Sprintf("[📁 %s]", f.Name),
-				fmt.Sprintf("moveto:%d:%d:%d", note.ID, currentTopicID, f.ID),
+				fmt.Sprintf("📁 %s", f.Name),
+				fmt.Sprintf("movepick:%d", f.ID),
 			),
 		))
 	}
 
-	// Другие топики
+	// 📤 На уровень выше (если не в корне)
+	if currentFolderID != nil {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📤 На уровень выше", "moveup"),
+		))
+	}
+
+	// Другие топики (переключение контекста)
 	for _, t := range allTopics {
 		if t.ID == currentTopicID {
 			continue
 		}
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(
-				fmt.Sprintf("[🗂️ %s]", t.Name),
-				fmt.Sprintf("moveto:%d:%d:-1", note.ID, t.ID),
+				fmt.Sprintf("🗂️ %s", t.Name),
+				fmt.Sprintf("movetopic:%d", t.ID),
 			),
 		))
 	}
 
-	backBtn := tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("view:%d", note.ID)),
-	)
-	rows = append(rows, backBtn)
+	// Отмена
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("◀️ Отмена", fmt.Sprintf("movecancel:%d", note.ID)),
+	))
 
 	return text, tgbotapi.NewInlineKeyboardMarkup(rows...)
 }

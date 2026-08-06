@@ -277,6 +277,14 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 		h.callbackAddNote(chatID, userID)
 		return
 	}
+	if data == "moveup" {
+		h.callbackMoveUp(chatID, msgID, userID)
+		return
+	}
+	if data == "moveinsert" {
+		h.callbackMoveInsert(chatID, msgID, userID)
+		return
+	}
 
 	parts := strings.SplitN(data, ":", 2)
 	if len(parts) != 2 {
@@ -378,14 +386,30 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		h.callbackMovePicker(chatID, msgID, userID, id)
+	case "movepick":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackMoveNavigate(chatID, msgID, userID, id)
+	case "movetopic":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackMoveTopic(chatID, msgID, userID, id)
+	case "movecancel":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackMoveCancel(chatID, msgID, userID, id)
 	case "openfolder":
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			return
 		}
 		h.callbackOpenFolder(chatID, msgID, userID, id)
-	case "moveto":
-		h.callbackMoveTo(chatID, msgID, userID, idStr)
 	case "backfolder":
 		h.callbackBackFolder(chatID, msgID, userID)
 	}
@@ -1263,7 +1287,30 @@ func (h *Handler) callbackClearReminder(chatID int64, msgID int, userID int64, n
 
 // --- Reminder params parsing helpers ---
 
-// callbackMovePicker показывает пикер для перемещения заметки.
+// showMoveNavigator отрисовывает навигатор перемещения на основе текущего состояния сессии.
+func (h *Handler) showMoveNavigator(chatID int64, msgID int, userID int64) {
+	session := h.states.Get(userID)
+	note, err := h.noteService.GetNote(userID, session.MoveNoteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	allTopics, _ := h.topicService.ListTopics(userID)
+	folders, _ := h.folderService.ListFolders(userID, session.MoveTopicID, session.MoveCurrentFolderID)
+
+	var folderChain []model.Folder
+	if session.MoveCurrentFolderID != nil {
+		folderChain, _ = h.folderService.GetFolderChain(*session.MoveCurrentFolderID)
+	}
+
+	text, markup := buildMoveNavigator(note, session.MoveTopicID, session.MoveCurrentFolderID, folders, folderChain, allTopics)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+}
+
+// callbackMovePicker инициализирует режим перемещения заметки.
 func (h *Handler) callbackMovePicker(chatID int64, msgID int, userID int64, noteID int64) {
 	note, err := h.noteService.GetNote(userID, noteID)
 	if err != nil {
@@ -1277,58 +1324,75 @@ func (h *Handler) callbackMovePicker(chatID int64, msgID int, userID int64, note
 		topicID = h.states.Get(userID).CurrentTopicID
 	}
 
-	// Собираем папки текущего топика и все топики
 	allTopics, _ := h.topicService.ListTopics(userID)
-
-	if len(allTopics) == 0 {
-		// Нет топиков — показываем заглушку с кнопкой «назад»
-		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, "📁 Нет доступных топиков.", tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("view:%d", noteID)),
-			),
-		))
-		h.api.Send(edit)
-		return
-	}
-
-	if topicID == 0 {
+	if topicID == 0 && len(allTopics) > 0 {
 		topicID = allTopics[0].ID
 	}
-	folders, _ := h.folderService.ListFolders(userID, topicID, nil)
 
-	text, markup := buildMovePicker(note, topicID, folders, allTopics)
-	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
-	h.api.Send(edit)
+	// Устанавливаем состояние перемещения
+	session := h.states.Get(userID)
+	session.MoveNoteID = noteID
+	session.MoveTopicID = topicID
+	session.MoveCurrentFolderID = nil // начинаем с корня топика
+
+	h.showMoveNavigator(chatID, msgID, userID)
 }
 
-// callbackMoveTo выполняет перемещение заметки в выбранный топик/папку.
-func (h *Handler) callbackMoveTo(chatID int64, msgID int, userID int64, params string) {
-	parts := strings.Split(params, ":")
-	if len(parts) != 3 {
-		return
+// callbackMoveNavigate заходит в папку в режиме перемещения.
+func (h *Handler) callbackMoveNavigate(chatID int64, msgID int, userID int64, folderID int64) {
+	session := h.states.Get(userID)
+	session.MoveCurrentFolderID = &folderID
+	h.showMoveNavigator(chatID, msgID, userID)
+}
+
+// callbackMoveUp поднимается на уровень выше в режиме перемещения.
+func (h *Handler) callbackMoveUp(chatID int64, msgID int, userID int64) {
+	session := h.states.Get(userID)
+	if session.MoveCurrentFolderID == nil {
+		return // уже в корне
 	}
-
-	noteID, _ := strconv.ParseInt(parts[0], 10, 64)
-	topicID, _ := strconv.ParseInt(parts[1], 10, 64)
-	folderIDStr := parts[2]
-
-	var folderID *int64
-	if folderIDStr != "-1" {
-		fid, err := strconv.ParseInt(folderIDStr, 10, 64)
-		if err != nil {
-			return
-		}
-		folderID = &fid
+	folder, err := h.folderService.GetFolder(userID, *session.MoveCurrentFolderID)
+	if err != nil {
+		session.MoveCurrentFolderID = nil
+	} else {
+		session.MoveCurrentFolderID = folder.ParentFolderID
 	}
+	h.showMoveNavigator(chatID, msgID, userID)
+}
 
-	if err := h.noteService.MoveNote(userID, noteID, topicID, folderID); err != nil {
+// callbackMoveInsert выполняет вставку заметки в текущую позицию навигатора.
+func (h *Handler) callbackMoveInsert(chatID int64, msgID int, userID int64) {
+	session := h.states.Get(userID)
+
+	if err := h.noteService.MoveNote(userID, session.MoveNoteID, session.MoveTopicID, session.MoveCurrentFolderID); err != nil {
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}
 
+	// Сбрасываем состояние перемещения
+	session.MoveNoteID = 0
+	session.MoveTopicID = 0
+	session.MoveCurrentFolderID = nil
+
 	// Перерисовываем список
 	h.refreshList(chatID, userID)
+}
+
+// callbackMoveTopic переключает топик в режиме перемещения.
+func (h *Handler) callbackMoveTopic(chatID int64, msgID int, userID int64, topicID int64) {
+	session := h.states.Get(userID)
+	session.MoveTopicID = topicID
+	session.MoveCurrentFolderID = nil // сбрасываем на корень нового топика
+	h.showMoveNavigator(chatID, msgID, userID)
+}
+
+// callbackMoveCancel отменяет перемещение и возвращает к просмотру заметки.
+func (h *Handler) callbackMoveCancel(chatID int64, msgID int, userID int64, noteID int64) {
+	session := h.states.Get(userID)
+	session.MoveNoteID = 0
+	session.MoveTopicID = 0
+	session.MoveCurrentFolderID = nil
+	h.callbackViewNote(chatID, msgID, userID, noteID)
 }
 
 // --- Reminder params parsing helpers ---

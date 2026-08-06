@@ -28,6 +28,11 @@ type UserSession struct {
 	PendingNoteTopicID int64  // топик для заметки, ожидающей приоритет
 	PromptMsgID        int    // ID сообщения-подсказки для удаления
 	PendingCmdMsgID    int    // ID сообщения-команды (для удаления после finish)
+
+	// Режим перемещения
+	MoveNoteID          int64  // ID заметки, которую перемещаем
+	MoveTopicID         int64  // топик, в контексте которого перемещаем
+	MoveCurrentFolderID *int64 // текущая папка в навигаторе перемещения (nil = корень)
 }
 
 // StateManager управляет состояниями пользователей.

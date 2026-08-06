@@ -309,9 +309,9 @@ func TestBuildMinutePicker(t *testing.T) {
 	}
 }
 
-// --- buildMovePicker ---
+// --- buildMoveNavigator ---
 
-func TestBuildMovePicker(t *testing.T) {
+func TestBuildMoveNavigator(t *testing.T) {
 	note := model.Note{ID: 42}
 	folders := []model.Folder{
 		{ID: 1, Name: "Folder 1"},
@@ -320,11 +320,33 @@ func TestBuildMovePicker(t *testing.T) {
 		{ID: 1, Name: "Current"},
 		{ID: 2, Name: "Other"},
 	}
-	text, markup := buildMovePicker(note, 1, folders, topics)
+	text, markup := buildMoveNavigator(note, 1, nil, folders, nil, topics)
 	if !strings.Contains(text, "#42") {
 		t.Errorf("text does not contain note ID: %q", text)
 	}
-	// current topic + 1 folder + 1 other topic + back
+	// insert + 1 folder + 1 other topic + cancel = 4 rows
+	if len(markup.InlineKeyboard) != 4 {
+		t.Errorf("keyboard rows = %d, want 4", len(markup.InlineKeyboard))
+	}
+}
+
+func TestBuildMoveNavigator_InSubfolder(t *testing.T) {
+	note := model.Note{ID: 10}
+	folders := []model.Folder{
+		{ID: 3, Name: "Sub"},
+	}
+	topics := []model.Topic{
+		{ID: 1, Name: "T1"},
+	}
+	folderChain := []model.Folder{
+		{ID: 2, Name: "Parent"},
+	}
+	fldID := int64(2)
+	text, markup := buildMoveNavigator(note, 1, &fldID, folders, folderChain, topics)
+	if !strings.Contains(text, "Parent") {
+		t.Errorf("text does not contain parent folder name: %q", text)
+	}
+	// insert + 1 folder + up + cancel = 4 rows
 	if len(markup.InlineKeyboard) != 4 {
 		t.Errorf("keyboard rows = %d, want 4", len(markup.InlineKeyboard))
 	}
