@@ -33,6 +33,11 @@ type UserSession struct {
 	MoveNoteID          int64  // ID заметки, которую перемещаем
 	MoveTopicID         int64  // топик, в контексте которого перемещаем
 	MoveCurrentFolderID *int64 // текущая папка в навигаторе перемещения (nil = корень)
+
+	// Настройки
+	ShowCounts       bool // показывать количество заметок и папок рядом с названиями
+	BreadcrumbInline bool // хлебные крошки inline-кнопками вместо текста
+	ShowKeyboard     bool // показывать быструю клавиатуру
 }
 
 // StateManager управляет состояниями пользователей.

@@ -202,13 +202,49 @@ func TestBuildTopicsMessage(t *testing.T) {
 		{ID: 2, UserID: 1, Name: "💼 Работа"},
 	}
 	counts := map[int64]int{1: 3, 2: 5}
-	text, markup := buildTopicsMessage(topics, 1, 1, counts)
+	text, markup := buildTopicsMessage(topics, 1, 1, counts, nil, true)
 	if !strings.Contains(text, "Топики") {
 		t.Errorf("text does not contain header: %q", text)
 	}
 	// 3 rows: "Все", topic1, topic2
 	if len(markup.InlineKeyboard) != 3 {
 		t.Errorf("keyboard rows = %d, want 3", len(markup.InlineKeyboard))
+	}
+}
+
+// --- TestBuildTopicsMessage_WithFolders ---
+
+func TestBuildTopicsMessage_WithFolders(t *testing.T) {
+	topics := []model.Topic{
+		{ID: 1, UserID: 1, Name: "🏠 Личное"},
+	}
+	counts := map[int64]int{1: 3}
+	folderCounts := map[int64]int{1: 2}
+	text, markup := buildTopicsMessage(topics, 0, 1, counts, folderCounts, true)
+	if !strings.Contains(text, "Топики") {
+		t.Errorf("text does not contain header: %q", text)
+	}
+	btn0 := markup.InlineKeyboard[0][0].Text
+	if !strings.Contains(btn0, "3📝") || !strings.Contains(btn0, "2📁") {
+		t.Errorf("button does not contain counts: %q", btn0)
+	}
+}
+
+// --- TestBuildTopicsMessage_NoCounts ---
+
+func TestBuildTopicsMessage_NoCounts(t *testing.T) {
+	topics := []model.Topic{
+		{ID: 1, UserID: 1, Name: "🏠 Личное"},
+	}
+	counts := map[int64]int{1: 3}
+	folderCounts := map[int64]int{1: 2}
+	text, markup := buildTopicsMessage(topics, 0, 1, counts, folderCounts, false)
+	if !strings.Contains(text, "Топики") {
+		t.Errorf("text does not contain header: %q", text)
+	}
+	btn0 := markup.InlineKeyboard[0][0].Text
+	if strings.Contains(btn0, "📝") || strings.Contains(btn0, "📁") {
+		t.Errorf("button should not contain counts when disabled: %q", btn0)
 	}
 }
 
@@ -242,7 +278,7 @@ func TestBuildArchivedMessage_WithNotes(t *testing.T) {
 // --- buildListMessage ---
 
 func TestBuildListMessage_Empty(t *testing.T) {
-	text, markup := buildListMessage(nil, 0, "", nil, nil, 0, 1)
+	text, markup := buildListMessage(nil, 0, "", nil, nil, 0, 1, true, false)
 	if text == "" {
 		t.Error("buildListMessage() returned empty text")
 	}
@@ -257,7 +293,7 @@ func TestBuildListMessage_WithPagination(t *testing.T) {
 	for i := range items {
 		items[i] = listItem{note: model.Note{ID: int64(i + 1), Text: "Test"}}
 	}
-	text, markup := buildListMessage(items, 0, "", nil, nil, 0, 2)
+	text, markup := buildListMessage(items, 0, "", nil, nil, 0, 2, true, false)
 	if !strings.Contains(text, "Все заметки") {
 		t.Errorf("text does not contain header: %q", text)
 	}

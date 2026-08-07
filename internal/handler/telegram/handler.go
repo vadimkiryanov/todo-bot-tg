@@ -48,6 +48,7 @@ type FolderService interface {
 	ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error)
 	GetFolder(userID, folderID int64) (model.Folder, error)
 	GetFolderChain(folderID int64) ([]model.Folder, error)
+	CountFolders(userID, topicID int64, parentFolderID *int64) (int, error)
 }
 
 // Handler — обработчик обновлений Telegram.
@@ -176,6 +177,8 @@ func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 		h.showArchived(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID)
 	case "newfolder":
 		h.cmdNewFolder(msg, userID, args)
+	case "settings":
+		h.cmdSettings(msg, userID)
 	default:
 		if h.tryNavigateFolder(msg, userID, cmd, args) {
 			return
@@ -412,6 +415,14 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 		h.callbackOpenFolder(chatID, msgID, userID, id)
 	case "backfolder":
 		h.callbackBackFolder(chatID, msgID, userID)
+	case "togglesettings":
+		h.callbackToggleSettings(chatID, msgID, userID, idStr)
+	case "crumb":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackCrumb(chatID, msgID, userID, id)
 	}
 }
 
@@ -432,7 +443,7 @@ func (h *Handler) cmdStart(msg *tgbotapi.Message) {
 		}
 	}
 
-	kbd := h.newMsg(msg.Chat.ID, "👋 Выбери действие:")
+	kbd := h.newMsg(msg.Chat.ID, userID, "👋 Выбери действие:")
 	sent, err := h.api.Send(kbd)
 	if err == nil {
 		h.states.Get(userID).LastListMsgID = sent.MessageID
@@ -442,8 +453,9 @@ func (h *Handler) cmdStart(msg *tgbotapi.Message) {
 func (h *Handler) cmdHelp(msg *tgbotapi.Message) {
 	h.deleteUserMsg(msg)
 
+	userID := msg.From.ID
 	text, markup := buildHelpMessage()
-	msg2 := h.newMsg(msg.Chat.ID, text)
+	msg2 := h.newMsg(msg.Chat.ID, userID, text)
 	msg2.ParseMode = tgbotapi.ModeMarkdown
 	msg2.ReplyMarkup = markup
 	sent, err := h.api.Send(msg2)
@@ -484,12 +496,16 @@ func (h *Handler) showTopics(chatID int64, msgID int, userID int64) {
 	}
 
 	counts := make(map[int64]int)
+	folderCounts := make(map[int64]int)
+	showCounts := h.states.Get(userID).ShowCounts
 	for _, t := range topics {
 		c, _ := h.noteService.CountNotes(userID, t.ID, nil)
 		counts[t.ID] = c
+		fc, _ := h.folderService.CountFolders(userID, t.ID, nil)
+		folderCounts[t.ID] = fc
 	}
 
-	text, markup := buildTopicsMessage(topics, currentID, userID, counts)
+	text, markup := buildTopicsMessage(topics, currentID, userID, counts, folderCounts, showCounts)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -498,7 +514,7 @@ func (h *Handler) showTopics(chatID int64, msgID int, userID int64) {
 			return
 		}
 	}
-	msg := h.newMsg(chatID, text)
+	msg := h.newMsg(chatID, userID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	msg.ReplyMarkup = markup
 	sent, err := h.api.Send(msg)
@@ -617,14 +633,16 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 
 	// Пустой список
 	if totalItems == 0 {
-		text, markup := buildListMessage(nil, topicID, topicName, folderID, folderChain, 0, 1)
+		showCounts := h.states.Get(userID).ShowCounts
+		breadcrumbInline := h.states.Get(userID).BreadcrumbInline
+		text, markup := buildListMessage(nil, topicID, topicName, folderID, folderChain, 0, 1, showCounts, breadcrumbInline)
 		if msgID != 0 {
 			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 			if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
 				return
 			}
 		}
-		msg := h.newMsg(chatID, text)
+		msg := h.newMsg(chatID, userID, text)
 		msg.ReplyMarkup = markup
 		sent, err := h.api.Send(msg)
 		if err == nil {
@@ -651,10 +669,18 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	}
 
 	// Собираем элементы текущей страницы: сначала папки, потом заметки
+	showCounts := h.states.Get(userID).ShowCounts
+	breadcrumbInline := h.states.Get(userID).BreadcrumbInline
 	var pageItems []listItem
 	for i := start; i < end; i++ {
 		if i < len(folders) {
-			pageItems = append(pageItems, listItem{isFolder: true, folder: folders[i]})
+			f := folders[i]
+			item := listItem{isFolder: true, folder: f}
+			if showCounts {
+				item.noteCount, _ = h.noteService.CountNotes(userID, topicID, &f.ID)
+				item.folderCount, _ = h.folderService.CountFolders(userID, topicID, &f.ID)
+			}
+			pageItems = append(pageItems, item)
 		} else {
 			noteIdx := i - len(folders)
 			if noteIdx < len(notes) {
@@ -663,7 +689,7 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		}
 	}
 
-	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages)
+	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, showCounts, breadcrumbInline)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -895,7 +921,7 @@ func (h *Handler) doAdd(chatID int64, userID int64, text string, userMsgID int) 
 	}
 
 	text2, markup := buildPriorityMessage(text)
-	msg := h.newMsg(chatID, text2)
+	msg := h.newMsg(chatID, userID, text2)
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	msg.ReplyMarkup = markup
 	h.api.Send(msg)
@@ -1099,10 +1125,66 @@ func (h *Handler) callbackBackToList(chatID int64, msgID int, userID int64) {
 	h.showListPage(chatID, msgID, userID, 0)
 }
 
+// --- Settings ---
+
+func (h *Handler) cmdSettings(msg *tgbotapi.Message, userID int64) {
+	h.deleteUserMsg(msg)
+	h.showSettings(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID)
+}
+
+func (h *Handler) showSettings(chatID int64, msgID int, userID int64) {
+	session := h.states.Get(userID)
+	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.ShowKeyboard)
+
+	if msgID != 0 {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+		edit.ParseMode = tgbotapi.ModeMarkdown
+		if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+			return
+		}
+	}
+	msg := h.newMsg(chatID, userID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = markup
+	sent, err := h.api.Send(msg)
+	if err == nil {
+		h.states.Get(userID).LastListMsgID = sent.MessageID
+	}
+}
+
+func (h *Handler) callbackToggleSettings(chatID int64, msgID int, userID int64, key string) {
+	session := h.states.Get(userID)
+	switch key {
+	case "showcounts":
+		session.ShowCounts = !session.ShowCounts
+	case "breadcrumb":
+		session.BreadcrumbInline = !session.BreadcrumbInline
+	case "keyboard":
+		session.ShowKeyboard = !session.ShowKeyboard
+	}
+	h.showSettings(chatID, msgID, userID)
+}
+
 func (h *Handler) callbackOpenFolder(chatID int64, msgID int, userID int64, folderID int64) {
 	session := h.states.Get(userID)
 	session.CurrentFolderID = &folderID
 	h.states.Get(userID).LastListMsgID = msgID
+	h.showListPage(chatID, msgID, userID, 0)
+}
+
+func (h *Handler) callbackCrumb(chatID int64, msgID int, userID int64, folderID int64) {
+	if folderID == 0 {
+		// Переход к списку топиков
+		h.cmdTopicsFromList(chatID, msgID, userID)
+		return
+	}
+	session := h.states.Get(userID)
+	if folderID == -1 {
+		// Переход в корень текущего топика
+		session.CurrentFolderID = nil
+	} else {
+		session.CurrentFolderID = &folderID
+	}
 	h.showListPage(chatID, msgID, userID, 0)
 }
 
@@ -1477,7 +1559,7 @@ func (h *Handler) showArchived(chatID int64, msgID int, userID int64) {
 			return
 		}
 	}
-	msg2 := h.newMsg(chatID, text)
+	msg2 := h.newMsg(chatID, userID, text)
 	msg2.ReplyMarkup = markup
 	sent, err := h.api.Send(msg2)
 	if err == nil {
@@ -1517,6 +1599,7 @@ func (h *Handler) registerCommands() error {
 		{Command: "list", Description: "Список"},
 		{Command: "topics", Description: "Список топиков"},
 		{Command: "newfolder", Description: "Создать папку"},
+		{Command: "settings", Description: "Настройки"},
 		{Command: "archived", Description: "Архив заметок"},
 		{Command: "backup", Description: "Скачать бэкап базы"},
 		{Command: "help", Description: "Помощь"},
@@ -1526,19 +1609,21 @@ func (h *Handler) registerCommands() error {
 	return err
 }
 
-func (h *Handler) newMsg(chatID int64, text string) tgbotapi.MessageConfig {
+func (h *Handler) newMsg(chatID int64, userID int64, text string) tgbotapi.MessageConfig {
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ReplyMarkup = replyKeyboard()
+	if h.states.Get(userID).ShowKeyboard {
+		msg.ReplyMarkup = replyKeyboard()
+	}
 	return msg
 }
 
 func (h *Handler) send(chatID int64, text string) {
-	h.api.Send(h.newMsg(chatID, text))
+	h.api.Send(h.newMsg(chatID, 0, text))
 }
 
 // sendPrompt отправляет сообщение-подсказку и сохраняет его ID для последующего удаления.
 func (h *Handler) sendPrompt(chatID int64, userID int64, text string) {
-	msg := h.newMsg(chatID, text)
+	msg := h.newMsg(chatID, userID, text)
 	sent, err := h.api.Send(msg)
 	if err == nil {
 		h.states.Get(userID).PromptMsgID = sent.MessageID

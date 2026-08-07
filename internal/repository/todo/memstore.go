@@ -347,6 +347,29 @@ func (s *MemStore) GetFolder(userID, folderID int64) (model.Folder, error) {
 	return entity.FolderFromRecord(f), nil
 }
 
+func (s *MemStore) CountFolders(userID, topicID int64, parentFolderID *int64) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, id := range s.userFolders[userID] {
+		f, ok := s.folders[id]
+		if !ok || f.TopicID != topicID {
+			continue
+		}
+		if parentFolderID == nil {
+			if f.ParentFolderID == nil {
+				count++
+			}
+		} else {
+			if f.ParentFolderID != nil && *f.ParentFolderID == *parentFolderID {
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
 func (s *MemStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

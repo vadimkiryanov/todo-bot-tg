@@ -462,6 +462,27 @@ func (s *PostgresStore) GetFolder(userID, folderID int64) (model.Folder, error) 
 	return entity.FolderFromRecord(f), nil
 }
 
+func (s *PostgresStore) CountFolders(userID, topicID int64, parentFolderID *int64) (int, error) {
+	var count int
+	var err error
+
+	if parentFolderID == nil {
+		err = s.db.QueryRow(
+			`SELECT COUNT(*) FROM folders WHERE user_id = $1 AND topic_id = $2 AND parent_folder_id IS NULL`,
+			userID, topicID,
+		).Scan(&count)
+	} else {
+		err = s.db.QueryRow(
+			`SELECT COUNT(*) FROM folders WHERE user_id = $1 AND topic_id = $2 AND parent_folder_id = $3`,
+			userID, topicID, *parentFolderID,
+		).Scan(&count)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("подсчёт папок: %w", err)
+	}
+	return count, nil
+}
+
 func (s *PostgresStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
 	var chain []model.Folder
 	currentID := &folderID

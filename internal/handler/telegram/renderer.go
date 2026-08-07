@@ -48,33 +48,61 @@ func replyKeyboard() tgbotapi.ReplyKeyboardMarkup {
 	)
 }
 
+// formatCounts форматирует счётчики заметок и папок, скрывая нулевые.
+func formatCounts(noteCount, folderCount int) string {
+	var parts []string
+	if noteCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d📝", noteCount))
+	}
+	if folderCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d📁", folderCount))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%s)", strings.Join(parts, " "))
+}
+
 // buildTopicsMessage строит текст и разметку для списка топиков.
-func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, counts map[int64]int) (string, tgbotapi.InlineKeyboardMarkup) {
+func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, counts map[int64]int, folderCounts map[int64]int, showCounts bool) (string, tgbotapi.InlineKeyboardMarkup) {
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	allCount := 0
+	allFolders := 0
 	for _, c := range counts {
 		allCount += c
+	}
+	for _, fc := range folderCounts {
+		allFolders += fc
 	}
 
 	allPrefix := "  "
 	if currentID == 0 {
 		allPrefix = "✅ "
 	}
+	allCountStr := ""
+	if showCounts {
+		allCountStr = formatCounts(allCount, allFolders)
+	}
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData(
-			fmt.Sprintf("%s📂 Все (%d)", allPrefix, allCount),
+			fmt.Sprintf("%s📂 Все%s", allPrefix, allCountStr),
 			"settopic:0",
 		),
 	))
 
 	for _, t := range topics {
 		count := counts[t.ID]
+		fc := folderCounts[t.ID]
 		prefix := "  "
 		if t.ID == currentID {
 			prefix = "✅ "
 		}
-		label := fmt.Sprintf("%s%s (%d)", prefix, t.Name, count)
+		countStr := ""
+		if showCounts {
+			countStr = formatCounts(count, fc)
+		}
+		label := fmt.Sprintf("%s%s%s", prefix, t.Name, countStr)
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("settopic:%d", t.ID)),
 		))
@@ -87,18 +115,38 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 // buildListMessage строит текст и разметку для списка заметок и папок.
 // pageItems — элементы текущей страницы (папки и заметки).
 // folderChain — цепочка папок для breadcrumb (nil если не в папке).
-func buildListMessage(pageItems []listItem, topicID int64, topicName string, currentFolderID *int64, folderChain []model.Folder, page, totalPages int) (string, tgbotapi.InlineKeyboardMarkup) {
+func buildListMessage(pageItems []listItem, topicID int64, topicName string, currentFolderID *int64, folderChain []model.Folder, page, totalPages int, showCounts bool, breadcrumbInline bool) (string, tgbotapi.InlineKeyboardMarkup) {
 	btnRows := make([][]tgbotapi.InlineKeyboardButton, 0)
 
 	// Текст сообщения — breadcrumb
 	var text string
 	if topicID != 0 {
-		text = "🏠 /TOPICS"
-		if topicName != "" {
-			text += fmt.Sprintf(" › /%s", strings.ToUpper(sanitize(topicName)))
-		}
-		for _, f := range folderChain {
-			text += fmt.Sprintf(" › /%s", strings.ToUpper(sanitize(f.Name)))
+		if breadcrumbInline {
+			// Inline-кнопочный breadcrumb
+			var crumbRow []tgbotapi.InlineKeyboardButton
+			crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData("📔 ТОПИКИ", "crumb:0"))
+			if topicName != "" {
+				crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("🏠 %s", topicName),
+					"crumb:-1",
+				))
+			}
+			for _, f := range folderChain {
+				crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("📁 %s", f.Name),
+					fmt.Sprintf("crumb:%d", f.ID),
+				))
+			}
+			btnRows = append(btnRows, crumbRow)
+			text = fmt.Sprintf("                                                     [%s]", topicName)
+		} else {
+			text = "🏠 /TOPICS"
+			if topicName != "" {
+				text += fmt.Sprintf(" › /%s", strings.ToUpper(sanitize(topicName)))
+			}
+			for _, f := range folderChain {
+				text += fmt.Sprintf(" › /%s", strings.ToUpper(sanitize(f.Name)))
+			}
 		}
 	} else {
 		text = "📝 Все заметки"
@@ -110,9 +158,13 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 	// Элементы списка — каждый своей кнопкой
 	for _, item := range pageItems {
 		if item.isFolder {
+			folderLabel := fmt.Sprintf("📁 %s", item.folder.Name)
+			if showCounts {
+				folderLabel += formatCounts(item.noteCount, item.folderCount)
+			}
 			btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData(
-					fmt.Sprintf("📁 %s", item.folder.Name),
+					folderLabel,
 					fmt.Sprintf("openfolder:%d", item.folder.ID),
 				),
 			))
@@ -162,9 +214,11 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 
 // listItem — элемент списка (папка или заметка).
 type listItem struct {
-	isFolder bool
-	folder   model.Folder
-	note     model.Note
+	isFolder    bool
+	folder      model.Folder
+	note        model.Note
+	noteCount   int // количество заметок в папке (только для папок)
+	folderCount int // количество подпапок (только для папок)
 }
 
 // buildArchivedMessage строит текст и разметку для архива.
@@ -288,12 +342,42 @@ func buildHelpMessage() (string, tgbotapi.InlineKeyboardMarkup) {
 		"/deltopic <id> — удалить топик\n" +
 		"/newfolder [название] — создать папку\n" +
 		"/backup — скачать бэкап\n" +
+		"/settings — настройки\n" +
 		"/help — справка"
 
 	return text, tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(listBtn),
 		tgbotapi.NewInlineKeyboardRow(topicsBtn),
 	)
+}
+
+// buildSettingsMessage строит сообщение с настройками.
+func buildSettingsMessage(showCounts bool, breadcrumbInline bool, showKeyboard bool) (string, tgbotapi.InlineKeyboardMarkup) {
+	countsLabel := fmt.Sprintf("🔢 Счётчики: %s", boolLabel(showCounts))
+	toggleCounts := tgbotapi.NewInlineKeyboardButtonData(countsLabel, "togglesettings:showcounts")
+
+	breadcrumbLabel := fmt.Sprintf("🍞 Крошки кнопками: %s", boolLabel(breadcrumbInline))
+	toggleBreadcrumb := tgbotapi.NewInlineKeyboardButtonData(breadcrumbLabel, "togglesettings:breadcrumb")
+
+	keyboardLabel := fmt.Sprintf("⌨️ Клавиатура: %s", boolLabel(showKeyboard))
+	toggleKeyboard := tgbotapi.NewInlineKeyboardButtonData(keyboardLabel, "togglesettings:keyboard")
+
+	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist")
+
+	return "⚙️ *Настройки*", tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(toggleCounts),
+		tgbotapi.NewInlineKeyboardRow(toggleBreadcrumb),
+		tgbotapi.NewInlineKeyboardRow(toggleKeyboard),
+		tgbotapi.NewInlineKeyboardRow(backBtn),
+	)
+}
+
+// boolLabel возвращает «Вкл» или «Выкл» для булева значения.
+func boolLabel(v bool) string {
+	if v {
+		return "Вкл ✅"
+	}
+	return "Выкл ❌"
 }
 
 // now возвращает текущее время (для подстановки в тестах).
@@ -367,7 +451,7 @@ func buildMoveNavigator(
 	topicName := ""
 	for _, t := range allTopics {
 		if t.ID == currentTopicID {
-			topicName = fmt.Sprintf("Топик: [%s]", t.Name)
+			topicName = fmt.Sprintf("Директория: [%s]", t.Name)
 			break
 		}
 	}

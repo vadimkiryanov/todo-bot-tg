@@ -37,6 +37,7 @@ type FolderRepository interface {
 	ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error)
 	GetFolder(userID, folderID int64) (model.Folder, error)
 	GetFolderChain(folderID int64) ([]model.Folder, error) // путь от корня до папки
+	CountFolders(userID, topicID int64, parentFolderID *int64) (int, error)
 }
 
 // Service — сервисный слой, оркеструет бизнес-операции.
@@ -307,6 +308,11 @@ func (s *Service) GetFolder(userID, folderID int64) (model.Folder, error) {
 // GetFolderChain возвращает цепочку папок от корня до указанной.
 func (s *Service) GetFolderChain(folderID int64) ([]model.Folder, error) {
 	return s.folderRepo.GetFolderChain(folderID)
+}
+
+// CountFolders возвращает количество папок в указанном месте.
+func (s *Service) CountFolders(userID, topicID int64, parentFolderID *int64) (int, error) {
+	return s.folderRepo.CountFolders(userID, topicID, parentFolderID)
 }
 
 // MoveNote перемещает заметку в другой топик и/или папку.
