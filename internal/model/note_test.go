@@ -123,3 +123,26 @@ func TestNote_ReminderAt(t *testing.T) {
 		t.Error("ReminderAt should be nil after clearing")
 	}
 }
+
+func TestNote_MarkDone(t *testing.T) {
+	n := &Note{Done: false}
+	n.MarkDone()
+	if !n.Done {
+		t.Error("MarkDone() did not set Done to true")
+	}
+}
+
+func TestNote_MarkUndone(t *testing.T) {
+	n := &Note{Done: true}
+	n.MarkUndone()
+	if n.Done {
+		t.Error("MarkUndone() did not set Done to false")
+	}
+}
+
+func TestNewNote_DoneDefaultFalse(t *testing.T) {
+	note, _ := NewNote(1, 2, nil, "Test")
+	if note.Done {
+		t.Error("New notes should have Done = false by default")
+	}
+}

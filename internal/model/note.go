@@ -25,6 +25,7 @@ type Note struct {
 	ReminderAt *time.Time // nil — без напоминания
 	CreatedAt  time.Time
 	Archived   bool
+	Done       bool // заметка выполнена (галочка)
 }
 
 // PriorityEmoji возвращает эмодзи приоритета (пустая строка для None).
@@ -64,6 +65,16 @@ func (n *Note) Archive() {
 // Unarchive восстанавливает заметку из архива.
 func (n *Note) Unarchive() {
 	n.Archived = false
+}
+
+// MarkDone помечает заметку как выполненную.
+func (n *Note) MarkDone() {
+	n.Done = true
+}
+
+// MarkUndone снимает отметку выполнения.
+func (n *Note) MarkUndone() {
+	n.Done = false
 }
 
 // EditText обновляет текст заметки.

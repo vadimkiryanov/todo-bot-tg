@@ -107,7 +107,8 @@ func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, p
 }
 
 // ListNotes возвращает список заметок пользователя (с фильтрацией по топику и папке).
-// Заметки сортируются по приоритету: High > Medium > None > Low.
+// Активные заметки сортируются по приоритету: High > Medium > None > Low.
+// Выполненные заметки идут после всех активных.
 func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error) {
 	notes, err := s.noteRepo.ListNotes(userID, topicID, folderID)
 	if err != nil {
@@ -115,6 +116,11 @@ func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Not
 	}
 
 	sort.Slice(notes, func(i, j int) bool {
+		// Выполненные — в конец
+		if notes[i].Done != notes[j].Done {
+			return !notes[i].Done
+		}
+		// Внутри группы — по приоритету
 		return prioritySortKey(notes[i].Priority) < prioritySortKey(notes[j].Priority)
 	})
 
@@ -192,6 +198,34 @@ func (s *Service) UnarchiveNote(userID, noteID int64) error {
 	}
 
 	note.Unarchive()
+	return s.noteRepo.UpdateNote(note)
+}
+
+// MarkDone помечает заметку как выполненную.
+func (s *Service) MarkDone(userID, noteID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+
+	note.MarkDone()
+	return s.noteRepo.UpdateNote(note)
+}
+
+// MarkUndone снимает отметку выполнения с заметки.
+func (s *Service) MarkUndone(userID, noteID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+
+	note.MarkUndone()
 	return s.noteRepo.UpdateNote(note)
 }
 

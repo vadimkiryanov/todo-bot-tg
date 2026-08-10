@@ -140,6 +140,42 @@ func TestService_ListNotes_SortByPriority(t *testing.T) {
 	}
 }
 
+func TestService_ListNotes_DoneGoesToEnd(t *testing.T) {
+	svc := newTestService()
+
+	n1, _ := svc.AddNote(1, 0, nil, "Active High", model.PriorityHigh)
+	n2, _ := svc.AddNote(1, 0, nil, "Active Low", model.PriorityLow)
+	n3, _ := svc.AddNote(1, 0, nil, "Done High", model.PriorityHigh)
+	n4, _ := svc.AddNote(1, 0, nil, "Done None", model.PriorityNone)
+
+	// Помечаем n3 и n4 как выполненные
+	_ = svc.MarkDone(1, n3.ID)
+	_ = svc.MarkDone(1, n4.ID)
+
+	notes, err := svc.ListNotes(1, 0, nil)
+	if err != nil {
+		t.Fatalf("ListNotes() error: %v", err)
+	}
+	if len(notes) != 4 {
+		t.Fatalf("len = %d, want 4", len(notes))
+	}
+
+	// Первые два — активные (High, Low)
+	if notes[0].ID != n1.ID || notes[0].Done {
+		t.Errorf("notes[0] should be active High")
+	}
+	if notes[1].ID != n2.ID || notes[1].Done {
+		t.Errorf("notes[1] should be active Low")
+	}
+	// Последние два — выполненные
+	if notes[2].ID != n3.ID || !notes[2].Done {
+		t.Errorf("notes[2] should be done High")
+	}
+	if notes[3].ID != n4.ID || !notes[3].Done {
+		t.Errorf("notes[3] should be done None")
+	}
+}
+
 func TestService_EditNote(t *testing.T) {
 	svc := newTestService()
 	note, _ := svc.AddNote(1, 0, nil, "Before", 0)
@@ -208,6 +244,37 @@ func TestService_UnarchiveNote(t *testing.T) {
 	got, _ := svc.GetNote(1, note.ID)
 	if got.Archived {
 		t.Error("note still archived")
+	}
+}
+
+func TestService_MarkDone(t *testing.T) {
+	svc := newTestService()
+	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+
+	err := svc.MarkDone(1, note.ID)
+	if err != nil {
+		t.Fatalf("MarkDone() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if !got.Done {
+		t.Error("MarkDone() did not set Done to true")
+	}
+}
+
+func TestService_MarkUndone(t *testing.T) {
+	svc := newTestService()
+	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	_ = svc.MarkDone(1, note.ID)
+
+	err := svc.MarkUndone(1, note.ID)
+	if err != nil {
+		t.Fatalf("MarkUndone() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if got.Done {
+		t.Error("MarkUndone() did not set Done to false")
 	}
 }
 

@@ -13,6 +13,7 @@ type NoteRecord struct {
 	ReminderAt *time.Time
 	CreatedAt  time.Time
 	Archived   bool
+	Done       bool
 }
 
 // TopicRecord — persistence-модель для топика.

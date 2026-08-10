@@ -22,6 +22,8 @@ type NoteService interface {
 	DeleteNote(userID, noteID int64) error
 	ArchiveNote(userID, noteID int64) error
 	UnarchiveNote(userID, noteID int64) error
+	MarkDone(userID, noteID int64) error
+	MarkUndone(userID, noteID int64) error
 	SetPriority(userID, noteID int64, priority int) error
 	SetReminder(userID, noteID int64, at time.Time) error
 	ClearReminder(userID, noteID int64) error
@@ -363,6 +365,18 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		h.callbackChangePriority(chatID, msgID, userID, id)
+	case "done":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackMarkDone(chatID, msgID, userID, id)
+	case "undone":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackMarkUndone(chatID, msgID, userID, id)
 	case "remcal":
 		h.callbackReminderCalendar(chatID, msgID, idStr)
 	case "remday":
@@ -1109,6 +1123,54 @@ func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, 
 	note.Priority = newPriority
 
 	// Перерисовываем экран просмотра
+	text, markup := buildViewNoteMessage(note)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+
+	// Обновляем список в фоне
+	lastMsgID := h.states.Get(userID).LastListMsgID
+	if lastMsgID != 0 && lastMsgID != msgID {
+		h.showListPage(chatID, lastMsgID, userID, 0)
+	}
+}
+
+func (h *Handler) callbackMarkDone(chatID int64, msgID int, userID int64, noteID int64) {
+	if err := h.noteService.MarkDone(userID, noteID); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	note, err := h.noteService.GetNote(userID, noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	text, markup := buildViewNoteMessage(note)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+
+	// Обновляем список в фоне
+	lastMsgID := h.states.Get(userID).LastListMsgID
+	if lastMsgID != 0 && lastMsgID != msgID {
+		h.showListPage(chatID, lastMsgID, userID, 0)
+	}
+}
+
+func (h *Handler) callbackMarkUndone(chatID int64, msgID int, userID int64, noteID int64) {
+	if err := h.noteService.MarkUndone(userID, noteID); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	note, err := h.noteService.GetNote(userID, noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
 	text, markup := buildViewNoteMessage(note)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown

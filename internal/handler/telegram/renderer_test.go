@@ -164,7 +164,7 @@ func TestBuildViewNoteMessage(t *testing.T) {
 	if !strings.Contains(text, "#1") {
 		t.Errorf("text does not contain note ID: %q", text)
 	}
-	if !strings.Contains(text, "�") {
+	if !strings.Contains(text, "🔴") {
 		t.Errorf("text does not contain priority emoji: %q", text)
 	}
 	if len(markup.InlineKeyboard) != 2 {

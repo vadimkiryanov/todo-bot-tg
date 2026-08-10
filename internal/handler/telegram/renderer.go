@@ -11,6 +11,16 @@ import (
 	"todo-bot-tg/internal/model"
 )
 
+// strikethrough добавляет Unicode-зачёркивание (U+0336) к каждому символу текста.
+func strikethrough(text string) string {
+	var b strings.Builder
+	for _, r := range text {
+		b.WriteRune(r)
+		b.WriteRune('\u0336')
+	}
+	return b.String()
+}
+
 // formatPreview обрезает текст до maxLines строк, каждая не длиннее maxChars.
 func formatPreview(text string, maxChars, maxLines int) string {
 	text = strings.TrimSpace(text)
@@ -171,12 +181,17 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 			))
 		} else {
 			prefix := ""
-			if emoji := item.note.PriorityEmoji(); emoji != "" {
+			if item.note.Done {
+				prefix = "✅ "
+			} else if emoji := item.note.PriorityEmoji(); emoji != "" {
 				prefix = emoji + " "
 			}
 			preview := formatPreview(item.note.Text, 50, 1)
 			if preview == "" {
 				preview = "..."
+			}
+			if item.note.Done {
+				preview = strikethrough(preview)
 			}
 			btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData(
@@ -253,8 +268,20 @@ func buildArchivedMessage(notes []model.Note) (string, tgbotapi.InlineKeyboardMa
 // buildViewNoteMessage строит текст и разметку для просмотра заметки.
 func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarkup) {
 	prefix := ""
-	if emoji := note.PriorityEmoji(); emoji != "" {
+	if note.Done {
+		prefix = "✅ "
+	} else if emoji := note.PriorityEmoji(); emoji != "" {
 		prefix = emoji + " "
+	}
+
+	doneLine := ""
+	if note.Done {
+		doneLine = "\n✅ Выполнена"
+	}
+
+	displayText := tgbotapi.EscapeText(tgbotapi.ModeMarkdown, note.Text)
+	if note.Done {
+		displayText = strikethrough(displayText)
 	}
 
 	reminderLine := ""
@@ -262,7 +289,7 @@ func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarku
 		reminderLine = fmt.Sprintf("\n⏰ %s", note.ReminderAt.Format("02.01.2006 15:04"))
 	}
 
-	text := fmt.Sprintf("%s*#%d*\n%s%s", prefix, note.ID, tgbotapi.EscapeText(tgbotapi.ModeMarkdown, note.Text), reminderLine)
+	text := fmt.Sprintf("%s*#%d*\n%s%s%s", prefix, note.ID, displayText, doneLine, reminderLine)
 	query := fmt.Sprintf("\n\n%s", note.Text)
 
 	editBtn := tgbotapi.InlineKeyboardButton{
@@ -276,6 +303,15 @@ func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarku
 		fmt.Sprintf("chprio:%d", note.ID),
 	)
 
+	// Done/Undone toggle
+	doneLabel := "✅"
+	doneCallback := fmt.Sprintf("done:%d", note.ID)
+	if note.Done {
+		doneLabel = "🔄"
+		doneCallback = fmt.Sprintf("undone:%d", note.ID)
+	}
+	doneBtn := tgbotapi.NewInlineKeyboardButtonData(doneLabel, doneCallback)
+
 	// ⏰ — единая точка входа: если таймер есть → меню, иначе сразу календарь
 	remCallback := fmt.Sprintf("remcal:%d:%d:%d", note.ID, now().Year(), now().Month())
 	if note.ReminderAt != nil {
@@ -288,7 +324,7 @@ func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarku
 	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist")
 
 	return text, tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn, archBtn, prioBtn, remBtn, moveBtn),
+		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn, archBtn, prioBtn, doneBtn, remBtn, moveBtn),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)
 }
