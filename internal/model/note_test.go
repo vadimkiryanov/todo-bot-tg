@@ -59,9 +59,9 @@ func TestNote_PriorityEmoji(t *testing.T) {
 		want     string
 	}{
 		{PriorityNone, ""},
-		{PriorityLow, "🌿"},
-		{PriorityMedium, "⚡"},
-		{PriorityHigh, "🔥"},
+		{PriorityLow, "🔵"},
+		{PriorityMedium, "🟡"},
+		{PriorityHigh, "🔴"},
 		{99, ""},
 	}
 

@@ -31,11 +31,11 @@ type Note struct {
 func (n *Note) PriorityEmoji() string {
 	switch n.Priority {
 	case PriorityHigh:
-		return "🔥"
+		return "🔴"
 	case PriorityMedium:
-		return "⚡"
+		return "🟡"
 	case PriorityLow:
-		return "🌿"
+		return "🔵"
 	default:
 		return ""
 	}

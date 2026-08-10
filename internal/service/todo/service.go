@@ -1,6 +1,7 @@
 package todo
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -106,8 +107,35 @@ func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, p
 }
 
 // ListNotes возвращает список заметок пользователя (с фильтрацией по топику и папке).
+// Заметки сортируются по приоритету: High > Medium > None > Low.
 func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error) {
-	return s.noteRepo.ListNotes(userID, topicID, folderID)
+	notes, err := s.noteRepo.ListNotes(userID, topicID, folderID)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(notes, func(i, j int) bool {
+		return prioritySortKey(notes[i].Priority) < prioritySortKey(notes[j].Priority)
+	})
+
+	return notes, nil
+}
+
+// prioritySortKey возвращает ключ сортировки для приоритета.
+// Порядок: High(0) < Medium(1) < None(2) < Low(3).
+func prioritySortKey(priority int) int {
+	switch priority {
+	case model.PriorityHigh:
+		return 0
+	case model.PriorityMedium:
+		return 1
+	case model.PriorityNone:
+		return 2
+	case model.PriorityLow:
+		return 3
+	default:
+		return 2 // неизвестный приоритет — как None
+	}
 }
 
 // GetNote возвращает заметку по ID.

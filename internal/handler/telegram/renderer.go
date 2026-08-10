@@ -388,9 +388,9 @@ func buildPriorityMessage(pendingText string) (string, tgbotapi.InlineKeyboardMa
 	text := fmt.Sprintf("📝 Приоритет:\n\n_%s_", formatPreview(pendingText, 100, 3))
 	markup := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔥 Высокий", "prio:3"),
-			tgbotapi.NewInlineKeyboardButtonData("⚡ Средний", "prio:2"),
-			tgbotapi.NewInlineKeyboardButtonData("🌿 Низкий", "prio:1"),
+			tgbotapi.NewInlineKeyboardButtonData("🔴 Высокий", "prio:3"),
+			tgbotapi.NewInlineKeyboardButtonData("🟡 Средний", "prio:2"),
+			tgbotapi.NewInlineKeyboardButtonData("🔵 Низкий", "prio:1"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("— Без приоритета", "prio:0"),
