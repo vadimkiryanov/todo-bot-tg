@@ -70,9 +70,9 @@ func TestSanitize_Cyrillic(t *testing.T) {
 
 func TestSanitize_SpecialChars(t *testing.T) {
 	result := sanitize("🏠 Личное!")
-	// 🏠 → _, space → _, Личное → Lichnoe, ! → _
-	if result != "__Lichnoe_" {
-		t.Errorf("sanitize = %q, want %q", result, "__Lichnoe_")
+	// 🏠 → пропускается (эмодзи), space → _, Личное → Lichnoe, ! → _
+	if result != "_Lichnoe_" {
+		t.Errorf("sanitize = %q, want %q", result, "_Lichnoe_")
 	}
 }
 

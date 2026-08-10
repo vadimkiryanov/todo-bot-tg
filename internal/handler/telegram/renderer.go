@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -142,10 +143,10 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 		} else {
 			text = "🏠 /TOPICS"
 			if topicName != "" {
-				text += fmt.Sprintf(" › /%s", strings.ToUpper(sanitize(topicName)))
+				text += fmt.Sprintf(" › /%s%s", strings.ToUpper(sanitize(topicName)), emojiDecoration(topicName))
 			}
 			for _, f := range folderChain {
-				text += fmt.Sprintf(" › /%s", strings.ToUpper(sanitize(f.Name)))
+				text += fmt.Sprintf(" › /%s%s", strings.ToUpper(sanitize(f.Name)), emojiDecoration(f.Name))
 			}
 		}
 	} else {
@@ -518,8 +519,22 @@ func sanitize(name string) string {
 	for _, r := range s {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
 			b.WriteRune(r)
-		} else {
+		} else if r <= 127 {
+			// ASCII-спецсимволы заменяем на _
 			b.WriteRune('_')
+		}
+		// Не-ASCII (эмодзи, кириллица после translit) — пропускаем
+	}
+	return b.String()
+}
+
+// emojiDecoration возвращает только эмодзи (не-буквы за пределами ASCII),
+// которые sanitize выбросил бы. Используется для отображения эмодзи рядом с /командой.
+func emojiDecoration(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if r > 127 && !unicode.IsLetter(r) {
+			b.WriteRune(r)
 		}
 	}
 	return b.String()
