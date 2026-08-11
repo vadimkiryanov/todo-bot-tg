@@ -1182,8 +1182,10 @@ func (h *Handler) callbackViewNote(chatID int64, msgID int, userID int64, noteID
 		return
 	}
 
-	h.states.Get(userID).LastViewedNoteID = note.ID
-	tzOffset := h.states.Get(userID).TimezoneOffset
+	session := h.states.Get(userID)
+	session.LastViewedNoteID = note.ID
+	session.ExpandedNoteID = 0 // новый просмотр — свёрнутый вид
+	tzOffset := session.TimezoneOffset
 
 	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -1198,6 +1200,7 @@ func (h *Handler) callbackExpandNote(chatID int64, msgID int, userID int64, note
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}
+	h.states.Get(userID).ExpandedNoteID = noteID
 	tzOffset := h.states.Get(userID).TimezoneOffset
 	text, markup := buildViewNoteMessage(note, true, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -1212,6 +1215,7 @@ func (h *Handler) callbackCollapseNote(chatID int64, msgID int, userID int64, no
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}
+	h.states.Get(userID).ExpandedNoteID = 0
 	tzOffset := h.states.Get(userID).TimezoneOffset
 	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -1279,15 +1283,16 @@ func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, 
 	// Обновляем заметку в памяти для перерисовки
 	note.Priority = newPriority
 
-	// Перерисовываем экран просмотра
-	tzOffset := h.states.Get(userID).TimezoneOffset
-	text, markup := buildViewNoteMessage(note, false, tzOffset)
+	// Кнопка chprio доступна только в развёрнутом режиме — сохраняем expanded
+	session := h.states.Get(userID)
+	tzOffset := session.TimezoneOffset
+	text, markup := buildViewNoteMessage(note, true, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
 
 	// Обновляем список в фоне
-	lastMsgID := h.states.Get(userID).LastListMsgID
+	lastMsgID := session.LastListMsgID
 	if lastMsgID != 0 && lastMsgID != msgID {
 		h.showListPage(chatID, lastMsgID, userID, 0)
 	}
@@ -1305,14 +1310,16 @@ func (h *Handler) callbackMarkDone(chatID int64, msgID int, userID int64, noteID
 		return
 	}
 
-	tzOffset := h.states.Get(userID).TimezoneOffset
-	text, markup := buildViewNoteMessage(note, false, tzOffset)
+	session := h.states.Get(userID)
+	expanded := session.ExpandedNoteID == noteID
+	tzOffset := session.TimezoneOffset
+	text, markup := buildViewNoteMessage(note, expanded, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
 
 	// Обновляем список в фоне
-	lastMsgID := h.states.Get(userID).LastListMsgID
+	lastMsgID := session.LastListMsgID
 	if lastMsgID != 0 && lastMsgID != msgID {
 		h.showListPage(chatID, lastMsgID, userID, 0)
 	}
@@ -1330,21 +1337,25 @@ func (h *Handler) callbackMarkUndone(chatID int64, msgID int, userID int64, note
 		return
 	}
 
-	tzOffset := h.states.Get(userID).TimezoneOffset
-	text, markup := buildViewNoteMessage(note, false, tzOffset)
+	session := h.states.Get(userID)
+	expanded := session.ExpandedNoteID == noteID
+	tzOffset := session.TimezoneOffset
+	text, markup := buildViewNoteMessage(note, expanded, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
 
 	// Обновляем список в фоне
-	lastMsgID := h.states.Get(userID).LastListMsgID
+	lastMsgID := session.LastListMsgID
 	if lastMsgID != 0 && lastMsgID != msgID {
 		h.showListPage(chatID, lastMsgID, userID, 0)
 	}
 }
 
 func (h *Handler) callbackBackToList(chatID int64, msgID int, userID int64) {
-	h.states.Get(userID).DoneFolderActive = false
+	session := h.states.Get(userID)
+	session.DoneFolderActive = false
+	session.ExpandedNoteID = 0
 	h.showListPage(chatID, msgID, userID, 0)
 }
 
