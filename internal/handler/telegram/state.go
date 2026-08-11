@@ -38,6 +38,7 @@ type UserSession struct {
 	ShowCounts       bool // показывать количество заметок и папок рядом с названиями
 	BreadcrumbInline bool // хлебные крошки inline-кнопками вместо текста
 	ShowKeyboard     bool // показывать быструю клавиатуру
+	TimezoneOffset   int  // смещение часового пояса от Москвы (0 = МСК, UTC+3)
 
 	// Виртуальная папка выполненных
 	DoneFolderActive bool // активен режим просмотра выполненных заметок

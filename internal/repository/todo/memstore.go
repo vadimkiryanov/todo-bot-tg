@@ -296,7 +296,7 @@ func (s *MemStore) GetPendingReminders() ([]model.Note, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	now := time.Now()
+	now := time.Now().UTC()
 	var result []model.Note
 	for _, n := range s.notes {
 		if n.ReminderAt != nil && !n.ReminderAt.After(now) && !n.Archived {

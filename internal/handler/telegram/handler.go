@@ -392,17 +392,17 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 		h.callbackMarkUndone(chatID, msgID, userID, id)
 	case "remcal":
-		h.callbackReminderCalendar(chatID, msgID, idStr)
+		h.callbackReminderCalendar(chatID, msgID, userID, idStr)
 	case "remday":
-		h.callbackReminderDay(chatID, msgID, idStr)
+		h.callbackReminderDay(chatID, msgID, userID, idStr)
 	case "remhour":
-		h.callbackReminderHour(chatID, msgID, idStr)
+		h.callbackReminderHour(chatID, msgID, userID, idStr)
 	case "remmin":
-		h.callbackReminderMinute(chatID, msgID, idStr)
+		h.callbackReminderMinute(chatID, msgID, userID, idStr)
 	case "remmrange":
-		h.callbackReminderMinuteRange(chatID, msgID, idStr)
+		h.callbackReminderMinuteRange(chatID, msgID, userID, idStr)
 	case "remrepeat":
-		h.callbackReminderRepeat(chatID, msgID, idStr)
+		h.callbackReminderRepeat(chatID, msgID, userID, idStr)
 	case "remclear":
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -1183,8 +1183,9 @@ func (h *Handler) callbackViewNote(chatID int64, msgID int, userID int64, noteID
 	}
 
 	h.states.Get(userID).LastViewedNoteID = note.ID
+	tzOffset := h.states.Get(userID).TimezoneOffset
 
-	text, markup := buildViewNoteMessage(note, false)
+	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1197,7 +1198,8 @@ func (h *Handler) callbackExpandNote(chatID int64, msgID int, userID int64, note
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}
-	text, markup := buildViewNoteMessage(note, true)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildViewNoteMessage(note, true, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1210,7 +1212,8 @@ func (h *Handler) callbackCollapseNote(chatID int64, msgID int, userID int64, no
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}
-	text, markup := buildViewNoteMessage(note, false)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1277,7 +1280,8 @@ func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, 
 	note.Priority = newPriority
 
 	// Перерисовываем экран просмотра
-	text, markup := buildViewNoteMessage(note, false)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1301,7 +1305,8 @@ func (h *Handler) callbackMarkDone(chatID int64, msgID int, userID int64, noteID
 		return
 	}
 
-	text, markup := buildViewNoteMessage(note, false)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1325,7 +1330,8 @@ func (h *Handler) callbackMarkUndone(chatID int64, msgID int, userID int64, note
 		return
 	}
 
-	text, markup := buildViewNoteMessage(note, false)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1351,7 +1357,7 @@ func (h *Handler) cmdSettings(msg *tgbotapi.Message, userID int64) {
 
 func (h *Handler) showSettings(chatID int64, msgID int, userID int64) {
 	session := h.states.Get(userID)
-	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.ShowKeyboard)
+	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.ShowKeyboard, session.TimezoneOffset)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -1378,6 +1384,14 @@ func (h *Handler) callbackToggleSettings(chatID int64, msgID int, userID int64, 
 		session.BreadcrumbInline = !session.BreadcrumbInline
 	case "keyboard":
 		session.ShowKeyboard = !session.ShowKeyboard
+	case "tzminus":
+		if session.TimezoneOffset > -2 {
+			session.TimezoneOffset--
+		}
+	case "tzplus":
+		if session.TimezoneOffset < 9 {
+			session.TimezoneOffset++
+		}
 	}
 	h.showSettings(chatID, msgID, userID)
 }
@@ -1500,75 +1514,78 @@ func (h *Handler) tryNavigateFolder(msg *tgbotapi.Message, userID int64, cmd str
 
 // --- Reminder callbacks ---
 
-func (h *Handler) callbackReminderCalendar(chatID int64, msgID int, params string) {
+func (h *Handler) callbackReminderCalendar(chatID int64, msgID int, userID int64, params string) {
 	noteID, year, month := parseReminder3(params)
 	if noteID == 0 {
 		return
 	}
-	text, markup := buildCalendar(noteID, year, time.Month(month))
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildCalendar(noteID, year, time.Month(month), tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
 
-func (h *Handler) callbackReminderDay(chatID int64, msgID int, params string) {
+func (h *Handler) callbackReminderDay(chatID int64, msgID int, userID int64, params string) {
 	noteID, year, month, day := parseReminder4(params)
 	if noteID == 0 {
 		return
 	}
-	text, markup := buildHourPicker(noteID, year, time.Month(month), day)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildHourPicker(noteID, year, time.Month(month), day, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
 
-func (h *Handler) callbackReminderHour(chatID int64, msgID int, params string) {
+func (h *Handler) callbackReminderHour(chatID int64, msgID int, userID int64, params string) {
 	noteID, year, month, day, hour := parseReminder5(params)
 	if noteID == 0 {
 		return
 	}
-	text, markup := buildMinuteRangePicker(noteID, year, time.Month(month), day, hour)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildMinuteRangePicker(noteID, year, time.Month(month), day, hour, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
 
-func (h *Handler) callbackReminderMinuteRange(chatID int64, msgID int, params string) {
+func (h *Handler) callbackReminderMinuteRange(chatID int64, msgID int, userID int64, params string) {
 	noteID, year, month, day, hour, startMin := parseReminder6(params)
 	if noteID == 0 {
 		return
 	}
-	text, markup := buildMinuteExactPicker(noteID, year, time.Month(month), day, hour, startMin)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildMinuteExactPicker(noteID, year, time.Month(month), day, hour, startMin, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
 
-func (h *Handler) callbackReminderMinute(chatID int64, msgID int, params string) {
+func (h *Handler) callbackReminderMinute(chatID int64, msgID int, userID int64, params string) {
 	noteID, year, month, day, hour, minute := parseReminder6(params)
 	if noteID == 0 {
 		return
 	}
 
+	tzOffset := h.states.Get(userID).TimezoneOffset
 	// Показываем выбор: один раз или каждый день
-	text, markup := buildRepeatPicker(noteID, year, time.Month(month), day, hour, minute)
+	text, markup := buildRepeatPicker(noteID, year, time.Month(month), day, hour, minute, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
 
-func (h *Handler) callbackReminderRepeat(chatID int64, msgID int, params string) {
+func (h *Handler) callbackReminderRepeat(chatID int64, msgID int, userID int64, params string) {
 	noteID, year, month, day, hour, minute, repeat := parseReminder7(params)
 	if noteID == 0 {
 		return
 	}
 
-	userID, err := h.getNoteOwner(noteID)
-	if err != nil {
-		h.callbackAnswer(chatID, msgID, "❌ Заметка не найдена")
-		return
-	}
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	loc := userLocation(tzOffset)
 
-	at := time.Date(year, time.Month(month), day, hour, minute, 0, 0, time.Local)
+	// Конвертируем пользовательское время в UTC для хранения
+	at := time.Date(year, time.Month(month), day, hour, minute, 0, 0, loc).UTC()
 	remRepeat := model.ReminderRepeat(repeat)
 
 	// Одноразовое напоминание не может быть в прошлом
-	if remRepeat == "" && !at.After(now()) {
+	if remRepeat == model.ReminderRepeatOnce && !at.After(now().UTC()) {
 		h.callbackAnswer(chatID, msgID, "❌ Время уже прошло, выбери будущее время")
 		return
 	}
@@ -1580,7 +1597,7 @@ func (h *Handler) callbackReminderRepeat(chatID int64, msgID int, params string)
 
 	// Перерисовываем просмотр заметки
 	note, _ := h.noteService.GetNote(userID, noteID)
-	text, markup := buildViewNoteMessage(note, false)
+	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1599,7 +1616,8 @@ func (h *Handler) callbackReminderMenu(chatID int64, msgID int, userID int64, no
 		return
 	}
 
-	text, markup := buildReminderMenu(note)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildReminderMenu(note, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
@@ -1611,7 +1629,8 @@ func (h *Handler) callbackClearReminder(chatID int64, msgID int, userID int64, n
 	}
 
 	note, _ := h.noteService.GetNote(userID, noteID)
-	text, markup := buildViewNoteMessage(note, false)
+	tzOffset := h.states.Get(userID).TimezoneOffset
+	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
