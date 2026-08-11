@@ -211,6 +211,34 @@ func (s *MemStore) DeleteNote(userID, noteID int64) error {
 	return nil
 }
 
+// CountDoneNotes возвращает количество выполненных заметок в топике/папке.
+func (s *MemStore) CountDoneNotes(userID, topicID int64, folderID *int64) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, id := range s.userNotes[userID] {
+		n, ok := s.notes[id]
+		if !ok || n.Archived || !n.Done {
+			continue
+		}
+		if topicID != 0 && n.TopicID != topicID {
+			continue
+		}
+		if folderID != nil && n.FolderID == nil {
+			continue
+		}
+		if folderID == nil && n.FolderID != nil {
+			continue
+		}
+		if folderID != nil && n.FolderID != nil && *n.FolderID != *folderID {
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
 func (s *MemStore) CountNotes(userID, topicID int64, folderID *int64) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

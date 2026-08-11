@@ -17,6 +17,7 @@ type NoteRepository interface {
 	UpdateNote(note model.Note) error
 	DeleteNote(userID, noteID int64) error
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)
+	CountDoneNotes(userID, topicID int64, folderID *int64) (int, error)
 	ListArchived(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
 	HasAnyData(userID int64) bool
@@ -307,6 +308,11 @@ func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
 // CountNotes возвращает количество активных заметок.
 func (s *Service) CountNotes(userID, topicID int64, folderID *int64) (int, error) {
 	return s.noteRepo.CountNotes(userID, topicID, folderID)
+}
+
+// CountDoneNotes возвращает количество выполненных заметок в топике.
+func (s *Service) CountDoneNotes(userID, topicID int64, folderID *int64) (int, error) {
+	return s.noteRepo.CountDoneNotes(userID, topicID, folderID)
 }
 
 // ListArchived возвращает список архивных заметок.

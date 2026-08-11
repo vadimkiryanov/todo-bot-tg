@@ -38,6 +38,9 @@ type UserSession struct {
 	ShowCounts       bool // показывать количество заметок и папок рядом с названиями
 	BreadcrumbInline bool // хлебные крошки inline-кнопками вместо текста
 	ShowKeyboard     bool // показывать быструю клавиатуру
+
+	// Виртуальная папка выполненных
+	DoneFolderActive bool // активен режим просмотра выполненных заметок
 }
 
 // StateManager управляет состояниями пользователей.

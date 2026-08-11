@@ -278,7 +278,7 @@ func TestBuildArchivedMessage_WithNotes(t *testing.T) {
 // --- buildListMessage ---
 
 func TestBuildListMessage_Empty(t *testing.T) {
-	text, markup := buildListMessage(nil, 0, "", nil, nil, 0, 1, true, false)
+	text, markup := buildListMessage(nil, 0, "", nil, nil, 0, 1, true, false, 0, false)
 	if text == "" {
 		t.Error("buildListMessage() returned empty text")
 	}
@@ -293,13 +293,217 @@ func TestBuildListMessage_WithPagination(t *testing.T) {
 	for i := range items {
 		items[i] = listItem{note: model.Note{ID: int64(i + 1), Text: "Test"}}
 	}
-	text, markup := buildListMessage(items, 0, "", nil, nil, 0, 2, true, false)
+	text, markup := buildListMessage(items, 0, "", nil, nil, 0, 2, true, false, 0, false)
 	if !strings.Contains(text, "Все заметки") {
 		t.Errorf("text does not contain header: %q", text)
 	}
 	// 10 note buttons + 1 "🔝 Топики" row + 1 pagination row = 12
 	if len(markup.InlineKeyboard) != 12 {
 		t.Errorf("keyboard rows = %d, want 12", len(markup.InlineKeyboard))
+	}
+}
+
+// --- buildListMessage: виртуальная папка выполненных ---
+
+func TestBuildListMessage_WithDoneFolder(t *testing.T) {
+	// doneCount=3 → кнопка «✅ Выполненные (3)» внизу
+	items := []listItem{
+		{isFolder: true, folder: model.Folder{ID: 1, Name: "Папка"}},
+		{note: model.Note{ID: 1, Text: "Заметка"}},
+	}
+	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, 3, false)
+
+	// Порядок: папка + заметка + done folder = 3 (breadcrumb текстовый, не кнопка)
+	if len(markup.InlineKeyboard) != 3 {
+		t.Fatalf("keyboard rows = %d, want 3", len(markup.InlineKeyboard))
+	}
+	// Проверяем последнюю строку — должна быть «✅ Выполненные (3)»
+	lastRow := markup.InlineKeyboard[len(markup.InlineKeyboard)-1]
+	lastBtn := lastRow[0]
+	if lastBtn.Text != "✅ Выполненные (3)" {
+		t.Errorf("last button = %q, want %q", lastBtn.Text, "✅ Выполненные (3)")
+	}
+	if lastBtn.CallbackData == nil || *lastBtn.CallbackData != "donefolder" {
+		t.Errorf("last button callback = %v, want 'donefolder'", lastBtn.CallbackData)
+	}
+}
+
+func TestBuildListMessage_NoDoneFolder_ZeroCount(t *testing.T) {
+	// doneCount=0 → нет кнопки выполненных
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Заметка"}},
+	}
+	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, 0, false)
+
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if strings.Contains(btn.Text, "Выполненные") {
+				t.Error("done folder button found when doneCount=0")
+			}
+		}
+	}
+}
+
+func TestBuildListMessage_DoneFolder_InSubfolder(t *testing.T) {
+	// doneCount>0 + currentFolderID != nil → кнопка выполненных показывается
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Заметка"}},
+	}
+	fid := int64(5)
+	_, markup := buildListMessage(items, 1, "Личное", &fid, nil, 0, 1, false, false, 5, false)
+
+	// Ищем кнопку «✅ Выполненные»
+	found := false
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if strings.Contains(btn.Text, "Выполненные") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("done folder button NOT found when in subfolder with doneCount>0")
+	}
+}
+
+func TestBuildListMessage_NoDoneFolder_AllNotes(t *testing.T) {
+	// doneCount>0 но topicID=0 (режим «все заметки») → нет кнопки
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Заметка"}},
+	}
+	_, markup := buildListMessage(items, 0, "", nil, nil, 0, 1, false, false, 3, false)
+
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if strings.Contains(btn.Text, "Выполненные") {
+				t.Error("done folder button found in 'all notes' mode")
+			}
+		}
+	}
+}
+
+func TestBuildListMessage_DoneFolderActive(t *testing.T) {
+	// doneFolderActive=true → текстовый breadcrumb с «✅ Выполненные» (не /DONE)
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Готово", Done: true}},
+	}
+	text, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, 0, true)
+
+	// Текст НЕ должен содержать /DONE (это фейковая команда)
+	if strings.Contains(text, "/DONE") {
+		t.Errorf("text should not contain /DONE: %q", text)
+	}
+	// Текст должен содержать «✅ Выполненные»
+	if !strings.Contains(text, "✅ Выполненные") {
+		t.Errorf("text should contain ✅ Выполненные: %q", text)
+	}
+	// Последняя кнопка — «◀️ Назад» с callback «backtolist»
+	lastRow := markup.InlineKeyboard[len(markup.InlineKeyboard)-1]
+	lastBtn := lastRow[0]
+	if lastBtn.Text != "◀️ Назад" {
+		t.Errorf("last button = %q, want %q", lastBtn.Text, "◀️ Назад")
+	}
+	if lastBtn.CallbackData == nil || *lastBtn.CallbackData != "backtolist" {
+		t.Errorf("last button callback = %v, want 'backtolist'", lastBtn.CallbackData)
+	}
+}
+
+func TestBuildListMessage_DoneFolderActive_InlineBreadcrumb(t *testing.T) {
+	// doneFolderActive=true + breadcrumbInline=true → крошка «✅ Выполненные» с callback=none
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Готово", Done: true}},
+	}
+	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, true, 0, true)
+
+	// Первая строка — breadcrumb, последняя кнопка в ней — «✅ Выполненные»
+	crumbRow := markup.InlineKeyboard[0]
+	doneCrumb := crumbRow[len(crumbRow)-1]
+	if doneCrumb.Text != "✅ Выполненные" {
+		t.Errorf("crumb done text = %q, want %q", doneCrumb.Text, "✅ Выполненные")
+	}
+	if doneCrumb.CallbackData == nil || *doneCrumb.CallbackData != "none" {
+		t.Errorf("crumb done callback = %v, want 'none'", doneCrumb.CallbackData)
+	}
+}
+
+func TestBuildListMessage_Ordering_FoldersBeforeNotesBeforeDone(t *testing.T) {
+	// Папки → заметки → done → пагинация
+	items := []listItem{
+		{isFolder: true, folder: model.Folder{ID: 1, Name: "Папка"}},
+		{note: model.Note{ID: 2, Text: "Заметка"}},
+	}
+	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, 1, false)
+
+	// папка + заметка + done + пагинации нет (totalPages=1) = 3 (breadcrumb текстовый)
+	if len(markup.InlineKeyboard) != 3 {
+		t.Fatalf("keyboard rows = %d, want 3", len(markup.InlineKeyboard))
+	}
+	// Строка 0 — папка
+	row := markup.InlineKeyboard[0]
+	if !strings.Contains(row[0].Text, "📁 Папка") {
+		t.Errorf("row 0 = %q, want folder", row[0].Text)
+	}
+	// Строка 1 — заметка
+	row = markup.InlineKeyboard[1]
+	if !strings.Contains(row[0].Text, "Заметка") {
+		t.Errorf("row 1 = %q, want note", row[0].Text)
+	}
+	// Строка 2 — done
+	row = markup.InlineKeyboard[2]
+	if row[0].Text != "✅ Выполненные (1)" {
+		t.Errorf("row 2 = %q, want done folder", row[0].Text)
+	}
+}
+
+func TestBuildListMessage_DoneFolderActive_InSubfolder_NoDoubleBack(t *testing.T) {
+	// doneFolderActive + currentFolderID != nil → только одна кнопка «◀️ Назад» (backtolist)
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Готово", Done: true}},
+	}
+	fid := int64(5)
+	folderChain := []model.Folder{{ID: 5, Name: "МояПапка"}}
+	_, markup := buildListMessage(items, 1, "Личное", &fid, folderChain, 0, 1, false, false, 0, true)
+
+	// Считаем кнопки «Назад»
+	backCount := 0
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if btn.Text == "◀️ Назад" {
+				backCount++
+			}
+		}
+	}
+	if backCount != 1 {
+		t.Errorf("back buttons = %d, want 1 (duplicate!)", backCount)
+	}
+	// Проверяем что это именно backtolist, а не backfolder
+	lastRow := markup.InlineKeyboard[len(markup.InlineKeyboard)-1]
+	if lastRow[0].CallbackData == nil || *lastRow[0].CallbackData != "backtolist" {
+		t.Errorf("last button callback = %v, want 'backtolist'", lastRow[0].CallbackData)
+	}
+}
+
+func TestBuildListMessage_DoneWithPagination(t *testing.T) {
+	// done + пагинация: done перед пагинацией
+	items := make([]listItem, 10)
+	for i := range items {
+		items[i] = listItem{note: model.Note{ID: int64(i + 1), Text: "T"}}
+	}
+	_, markup := buildListMessage(items, 1, "Работа", nil, nil, 0, 2, false, false, 2, false)
+
+	// breadcrumb текстовый: 10 заметок + done(1) + pagination(1) = 12
+	if len(markup.InlineKeyboard) != 12 {
+		t.Fatalf("keyboard rows = %d, want 12", len(markup.InlineKeyboard))
+	}
+	// Предпоследняя — done
+	doneRow := markup.InlineKeyboard[10]
+	if doneRow[0].Text != "✅ Выполненные (2)" {
+		t.Errorf("pre-last row = %q, want done folder", doneRow[0].Text)
+	}
+	// Последняя — пагинация
+	pagRow := markup.InlineKeyboard[11]
+	if !strings.Contains(pagRow[0].Text, "/") {
+		t.Errorf("last row = %q, want pagination", pagRow[0].Text)
 	}
 }
 

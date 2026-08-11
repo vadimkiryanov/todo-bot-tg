@@ -30,6 +30,7 @@ type NoteService interface {
 	GetNoteByID(noteID int64) (model.Note, error)
 	ProcessPendingReminders() ([]model.Note, error)
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)
+	CountDoneNotes(userID, topicID int64, folderID *int64) (int, error)
 	ListArchived(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
 	SeedDefaults(userID int64) error
@@ -290,6 +291,10 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 	}
 	if data == "moveinsert" {
 		h.callbackMoveInsert(chatID, msgID, userID)
+		return
+	}
+	if data == "donefolder" {
+		h.callbackDoneFolder(chatID, msgID, userID)
 		return
 	}
 	if strings.HasPrefix(data, "delremmsg:") {
@@ -623,10 +628,12 @@ func (h *Handler) cmdAdd(msg *tgbotapi.Message, userID int64, args string) {
 
 func (h *Handler) cmdList(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
+	h.states.Get(userID).DoneFolderActive = false
 	h.showListPage(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID, 0)
 }
 
 func (h *Handler) showList(chatID int64, userID int64) {
+	h.states.Get(userID).DoneFolderActive = false
 	h.showListPage(chatID, 0, userID, 0)
 }
 
@@ -635,6 +642,12 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	session := h.states.Get(userID)
 	topicID := session.CurrentTopicID
 	folderID := session.CurrentFolderID
+
+	// Режим виртуальной папки выполненных
+	if session.DoneFolderActive && topicID != 0 {
+		h.showDoneFolderPage(chatID, msgID, userID, topicID, folderID, page, perPage)
+		return
+	}
 
 	// Получаем папки в текущем контексте (только если выбран топик)
 	var folders []model.Folder
@@ -656,13 +669,29 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		return
 	}
 
+	// Скрываем выполненные заметки из основного списка (только в «✅ Выполненные»)
+	var activeNotes []model.Note
+	for _, n := range notes {
+		if !n.Done {
+			activeNotes = append(activeNotes, n)
+		}
+	}
+	notes = activeNotes
+
+	// Считаем выполненные для виртуальной папки (только в корне топика)
+	doneCount := 0
+	if topicID != 0 {
+		doneCount, _ = h.noteService.CountDoneNotes(userID, topicID, folderID)
+	}
+
 	totalItems := len(folders) + len(notes)
+	doneFolderActive := false
+	showCounts := session.ShowCounts
+	breadcrumbInline := session.BreadcrumbInline
 
 	// Пустой список
-	if totalItems == 0 {
-		showCounts := h.states.Get(userID).ShowCounts
-		breadcrumbInline := h.states.Get(userID).BreadcrumbInline
-		text, markup := buildListMessage(nil, topicID, topicName, folderID, folderChain, 0, 1, showCounts, breadcrumbInline)
+	if totalItems == 0 && doneCount == 0 {
+		text, markup := buildListMessage(nil, topicID, topicName, folderID, folderChain, 0, 1, showCounts, breadcrumbInline, 0, doneFolderActive)
 		if msgID != 0 {
 			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 			if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
@@ -696,8 +725,6 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	}
 
 	// Собираем элементы текущей страницы: сначала папки, потом заметки
-	showCounts := h.states.Get(userID).ShowCounts
-	breadcrumbInline := h.states.Get(userID).BreadcrumbInline
 	var pageItems []listItem
 	for i := start; i < end; i++ {
 		if i < len(folders) {
@@ -716,7 +743,7 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		}
 	}
 
-	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, showCounts, breadcrumbInline)
+	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, showCounts, breadcrumbInline, doneCount, doneFolderActive)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -729,6 +756,81 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	sent, err := h.api.Send(msg2)
 	if err == nil {
 		h.states.Get(userID).LastListMsgID = sent.MessageID
+	}
+}
+
+// showDoneFolderPage — страница виртуальной папки выполненных заметок.
+func (h *Handler) showDoneFolderPage(chatID int64, msgID int, userID int64, topicID int64, folderID *int64, page int, perPage int) {
+	session := h.states.Get(userID)
+
+	var topicName string
+	if t, err := h.topicService.GetTopic(userID, topicID); err == nil {
+		topicName = t.Name
+	}
+
+	// Получаем заметки текущей папки и фильтруем только выполненные
+	notes, err := h.noteService.ListNotes(userID, topicID, folderID)
+	if err != nil {
+		h.send(chatID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	var doneNotes []model.Note
+	for _, n := range notes {
+		if n.Done {
+			doneNotes = append(doneNotes, n)
+		}
+	}
+
+	totalItems := len(doneNotes)
+	if totalItems == 0 {
+		// Не должно случиться, но на всякий случай — возвращаемся в список
+		session.DoneFolderActive = false
+		h.showList(chatID, userID)
+		return
+	}
+
+	// Цепочка папок для breadcrumb
+	var folderChain []model.Folder
+	if folderID != nil {
+		folderChain, _ = h.folderService.GetFolderChain(*folderID)
+	}
+
+	totalPages := (totalItems + perPage - 1) / perPage
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	if page < 0 {
+		page = 0
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+
+	start := page * perPage
+	end := start + perPage
+	if end > totalItems {
+		end = totalItems
+	}
+
+	var pageItems []listItem
+	for i := start; i < end; i++ {
+		pageItems = append(pageItems, listItem{isFolder: false, note: doneNotes[i]})
+	}
+
+	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, session.ShowCounts, session.BreadcrumbInline, 0, true)
+
+	if msgID != 0 {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+		if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+			return
+		}
+	}
+	msg2 := tgbotapi.NewMessage(chatID, text)
+	msg2.ReplyMarkup = markup
+	sent, err := h.api.Send(msg2)
+	if err == nil {
+		session.LastListMsgID = sent.MessageID
 	}
 }
 
@@ -1056,6 +1158,7 @@ func (h *Handler) callbackSetTopic(chatID int64, msgID int, userID int64, topicI
 		h.states.Get(userID).CurrentTopicID = 0
 	}
 	h.states.Get(userID).CurrentFolderID = nil
+	h.states.Get(userID).DoneFolderActive = false
 	h.states.Get(userID).LastListMsgID = msgID
 	h.showListPage(chatID, msgID, userID, 0)
 }
@@ -1197,6 +1300,7 @@ func (h *Handler) callbackMarkUndone(chatID int64, msgID int, userID int64, note
 }
 
 func (h *Handler) callbackBackToList(chatID int64, msgID int, userID int64) {
+	h.states.Get(userID).DoneFolderActive = false
 	h.showListPage(chatID, msgID, userID, 0)
 }
 
@@ -1250,16 +1354,23 @@ func (h *Handler) callbackOpenFolder(chatID int64, msgID int, userID int64, fold
 func (h *Handler) callbackCrumb(chatID int64, msgID int, userID int64, folderID int64) {
 	if folderID == 0 {
 		// Переход к списку топиков
+		h.states.Get(userID).DoneFolderActive = false
 		h.cmdTopicsFromList(chatID, msgID, userID)
 		return
 	}
 	session := h.states.Get(userID)
+	session.DoneFolderActive = false
 	if folderID == -1 {
 		// Переход в корень текущего топика
 		session.CurrentFolderID = nil
 	} else {
 		session.CurrentFolderID = &folderID
 	}
+	h.showListPage(chatID, msgID, userID, 0)
+}
+
+func (h *Handler) callbackDoneFolder(chatID int64, msgID int, userID int64) {
+	h.states.Get(userID).DoneFolderActive = true
 	h.showListPage(chatID, msgID, userID, 0)
 }
 
@@ -1306,6 +1417,7 @@ func (h *Handler) tryNavigateFolder(msg *tgbotapi.Message, userID int64, cmd str
 	// Проверяем имя топика — переход в корень топика
 	if t, err := h.topicService.GetTopic(userID, session.CurrentTopicID); err == nil && matchKey(t.Name) == key {
 		session.CurrentFolderID = nil
+		session.DoneFolderActive = false
 		h.deleteUserMsg(msg)
 		h.showListPage(msg.Chat.ID, session.LastListMsgID, userID, 0)
 		return true
@@ -1323,6 +1435,7 @@ func (h *Handler) tryNavigateFolder(msg *tgbotapi.Message, userID int64, cmd str
 					} else {
 						session.CurrentFolderID = &f.ID
 					}
+					session.DoneFolderActive = false
 					h.deleteUserMsg(msg)
 					h.showListPage(msg.Chat.ID, session.LastListMsgID, userID, 0)
 					return true

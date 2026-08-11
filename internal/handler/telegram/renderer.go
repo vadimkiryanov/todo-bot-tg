@@ -126,7 +126,9 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 // buildListMessage строит текст и разметку для списка заметок и папок.
 // pageItems — элементы текущей страницы (папки и заметки).
 // folderChain — цепочка папок для breadcrumb (nil если не в папке).
-func buildListMessage(pageItems []listItem, topicID int64, topicName string, currentFolderID *int64, folderChain []model.Folder, page, totalPages int, showCounts bool, breadcrumbInline bool) (string, tgbotapi.InlineKeyboardMarkup) {
+// doneCount — количество выполненных заметок в топике (>0 → показываем виртуальную папку в корне).
+// doneFolderActive — активен режим просмотра выполненных заметок.
+func buildListMessage(pageItems []listItem, topicID int64, topicName string, currentFolderID *int64, folderChain []model.Folder, page, totalPages int, showCounts bool, breadcrumbInline bool, doneCount int, doneFolderActive bool) (string, tgbotapi.InlineKeyboardMarkup) {
 	btnRows := make([][]tgbotapi.InlineKeyboardButton, 0)
 
 	// Текст сообщения — breadcrumb
@@ -148,6 +150,12 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 					fmt.Sprintf("crumb:%d", f.ID),
 				))
 			}
+			if doneFolderActive {
+				crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData(
+					"✅ Выполненные",
+					"none",
+				))
+			}
 			btnRows = append(btnRows, crumbRow)
 			text = fmt.Sprintf("                                                     [%s]", topicName)
 		} else {
@@ -157,6 +165,9 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 			}
 			for _, f := range folderChain {
 				text += fmt.Sprintf(" › /%s%s", strings.ToUpper(sanitize(f.Name)), emojiDecoration(f.Name))
+			}
+			if doneFolderActive {
+				text += " › ✅ Выполненные"
 			}
 		}
 	} else {
@@ -206,9 +217,19 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 	}
 
 	// Если список пуст — кнопка «добавить»
-	if len(btnRows) == 0 {
+	if len(btnRows) == 0 && doneCount == 0 {
 		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📝 Добавить заметку", "addnote"),
+		))
+	}
+
+	// Системная папка выполненных — внизу, после всех элементов
+	if doneCount > 0 && topicID != 0 && !doneFolderActive {
+		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(
+				fmt.Sprintf("✅ Выполненные (%d)", doneCount),
+				"donefolder",
+			),
 		))
 	}
 
@@ -226,6 +247,13 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 			navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("▶️", fmt.Sprintf("page:%d:%d", topicID, page+1)))
 		}
 		btnRows = append(btnRows, navRow)
+	}
+
+	// Кнопка «Назад» только в режиме выполненных (из обычных папок — через breadcrumb)
+	if doneFolderActive {
+		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist"),
+		))
 	}
 
 	return text, tgbotapi.NewInlineKeyboardMarkup(btnRows...)

@@ -280,6 +280,42 @@ func (s *PostgresStore) DeleteNote(userID, noteID int64) error {
 	return nil
 }
 
+// CountDoneNotes возвращает количество выполненных заметок в топике/папке.
+func (s *PostgresStore) CountDoneNotes(userID, topicID int64, folderID *int64) (int, error) {
+	var count int
+	var err error
+
+	if topicID != 0 {
+		if folderID != nil {
+			err = s.db.QueryRow(
+				`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND topic_id = $2 AND folder_id = $3 AND done = TRUE AND archived = FALSE`,
+				userID, topicID, *folderID,
+			).Scan(&count)
+		} else {
+			err = s.db.QueryRow(
+				`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND topic_id = $2 AND folder_id IS NULL AND done = TRUE AND archived = FALSE`,
+				userID, topicID,
+			).Scan(&count)
+		}
+	} else {
+		if folderID != nil {
+			err = s.db.QueryRow(
+				`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND folder_id = $2 AND done = TRUE AND archived = FALSE`,
+				userID, *folderID,
+			).Scan(&count)
+		} else {
+			err = s.db.QueryRow(
+				`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND folder_id IS NULL AND done = TRUE AND archived = FALSE`,
+				userID,
+			).Scan(&count)
+		}
+	}
+	if err != nil {
+		return 0, fmt.Errorf("подсчёт выполненных заметок: %w", err)
+	}
+	return count, nil
+}
+
 func (s *PostgresStore) CountNotes(userID, topicID int64, folderID *int64) (int, error) {
 	var count int
 	var err error
