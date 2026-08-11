@@ -160,7 +160,7 @@ func TestBuildDeleteConfirmMessage(t *testing.T) {
 
 func TestBuildViewNoteMessage(t *testing.T) {
 	note := model.Note{ID: 1, Text: "Test note", Priority: model.PriorityHigh}
-	text, markup := buildViewNoteMessage(note)
+	text, markup := buildViewNoteMessage(note, false)
 	if !strings.Contains(text, "#1") {
 		t.Errorf("text does not contain note ID: %q", text)
 	}
@@ -175,7 +175,7 @@ func TestBuildViewNoteMessage(t *testing.T) {
 func TestBuildViewNoteMessage_WithReminder(t *testing.T) {
 	reminder := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
 	note := model.Note{ID: 1, Text: "Test", ReminderAt: &reminder}
-	text, _ := buildViewNoteMessage(note)
+	text, _ := buildViewNoteMessage(note, false)
 	if !strings.Contains(text, "⏰") {
 		t.Errorf("text does not contain reminder emoji: %q", text)
 	}

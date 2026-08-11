@@ -300,7 +300,8 @@ func buildArchivedMessage(notes []model.Note) (string, tgbotapi.InlineKeyboardMa
 }
 
 // buildViewNoteMessage строит текст и разметку для просмотра заметки.
-func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarkup) {
+// expanded=false — компактный вид (4 основных + ···), expanded=true — все кнопки + ▲.
+func buildViewNoteMessage(note model.Note, expanded bool) (string, tgbotapi.InlineKeyboardMarkup) {
 	prefix := ""
 	if note.Done {
 		prefix = "✅ "
@@ -333,12 +334,6 @@ func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarku
 		Text:                         "✏️",
 		SwitchInlineQueryCurrentChat: &query,
 	}
-	delBtn := tgbotapi.NewInlineKeyboardButtonData("🗑", fmt.Sprintf("askdel:%d", note.ID))
-	archBtn := tgbotapi.NewInlineKeyboardButtonData("📦", fmt.Sprintf("archnote:%d", note.ID))
-	prioBtn := tgbotapi.NewInlineKeyboardButtonData(
-		prioBtnLabel(note.Priority, note.PriorityEmoji()),
-		fmt.Sprintf("chprio:%d", note.ID),
-	)
 
 	// Done/Undone toggle
 	doneLabel := "✅"
@@ -356,12 +351,29 @@ func buildViewNoteMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarku
 	}
 	remBtn := tgbotapi.NewInlineKeyboardButtonData("⏰", remCallback)
 
-	moveBtn := tgbotapi.NewInlineKeyboardButtonData("🗂️♻️", fmt.Sprintf("move:%d", note.ID))
-
+	delBtn := tgbotapi.NewInlineKeyboardButtonData("🗑", fmt.Sprintf("askdel:%d", note.ID))
 	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist")
 
+	// Дополнительные кнопки (скрываются под ···)
+	archBtn := tgbotapi.NewInlineKeyboardButtonData("📦", fmt.Sprintf("archnote:%d", note.ID))
+	prioBtn := tgbotapi.NewInlineKeyboardButtonData(
+		prioBtnLabel(note.Priority, note.PriorityEmoji()),
+		fmt.Sprintf("chprio:%d", note.ID),
+	)
+	moveBtn := tgbotapi.NewInlineKeyboardButtonData("🗂️♻️", fmt.Sprintf("move:%d", note.ID))
+
+	if expanded {
+		collapseBtn := tgbotapi.NewInlineKeyboardButtonData("▲", fmt.Sprintf("collapse:%d", note.ID))
+		return text, tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, delBtn, collapseBtn),
+			tgbotapi.NewInlineKeyboardRow(archBtn, prioBtn, moveBtn),
+			tgbotapi.NewInlineKeyboardRow(backBtn),
+		)
+	}
+
+	expandBtn := tgbotapi.NewInlineKeyboardButtonData("···", fmt.Sprintf("expand:%d", note.ID))
 	return text, tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(editBtn, delBtn, archBtn, prioBtn, doneBtn, remBtn, moveBtn),
+		tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, delBtn, expandBtn),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)
 }

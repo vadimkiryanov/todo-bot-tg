@@ -455,6 +455,18 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		h.callbackCrumb(chatID, msgID, userID, id)
+	case "expand":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackExpandNote(chatID, msgID, userID, id)
+	case "collapse":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackCollapseNote(chatID, msgID, userID, id)
 	}
 }
 
@@ -1172,7 +1184,33 @@ func (h *Handler) callbackViewNote(chatID int64, msgID int, userID int64, noteID
 
 	h.states.Get(userID).LastViewedNoteID = note.ID
 
-	text, markup := buildViewNoteMessage(note)
+	text, markup := buildViewNoteMessage(note, false)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+}
+
+// callbackExpandNote раскрывает дополнительные кнопки действий над заметкой.
+func (h *Handler) callbackExpandNote(chatID int64, msgID int, userID int64, noteID int64) {
+	note, err := h.noteService.GetNote(userID, noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	text, markup := buildViewNoteMessage(note, true)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	h.api.Send(edit)
+}
+
+// callbackCollapseNote сворачивает дополнительные кнопки действий над заметкой.
+func (h *Handler) callbackCollapseNote(chatID int64, msgID int, userID int64, noteID int64) {
+	note, err := h.noteService.GetNote(userID, noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	text, markup := buildViewNoteMessage(note, false)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1239,7 +1277,7 @@ func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, 
 	note.Priority = newPriority
 
 	// Перерисовываем экран просмотра
-	text, markup := buildViewNoteMessage(note)
+	text, markup := buildViewNoteMessage(note, false)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1263,7 +1301,7 @@ func (h *Handler) callbackMarkDone(chatID int64, msgID int, userID int64, noteID
 		return
 	}
 
-	text, markup := buildViewNoteMessage(note)
+	text, markup := buildViewNoteMessage(note, false)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1287,7 +1325,7 @@ func (h *Handler) callbackMarkUndone(chatID int64, msgID int, userID int64, note
 		return
 	}
 
-	text, markup := buildViewNoteMessage(note)
+	text, markup := buildViewNoteMessage(note, false)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1542,7 +1580,7 @@ func (h *Handler) callbackReminderRepeat(chatID int64, msgID int, params string)
 
 	// Перерисовываем просмотр заметки
 	note, _ := h.noteService.GetNote(userID, noteID)
-	text, markup := buildViewNoteMessage(note)
+	text, markup := buildViewNoteMessage(note, false)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
@@ -1573,7 +1611,7 @@ func (h *Handler) callbackClearReminder(chatID int64, msgID int, userID int64, n
 	}
 
 	note, _ := h.noteService.GetNote(userID, noteID)
-	text, markup := buildViewNoteMessage(note)
+	text, markup := buildViewNoteMessage(note, false)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
