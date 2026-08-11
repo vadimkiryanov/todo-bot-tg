@@ -244,7 +244,7 @@ func (s *Service) SetPriority(userID, noteID int64, priority int) error {
 }
 
 // SetReminder устанавливает напоминание на заметку.
-func (s *Service) SetReminder(userID, noteID int64, at time.Time) error {
+func (s *Service) SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -254,6 +254,7 @@ func (s *Service) SetReminder(userID, noteID int64, at time.Time) error {
 	}
 
 	note.ReminderAt = &at
+	note.ReminderRepeat = repeat
 	return s.noteRepo.UpdateNote(note)
 }
 
@@ -268,6 +269,7 @@ func (s *Service) ClearReminder(userID, noteID int64) error {
 	}
 
 	note.ReminderAt = nil
+	note.ReminderRepeat = model.ReminderRepeatOnce
 	return s.noteRepo.UpdateNote(note)
 }
 
@@ -276,7 +278,8 @@ func (s *Service) GetNoteByID(noteID int64) (model.Note, error) {
 	return s.noteRepo.GetNoteByID(noteID)
 }
 
-// ProcessPendingReminders возвращает заметки с просроченными напоминаниями и сбрасывает их.
+// ProcessPendingReminders возвращает заметки с просроченными напоминаниями.
+// Для одноразовых — сбрасывает ReminderAt. Для ежедневных — сдвигает на 24 часа.
 func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -287,7 +290,14 @@ func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
 	}
 
 	for i := range notes {
-		notes[i].ReminderAt = nil
+		if notes[i].ReminderRepeat == model.ReminderRepeatDaily {
+			// Сдвигаем на 24 часа вперёд
+			next := notes[i].ReminderAt.Add(24 * time.Hour)
+			notes[i].ReminderAt = &next
+		} else {
+			notes[i].ReminderAt = nil
+			notes[i].ReminderRepeat = model.ReminderRepeatOnce
+		}
 		_ = s.noteRepo.UpdateNote(notes[i])
 	}
 

@@ -298,7 +298,7 @@ func TestService_SetReminder(t *testing.T) {
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 
 	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
-	err := svc.SetReminder(1, note.ID, at)
+	err := svc.SetReminder(1, note.ID, at, model.ReminderRepeatOnce)
 	if err != nil {
 		t.Fatalf("SetReminder() error: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestService_SetReminder(t *testing.T) {
 func TestService_ClearReminder(t *testing.T) {
 	svc := newTestService()
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
-	_ = svc.SetReminder(1, note.ID, time.Now())
+	_ = svc.SetReminder(1, note.ID, time.Now(), model.ReminderRepeatOnce)
 
 	err := svc.ClearReminder(1, note.ID)
 	if err != nil {
@@ -330,7 +330,7 @@ func TestService_ProcessPendingReminders(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour)
 	_, _ = svc.AddNote(1, 0, nil, "Past", 0)
 	note2, _ := svc.AddNote(1, 1, nil, "Past 2", 0)
-	_ = svc.SetReminder(1, note2.ID, past)
+	_ = svc.SetReminder(1, note2.ID, past, model.ReminderRepeatOnce)
 
 	notes, err := svc.ProcessPendingReminders()
 	if err != nil {

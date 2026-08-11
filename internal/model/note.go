@@ -22,11 +22,20 @@ type Note struct {
 	FolderID   *int64 // nil — в корне топика (не в папке)
 	Text       string
 	Priority   int        // PriorityNone / Low / Medium / High
-	ReminderAt *time.Time // nil — без напоминания
-	CreatedAt  time.Time
+	ReminderAt     *time.Time     // nil — без напоминания
+	ReminderRepeat ReminderRepeat // once / daily
+	CreatedAt      time.Time
 	Archived   bool
 	Done       bool // заметка выполнена (галочка)
 }
+
+// ReminderRepeat — тип повторения напоминания.
+type ReminderRepeat string
+
+const (
+	ReminderRepeatOnce  ReminderRepeat = "once"
+	ReminderRepeatDaily ReminderRepeat = "daily"
+)
 
 // PriorityEmoji возвращает эмодзи приоритета (пустая строка для None).
 func (n *Note) PriorityEmoji() string {

@@ -25,7 +25,7 @@ type NoteService interface {
 	MarkDone(userID, noteID int64) error
 	MarkUndone(userID, noteID int64) error
 	SetPriority(userID, noteID int64, priority int) error
-	SetReminder(userID, noteID int64, at time.Time) error
+	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error
 	ClearReminder(userID, noteID int64) error
 	GetNoteByID(noteID int64) (model.Note, error)
 	ProcessPendingReminders() ([]model.Note, error)
@@ -127,7 +127,9 @@ func (h *Handler) StartReminderWorker() {
 				}
 				for _, n := range notes {
 					text := fmt.Sprintf("⏰ Напоминание:\n\n%s", n.Text)
-					h.send(n.UserID, text)
+					msg := tgbotapi.NewMessage(n.UserID, text)
+					msg.ReplyMarkup = buildReminderNotificationMarkup(n.ID)
+					h.api.Send(msg)
 				}
 			}
 		}
@@ -290,6 +292,13 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 		h.callbackMoveInsert(chatID, msgID, userID)
 		return
 	}
+	if strings.HasPrefix(data, "delremmsg:") {
+		// Удаление сообщения-напоминания
+		del := tgbotapi.NewDeleteMessage(chatID, msgID)
+		h.api.Request(del)
+		h.api.Request(tgbotapi.NewCallback(cb.ID, ""))
+		return
+	}
 
 	parts := strings.SplitN(data, ":", 2)
 	if len(parts) != 2 {
@@ -385,6 +394,10 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 		h.callbackReminderHour(chatID, msgID, idStr)
 	case "remmin":
 		h.callbackReminderMinute(chatID, msgID, idStr)
+	case "remmrange":
+		h.callbackReminderMinuteRange(chatID, msgID, idStr)
+	case "remrepeat":
+		h.callbackReminderRepeat(chatID, msgID, idStr)
 	case "remclear":
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -1361,7 +1374,17 @@ func (h *Handler) callbackReminderHour(chatID int64, msgID int, params string) {
 	if noteID == 0 {
 		return
 	}
-	text, markup := buildMinutePicker(noteID, year, time.Month(month), day, hour)
+	text, markup := buildMinuteRangePicker(noteID, year, time.Month(month), day, hour)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	h.api.Send(edit)
+}
+
+func (h *Handler) callbackReminderMinuteRange(chatID int64, msgID int, params string) {
+	noteID, year, month, day, hour, startMin := parseReminder6(params)
+	if noteID == 0 {
+		return
+	}
+	text, markup := buildMinuteExactPicker(noteID, year, time.Month(month), day, hour, startMin)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
@@ -1372,7 +1395,18 @@ func (h *Handler) callbackReminderMinute(chatID int64, msgID int, params string)
 		return
 	}
 
-	// Определяем userID через noteID
+	// Показываем выбор: один раз или каждый день
+	text, markup := buildRepeatPicker(noteID, year, time.Month(month), day, hour, minute)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	h.api.Send(edit)
+}
+
+func (h *Handler) callbackReminderRepeat(chatID int64, msgID int, params string) {
+	noteID, year, month, day, hour, minute, repeat := parseReminder7(params)
+	if noteID == 0 {
+		return
+	}
+
 	userID, err := h.getNoteOwner(noteID)
 	if err != nil {
 		h.callbackAnswer(chatID, msgID, "❌ Заметка не найдена")
@@ -1380,7 +1414,15 @@ func (h *Handler) callbackReminderMinute(chatID int64, msgID int, params string)
 	}
 
 	at := time.Date(year, time.Month(month), day, hour, minute, 0, 0, time.Local)
-	if err := h.noteService.SetReminder(userID, noteID, at); err != nil {
+	remRepeat := model.ReminderRepeat(repeat)
+
+	// Одноразовое напоминание не может быть в прошлом
+	if remRepeat == "" && !at.After(now()) {
+		h.callbackAnswer(chatID, msgID, "❌ Время уже прошло, выбери будущее время")
+		return
+	}
+
+	if err := h.noteService.SetReminder(userID, noteID, at, remRepeat); err != nil {
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}
@@ -1588,6 +1630,21 @@ func parseReminder6(params string) (noteID int64, a, b, c, d, e int) {
 	c, _ = strconv.Atoi(parts[3])
 	d, _ = strconv.Atoi(parts[4])
 	e, _ = strconv.Atoi(parts[5])
+	return
+}
+
+func parseReminder7(params string) (noteID int64, a, b, c, d, e int, f string) {
+	parts := strings.Split(params, ":")
+	if len(parts) != 7 {
+		return 0, 0, 0, 0, 0, 0, ""
+	}
+	noteID, _ = strconv.ParseInt(parts[0], 10, 64)
+	a, _ = strconv.Atoi(parts[1])
+	b, _ = strconv.Atoi(parts[2])
+	c, _ = strconv.Atoi(parts[3])
+	d, _ = strconv.Atoi(parts[4])
+	e, _ = strconv.Atoi(parts[5])
+	f = parts[6]
 	return
 }
 

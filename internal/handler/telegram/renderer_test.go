@@ -332,16 +332,27 @@ func TestBuildHourPicker(t *testing.T) {
 	}
 }
 
-// --- buildMinutePicker ---
+// --- buildMinuteRangePicker / buildMinuteExactPicker ---
 
-func TestBuildMinutePicker(t *testing.T) {
-	text, markup := buildMinutePicker(1, 2026, 8, 6, 15)
+func TestBuildMinuteRangePicker(t *testing.T) {
+	text, markup := buildMinuteRangePicker(1, 2026, 8, 6, 15)
 	if !strings.Contains(text, "Выбери минуты") {
 		t.Errorf("text does not contain prompt: %q", text)
 	}
-	// 1 minute row + 1 back row
+	// 1 range row + 1 back row
 	if len(markup.InlineKeyboard) != 2 {
 		t.Errorf("keyboard rows = %d, want 2", len(markup.InlineKeyboard))
+	}
+}
+
+func TestBuildMinuteExactPicker(t *testing.T) {
+	text, markup := buildMinuteExactPicker(1, 2026, 8, 6, 15, 0)
+	if !strings.Contains(text, "Выбери минуты") {
+		t.Errorf("text does not contain prompt: %q", text)
+	}
+	// 3 rows of 5 + 1 back row = 4
+	if len(markup.InlineKeyboard) != 4 {
+		t.Errorf("keyboard rows = %d, want 4", len(markup.InlineKeyboard))
 	}
 }
 

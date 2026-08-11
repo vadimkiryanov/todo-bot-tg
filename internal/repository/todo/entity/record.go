@@ -10,8 +10,9 @@ type NoteRecord struct {
 	FolderID   *int64
 	Text       string
 	Priority   int
-	ReminderAt *time.Time
-	CreatedAt  time.Time
+	ReminderAt     *time.Time
+	ReminderRepeat string
+	CreatedAt      time.Time
 	Archived   bool
 	Done       bool
 }

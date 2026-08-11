@@ -5,32 +5,34 @@ import "todo-bot-tg/internal/model"
 // NoteToRecord конвертирует доменную модель в persistence-record.
 func NoteToRecord(n model.Note) NoteRecord {
 	return NoteRecord{
-		ID:         n.ID,
-		UserID:     n.UserID,
-		TopicID:    n.TopicID,
-		FolderID:   n.FolderID,
-		Text:       n.Text,
-		Priority:   n.Priority,
-		ReminderAt: n.ReminderAt,
-		CreatedAt:  n.CreatedAt,
-		Archived:   n.Archived,
-		Done:       n.Done,
+		ID:             n.ID,
+		UserID:         n.UserID,
+		TopicID:        n.TopicID,
+		FolderID:       n.FolderID,
+		Text:           n.Text,
+		Priority:       n.Priority,
+		ReminderAt:     n.ReminderAt,
+		ReminderRepeat: string(n.ReminderRepeat),
+		CreatedAt:      n.CreatedAt,
+		Archived:       n.Archived,
+		Done:           n.Done,
 	}
 }
 
 // NoteFromRecord конвертирует persistence-record в доменную модель.
 func NoteFromRecord(r NoteRecord) model.Note {
 	return model.Note{
-		ID:         r.ID,
-		UserID:     r.UserID,
-		TopicID:    r.TopicID,
-		FolderID:   r.FolderID,
-		Text:       r.Text,
-		Priority:   r.Priority,
-		ReminderAt: r.ReminderAt,
-		CreatedAt:  r.CreatedAt,
-		Archived:   r.Archived,
-		Done:       r.Done,
+		ID:             r.ID,
+		UserID:         r.UserID,
+		TopicID:        r.TopicID,
+		FolderID:       r.FolderID,
+		Text:           r.Text,
+		Priority:       r.Priority,
+		ReminderAt:     r.ReminderAt,
+		ReminderRepeat: model.ReminderRepeat(r.ReminderRepeat),
+		CreatedAt:      r.CreatedAt,
+		Archived:       r.Archived,
+		Done:           r.Done,
 	}
 }
 
