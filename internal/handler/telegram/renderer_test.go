@@ -278,7 +278,7 @@ func TestBuildArchivedMessage_WithNotes(t *testing.T) {
 // --- buildListMessage ---
 
 func TestBuildListMessage_Empty(t *testing.T) {
-	text, markup := buildListMessage(nil, 0, "", nil, nil, 0, 1, true, false, 0, false)
+	text, markup := buildListMessage(nil, 0, "", nil, nil, 0, 1, true, false, false, 0, false)
 	if text == "" {
 		t.Error("buildListMessage() returned empty text")
 	}
@@ -293,7 +293,7 @@ func TestBuildListMessage_WithPagination(t *testing.T) {
 	for i := range items {
 		items[i] = listItem{note: model.Note{ID: int64(i + 1), Text: "Test"}}
 	}
-	text, markup := buildListMessage(items, 0, "", nil, nil, 0, 2, true, false, 0, false)
+	text, markup := buildListMessage(items, 0, "", nil, nil, 0, 2, true, false, false, 0, false)
 	if !strings.Contains(text, "Все заметки") {
 		t.Errorf("text does not contain header: %q", text)
 	}
@@ -311,7 +311,7 @@ func TestBuildListMessage_WithDoneFolder(t *testing.T) {
 		{isFolder: true, folder: model.Folder{ID: 1, Name: "Папка"}},
 		{note: model.Note{ID: 1, Text: "Заметка"}},
 	}
-	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, 3, false)
+	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, false, 3, false)
 
 	// Порядок: папка + заметка + done folder = 3 (breadcrumb текстовый, не кнопка)
 	if len(markup.InlineKeyboard) != 3 {
@@ -333,7 +333,7 @@ func TestBuildListMessage_NoDoneFolder_ZeroCount(t *testing.T) {
 	items := []listItem{
 		{note: model.Note{ID: 1, Text: "Заметка"}},
 	}
-	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, 0, false)
+	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, false, 0, false)
 
 	for _, row := range markup.InlineKeyboard {
 		for _, btn := range row {
@@ -350,7 +350,7 @@ func TestBuildListMessage_DoneFolder_InSubfolder(t *testing.T) {
 		{note: model.Note{ID: 1, Text: "Заметка"}},
 	}
 	fid := int64(5)
-	_, markup := buildListMessage(items, 1, "Личное", &fid, nil, 0, 1, false, false, 5, false)
+	_, markup := buildListMessage(items, 1, "Личное", &fid, nil, 0, 1, false, false, false, 5, false)
 
 	// Ищем кнопку «✅ Выполненные»
 	found := false
@@ -371,7 +371,7 @@ func TestBuildListMessage_NoDoneFolder_AllNotes(t *testing.T) {
 	items := []listItem{
 		{note: model.Note{ID: 1, Text: "Заметка"}},
 	}
-	_, markup := buildListMessage(items, 0, "", nil, nil, 0, 1, false, false, 3, false)
+	_, markup := buildListMessage(items, 0, "", nil, nil, 0, 1, false, false, false, 3, false)
 
 	for _, row := range markup.InlineKeyboard {
 		for _, btn := range row {
@@ -387,7 +387,7 @@ func TestBuildListMessage_DoneFolderActive(t *testing.T) {
 	items := []listItem{
 		{note: model.Note{ID: 1, Text: "Готово", Done: true}},
 	}
-	text, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, 0, true)
+	text, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, false, 0, true)
 
 	// Текст НЕ должен содержать /DONE (это фейковая команда)
 	if strings.Contains(text, "/DONE") {
@@ -413,7 +413,7 @@ func TestBuildListMessage_DoneFolderActive_InlineBreadcrumb(t *testing.T) {
 	items := []listItem{
 		{note: model.Note{ID: 1, Text: "Готово", Done: true}},
 	}
-	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, true, 0, true)
+	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, true, false, 0, true)
 
 	// Первая строка — breadcrumb, последняя кнопка в ней — «✅ Выполненные»
 	crumbRow := markup.InlineKeyboard[0]
@@ -432,7 +432,7 @@ func TestBuildListMessage_Ordering_FoldersBeforeNotesBeforeDone(t *testing.T) {
 		{isFolder: true, folder: model.Folder{ID: 1, Name: "Папка"}},
 		{note: model.Note{ID: 2, Text: "Заметка"}},
 	}
-	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, 1, false)
+	_, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, false, false, 1, false)
 
 	// папка + заметка + done + пагинации нет (totalPages=1) = 3 (breadcrumb текстовый)
 	if len(markup.InlineKeyboard) != 3 {
@@ -462,7 +462,7 @@ func TestBuildListMessage_DoneFolderActive_InSubfolder_NoDoubleBack(t *testing.T
 	}
 	fid := int64(5)
 	folderChain := []model.Folder{{ID: 5, Name: "МояПапка"}}
-	_, markup := buildListMessage(items, 1, "Личное", &fid, folderChain, 0, 1, false, false, 0, true)
+	_, markup := buildListMessage(items, 1, "Личное", &fid, folderChain, 0, 1, false, false, false, 0, true)
 
 	// Считаем кнопки «Назад»
 	backCount := 0
@@ -489,7 +489,7 @@ func TestBuildListMessage_DoneWithPagination(t *testing.T) {
 	for i := range items {
 		items[i] = listItem{note: model.Note{ID: int64(i + 1), Text: "T"}}
 	}
-	_, markup := buildListMessage(items, 1, "Работа", nil, nil, 0, 2, false, false, 2, false)
+	_, markup := buildListMessage(items, 1, "Работа", nil, nil, 0, 2, false, false, false, 2, false)
 
 	// breadcrumb текстовый: 10 заметок + done(1) + pagination(1) = 12
 	if len(markup.InlineKeyboard) != 12 {

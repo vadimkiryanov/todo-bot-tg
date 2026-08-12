@@ -128,15 +128,15 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 // folderChain — цепочка папок для breadcrumb (nil если не в папке).
 // doneCount — количество выполненных заметок в топике (>0 → показываем виртуальную папку в корне).
 // doneFolderActive — активен режим просмотра выполненных заметок.
-func buildListMessage(pageItems []listItem, topicID int64, topicName string, currentFolderID *int64, folderChain []model.Folder, page, totalPages int, showCounts bool, breadcrumbInline bool, doneCount int, doneFolderActive bool) (string, tgbotapi.InlineKeyboardMarkup) {
+func buildListMessage(pageItems []listItem, topicID int64, topicName string, currentFolderID *int64, folderChain []model.Folder, page, totalPages int, showCounts bool, breadcrumbInline bool, breadcrumbBottom bool, doneCount int, doneFolderActive bool) (string, tgbotapi.InlineKeyboardMarkup) {
 	btnRows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	var crumbRow []tgbotapi.InlineKeyboardButton // для отложенного добавления вниз
 
 	// Текст сообщения — breadcrumb
 	var text string
 	if topicID != 0 {
 		if breadcrumbInline {
 			// Inline-кнопочный breadcrumb
-			var crumbRow []tgbotapi.InlineKeyboardButton
 			crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData("📔 ТОПИКИ", "crumb:0"))
 			if topicName != "" {
 				crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData(
@@ -156,7 +156,9 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 					"none",
 				))
 			}
-			btnRows = append(btnRows, crumbRow)
+			if !breadcrumbBottom {
+				btnRows = append(btnRows, crumbRow)
+			}
 			text = fmt.Sprintf("                                                     [%s]", topicName)
 		} else {
 			text = "🏠 /TOPICS"
@@ -254,6 +256,11 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 		btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist"),
 		))
+	}
+
+	// Крошки внизу — добавляем после всех остальных кнопок
+	if breadcrumbInline && breadcrumbBottom && len(crumbRow) > 0 {
+		btnRows = append(btnRows, crumbRow)
 	}
 
 	return text, tgbotapi.NewInlineKeyboardMarkup(btnRows...)
@@ -443,7 +450,7 @@ func buildHelpMessage() (string, tgbotapi.InlineKeyboardMarkup) {
 }
 
 // buildSettingsMessage строит сообщение с настройками.
-func buildSettingsMessage(showCounts bool, breadcrumbInline bool, showKeyboard bool, timezoneOffset int) (string, tgbotapi.InlineKeyboardMarkup) {
+func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBottom bool, showKeyboard bool, timezoneOffset int) (string, tgbotapi.InlineKeyboardMarkup) {
 	countsLabel := fmt.Sprintf("🔢 Счётчики: %s", boolLabel(showCounts))
 	toggleCounts := tgbotapi.NewInlineKeyboardButtonData(countsLabel, "togglesettings:showcounts")
 
@@ -460,13 +467,25 @@ func buildSettingsMessage(showCounts bool, breadcrumbInline bool, showKeyboard b
 
 	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist")
 
-	return "⚙️ *Настройки*", tgbotapi.NewInlineKeyboardMarkup(
+	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(toggleCounts),
 		tgbotapi.NewInlineKeyboardRow(toggleBreadcrumb),
+	}
+
+	// Кнопка «Крошки внизу» — только когда крошки в режиме inline-кнопок
+	if breadcrumbInline {
+		bottomLabel := fmt.Sprintf("⬇️ Крошки внизу: %s", boolLabel(breadcrumbBottom))
+		toggleBottom := tgbotapi.NewInlineKeyboardButtonData(bottomLabel, "togglesettings:breadcrumbbottom")
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(toggleBottom))
+	}
+
+	rows = append(rows,
 		tgbotapi.NewInlineKeyboardRow(toggleKeyboard),
 		tgbotapi.NewInlineKeyboardRow(tzMinus, tzDisplay, tzPlus),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)
+
+	return "⚙️ *Настройки*", tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
 // boolLabel возвращает «Вкл» или «Выкл» для булева значения.

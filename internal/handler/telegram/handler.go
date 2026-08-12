@@ -703,7 +703,7 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 
 	// Пустой список
 	if totalItems == 0 && doneCount == 0 {
-		text, markup := buildListMessage(nil, topicID, topicName, folderID, folderChain, 0, 1, showCounts, breadcrumbInline, 0, doneFolderActive)
+		text, markup := buildListMessage(nil, topicID, topicName, folderID, folderChain, 0, 1, showCounts, breadcrumbInline, session.BreadcrumbBottom, 0, doneFolderActive)
 		if msgID != 0 {
 			edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 			if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
@@ -755,7 +755,7 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		}
 	}
 
-	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, showCounts, breadcrumbInline, doneCount, doneFolderActive)
+	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, showCounts, breadcrumbInline, session.BreadcrumbBottom, doneCount, doneFolderActive)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -830,7 +830,7 @@ func (h *Handler) showDoneFolderPage(chatID int64, msgID int, userID int64, topi
 		pageItems = append(pageItems, listItem{isFolder: false, note: doneNotes[i]})
 	}
 
-	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, session.ShowCounts, session.BreadcrumbInline, 0, true)
+	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, session.ShowCounts, session.BreadcrumbInline, session.BreadcrumbBottom, 0, true)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -1368,7 +1368,7 @@ func (h *Handler) cmdSettings(msg *tgbotapi.Message, userID int64) {
 
 func (h *Handler) showSettings(chatID int64, msgID int, userID int64) {
 	session := h.states.Get(userID)
-	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.ShowKeyboard, session.TimezoneOffset)
+	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.BreadcrumbBottom, session.ShowKeyboard, session.TimezoneOffset)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -1393,6 +1393,8 @@ func (h *Handler) callbackToggleSettings(chatID int64, msgID int, userID int64, 
 		session.ShowCounts = !session.ShowCounts
 	case "breadcrumb":
 		session.BreadcrumbInline = !session.BreadcrumbInline
+	case "breadcrumbbottom":
+		session.BreadcrumbBottom = !session.BreadcrumbBottom
 	case "keyboard":
 		session.ShowKeyboard = !session.ShowKeyboard
 	case "tzminus":
