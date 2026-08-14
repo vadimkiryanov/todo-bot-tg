@@ -120,3 +120,15 @@ func TestStateManager_MultipleUsers(t *testing.T) {
 		}
 	}
 }
+
+func TestUserSession_ExpandedFoldersInitialized(t *testing.T) {
+	// StateManager.Get инициализирует карту развёрнутых папок
+	sm := NewStateManager()
+	session := sm.Get(1)
+	if session.ExpandedFolders == nil {
+		t.Error("ExpandedFolders should be initialized by StateManager.Get")
+	}
+	if session.FoldersCollapsed {
+		t.Error("FoldersCollapsed should default to false")
+	}
+}

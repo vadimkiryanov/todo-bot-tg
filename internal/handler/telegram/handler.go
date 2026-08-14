@@ -33,6 +33,7 @@ type NoteService interface {
 	CountDoneNotes(userID, topicID int64, folderID *int64) (int, error)
 	ListArchived(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
+	ListTimers(userID int64) ([]model.Note, error)
 	SeedDefaults(userID int64) error
 	MoveNote(userID, noteID int64, topicID int64, folderID *int64) error
 }
@@ -180,6 +181,8 @@ func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 	case "archived":
 		h.deleteUserMsg(msg)
 		h.showArchived(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID)
+	case "timers":
+		h.cmdTimers(msg, userID)
 	case "newfolder":
 		h.cmdNewFolder(msg, userID, args)
 	case "settings":
@@ -445,6 +448,12 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		h.callbackOpenFolder(chatID, msgID, userID, id)
+	case "expfolders":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackToggleExpandedFolders(chatID, msgID, userID, id)
 	case "backfolder":
 		h.callbackBackFolder(chatID, msgID, userID)
 	case "togglesettings":
@@ -644,6 +653,38 @@ func (h *Handler) cmdList(msg *tgbotapi.Message, userID int64) {
 	h.showListPage(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID, 0)
 }
 
+// cmdTimers показывает список всех заметок пользователя с установленным таймером.
+func (h *Handler) cmdTimers(msg *tgbotapi.Message, userID int64) {
+	h.deleteUserMsg(msg)
+	chatID := msg.Chat.ID
+	msgID := h.states.Get(userID).LastListMsgID
+
+	notes, err := h.noteService.ListTimers(userID)
+	if err != nil {
+		if msgID != 0 {
+			h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		} else {
+			h.send(chatID, fmt.Sprintf("❌ %v", err))
+		}
+		return
+	}
+
+	text, markup := buildTimersMessage(notes, h.states.Get(userID).TimezoneOffset)
+
+	if msgID != 0 {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+		if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+			return
+		}
+	}
+	msg2 := h.newMsg(chatID, userID, text)
+	msg2.ReplyMarkup = markup
+	sent, err := h.api.Send(msg2)
+	if err == nil {
+		h.states.Get(userID).LastListMsgID = sent.MessageID
+	}
+}
+
 func (h *Handler) showList(chatID int64, userID int64) {
 	h.states.Get(userID).DoneFolderActive = false
 	h.showListPage(chatID, 0, userID, 0)
@@ -696,7 +737,20 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		doneCount, _ = h.noteService.CountDoneNotes(userID, topicID, folderID)
 	}
 
-	totalItems := len(folders) + len(notes)
+	// Авто-схлопывание папок уровня (настройка): если папок больше одной
+	// и уровень не развёрнут вручную — показываем одну кнопку.
+	levelKey := int64(0)
+	if folderID != nil {
+		levelKey = *folderID
+	}
+	foldersCollapsed := foldersCollapseState(session.FoldersCollapsed, len(folders), session.ExpandedFolders, levelKey)
+
+	totalItems := len(notes)
+	if foldersCollapsed {
+		totalItems++ // свёрнутый блок папок — один элемент
+	} else {
+		totalItems += len(folders)
+	}
 	doneFolderActive := false
 	showCounts := session.ShowCounts
 	breadcrumbInline := session.BreadcrumbInline
@@ -737,18 +791,30 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	}
 
 	// Собираем элементы текущей страницы: сначала папки, потом заметки
+	folderItems := len(folders)
+	if foldersCollapsed {
+		folderItems = 1
+	}
 	var pageItems []listItem
 	for i := start; i < end; i++ {
-		if i < len(folders) {
-			f := folders[i]
-			item := listItem{isFolder: true, folder: f}
-			if showCounts {
-				item.noteCount, _ = h.noteService.CountNotes(userID, topicID, &f.ID)
-				item.folderCount, _ = h.folderService.CountFolders(userID, topicID, &f.ID)
+		if i < folderItems {
+			if foldersCollapsed {
+				names := make([]string, len(folders))
+				for j, f := range folders {
+					names[j] = f.Name
+				}
+				pageItems = append(pageItems, listItem{isCollapsed: true, levelKey: levelKey, folderNames: names})
+			} else {
+				f := folders[i]
+				item := listItem{isFolder: true, folder: f}
+				if showCounts {
+					item.noteCount, _ = h.noteService.CountNotes(userID, topicID, &f.ID)
+					item.folderCount, _ = h.folderService.CountFolders(userID, topicID, &f.ID)
+				}
+				pageItems = append(pageItems, item)
 			}
-			pageItems = append(pageItems, item)
 		} else {
-			noteIdx := i - len(folders)
+			noteIdx := i - folderItems
 			if noteIdx < len(notes) {
 				pageItems = append(pageItems, listItem{isFolder: false, note: notes[noteIdx]})
 			}
@@ -1140,7 +1206,8 @@ func (h *Handler) doSetTopic(chatID int64, userID int64, topicID int64) {
 	} else {
 		session.CurrentTopicID = 0
 	}
-	session.CurrentFolderID = nil // сбрасываем папку при смене топика
+	session.CurrentFolderID = nil                  // сбрасываем папку при смене топика
+	session.ExpandedFolders = make(map[int64]bool) // сброс авто-схлопывания при смене топика
 	h.showList(chatID, userID)
 }
 
@@ -1171,6 +1238,7 @@ func (h *Handler) callbackSetTopic(chatID int64, msgID int, userID int64, topicI
 	}
 	h.states.Get(userID).CurrentFolderID = nil
 	h.states.Get(userID).DoneFolderActive = false
+	h.states.Get(userID).ExpandedFolders = make(map[int64]bool) // сброс авто-схлопывания при смене топика
 	h.states.Get(userID).LastListMsgID = msgID
 	h.showListPage(chatID, msgID, userID, 0)
 }
@@ -1368,7 +1436,7 @@ func (h *Handler) cmdSettings(msg *tgbotapi.Message, userID int64) {
 
 func (h *Handler) showSettings(chatID int64, msgID int, userID int64) {
 	session := h.states.Get(userID)
-	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.BreadcrumbBottom, session.ShowKeyboard, session.TimezoneOffset)
+	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.BreadcrumbBottom, session.ShowKeyboard, session.TimezoneOffset, session.FoldersCollapsed)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -1397,6 +1465,8 @@ func (h *Handler) callbackToggleSettings(chatID int64, msgID int, userID int64, 
 		session.BreadcrumbBottom = !session.BreadcrumbBottom
 	case "keyboard":
 		session.ShowKeyboard = !session.ShowKeyboard
+	case "folderscollapse":
+		session.FoldersCollapsed = !session.FoldersCollapsed
 	case "tzminus":
 		if session.TimezoneOffset > -2 {
 			session.TimezoneOffset--
@@ -1413,6 +1483,24 @@ func (h *Handler) callbackOpenFolder(chatID int64, msgID int, userID int64, fold
 	session := h.states.Get(userID)
 	session.CurrentFolderID = &folderID
 	h.states.Get(userID).LastListMsgID = msgID
+	h.showListPage(chatID, msgID, userID, 0)
+}
+
+// foldersCollapseState определяет, нужно ли авто-схлопывать папки уровня.
+// Уровень схлопывается, если настройка включена, папок больше одной
+// и пользователь не развернул этот уровень вручную.
+func foldersCollapseState(enabled bool, folderCount int, expandedLevels map[int64]bool, levelKey int64) bool {
+	return enabled && folderCount > 1 && !expandedLevels[levelKey]
+}
+
+// callbackToggleExpandedFolders разворачивает/сворачивает папки текущего уровня.
+// levelKey: 0 — корень топика, иначе ID папки-родителя.
+func (h *Handler) callbackToggleExpandedFolders(chatID int64, msgID int, userID int64, levelKey int64) {
+	session := h.states.Get(userID)
+	if session.ExpandedFolders == nil {
+		session.ExpandedFolders = make(map[int64]bool)
+	}
+	session.ExpandedFolders[levelKey] = !session.ExpandedFolders[levelKey]
 	h.showListPage(chatID, msgID, userID, 0)
 }
 
@@ -1903,6 +1991,7 @@ func (h *Handler) registerCommands() error {
 		{Command: "newfolder", Description: "Создать папку"},
 		{Command: "settings", Description: "Настройки"},
 		{Command: "archived", Description: "Архив заметок"},
+		{Command: "timers", Description: "Список таймеров"},
 		{Command: "backup", Description: "Скачать бэкап базы"},
 		{Command: "help", Description: "Помощь"},
 	}

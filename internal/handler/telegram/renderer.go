@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -72,6 +73,39 @@ func formatCounts(noteCount, folderCount int) string {
 		return ""
 	}
 	return fmt.Sprintf(" (%s)", strings.Join(parts, " "))
+}
+
+// buildCollapsedFoldersLabel строит текст кнопки свёрнутого блока папок:
+// [имя1, имя2, ...] [🔽]. Длинный список имён обрезается до ~64 байт,
+// индикатор разворачивания [🔽] при этом сохраняется.
+func buildCollapsedFoldersLabel(names []string) string {
+	const suffix = "] [🔽]"
+	list := strings.Join(names, ", ")
+	budget := 64 - 1 - len(suffix) // 1 байт на «[»
+	if len(list) > budget {
+		list = truncateBytes(list, budget)
+	}
+	return "[" + list + suffix
+}
+
+// truncateBytes обрезает строку до maxBytes байт (по границе UTF-8),
+// добавляя «…» в конце, если строка была обрезана.
+func truncateBytes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	budget := maxBytes - len("…")
+	if budget <= 0 {
+		budget = 0
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if b.Len()+utf8.RuneLen(r) > budget {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String() + "…"
 }
 
 // buildTopicsMessage строит текст и разметку для списка топиков.
@@ -201,7 +235,12 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 
 	// Элементы списка — каждый своей кнопкой
 	for _, item := range pageItems {
-		if item.isFolder {
+		if item.isCollapsed {
+			label := buildCollapsedFoldersLabel(item.folderNames)
+			btnRows = append(btnRows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("expfolders:%d", item.levelKey)),
+			))
+		} else if item.isFolder {
 			folderLabel := fmt.Sprintf("📁 %s", item.folder.Name)
 			if showCounts {
 				folderLabel += formatCounts(item.noteCount, item.folderCount)
@@ -286,9 +325,12 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 	return text, tgbotapi.NewInlineKeyboardMarkup(btnRows...)
 }
 
-// listItem — элемент списка (папка или заметка).
+// listItem — элемент списка (папка, заметка или свёрнутый блок папок).
 type listItem struct {
 	isFolder    bool
+	isCollapsed bool     // свёрнутый блок папок уровня (одна кнопка)
+	levelKey    int64    // ключ уровня свёрнутого блока (0 — корень топика, иначе ID папки-родителя)
+	folderNames []string // имена папок свёрнутого блока
 	folder      model.Folder
 	note        model.Note
 	noteCount   int // количество заметок в папке (только для папок)
@@ -318,6 +360,58 @@ func buildArchivedMessage(notes []model.Note) (string, tgbotapi.InlineKeyboardMa
 		viewBtn := tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("view:%d", n.ID))
 		unarchBtn := tgbotapi.NewInlineKeyboardButtonData("↩️", fmt.Sprintf("unarch:%d", n.ID))
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(viewBtn, unarchBtn))
+	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist"),
+	))
+
+	return header, tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// buildTimersMessage строит текст и разметку для списка заметок с таймерами.
+// Каждая заметка — кнопка view:<id> с эмодзи, датой/временем, режимом и превью.
+func buildTimersMessage(notes []model.Note, timezoneOffset int) (string, tgbotapi.InlineKeyboardMarkup) {
+	header := fmt.Sprintf("⏰ Таймеры (%d):", len(notes))
+
+	if len(notes) == 0 {
+		backBtn := tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist"),
+		)
+		return header + "\n\n🔕 Таймеров нет.", tgbotapi.NewInlineKeyboardMarkup(backBtn)
+	}
+
+	loc := userLocation(timezoneOffset)
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, n := range notes {
+		// Эмодзи заметки: ✅ для выполненных, иначе — приоритет
+		prefix := ""
+		if n.Done {
+			prefix = "✅ "
+		} else if emoji := n.PriorityEmoji(); emoji != "" {
+			prefix = emoji + " "
+		}
+
+		// Режим таймера: 🔂 — одноразовый, 🔁 — ежедневный
+		mode := "🔂"
+		if n.ReminderRepeat == model.ReminderRepeatDaily {
+			mode = "🔁"
+		}
+
+		preview := formatPreview(n.Text, 40, 1)
+		if preview == "" {
+			preview = "..."
+		}
+
+		label := fmt.Sprintf("%s⏰ %s %s · %s",
+			prefix,
+			n.ReminderAt.In(loc).Format("02.01.2006 15:04"),
+			mode,
+			preview,
+		)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("view:%d", n.ID)),
+		))
 	}
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist"),
@@ -453,6 +547,7 @@ func buildHelpMessage() (string, tgbotapi.InlineKeyboardMarkup) {
 		"/delete <id> — удалить заметку\n" +
 		"/archive <id> — архивировать заметку\n" +
 		"/archived — архив заметок\n" +
+		"/timers — список таймеров\n" +
 		"/list — список заметок\n" +
 		"/topics — список топиков\n" +
 		"/newtopic [название] — создать топик\n" +
@@ -470,7 +565,7 @@ func buildHelpMessage() (string, tgbotapi.InlineKeyboardMarkup) {
 }
 
 // buildSettingsMessage строит сообщение с настройками.
-func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBottom bool, showKeyboard bool, timezoneOffset int) (string, tgbotapi.InlineKeyboardMarkup) {
+func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBottom bool, showKeyboard bool, timezoneOffset int, foldersCollapsed bool) (string, tgbotapi.InlineKeyboardMarkup) {
 	countsLabel := fmt.Sprintf("🔢 Счётчики: %s", boolLabel(showCounts))
 	toggleCounts := tgbotapi.NewInlineKeyboardButtonData(countsLabel, "togglesettings:showcounts")
 
@@ -479,6 +574,9 @@ func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBott
 
 	keyboardLabel := fmt.Sprintf("⌨️ Клавиатура: %s", boolLabel(showKeyboard))
 	toggleKeyboard := tgbotapi.NewInlineKeyboardButtonData(keyboardLabel, "togglesettings:keyboard")
+
+	collapseLabel := fmt.Sprintf("📂 Схлопывать папки: %s", boolLabel(foldersCollapsed))
+	toggleCollapse := tgbotapi.NewInlineKeyboardButtonData(collapseLabel, "togglesettings:folderscollapse")
 
 	tzLabel := fmt.Sprintf("МСК%+d", timezoneOffset)
 	tzMinus := tgbotapi.NewInlineKeyboardButtonData("−", "togglesettings:tzminus")
@@ -501,6 +599,7 @@ func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBott
 
 	rows = append(rows,
 		tgbotapi.NewInlineKeyboardRow(toggleKeyboard),
+		tgbotapi.NewInlineKeyboardRow(toggleCollapse),
 		tgbotapi.NewInlineKeyboardRow(tzMinus, tzDisplay, tzPlus),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)

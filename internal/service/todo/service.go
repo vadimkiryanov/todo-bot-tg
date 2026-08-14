@@ -305,6 +305,28 @@ func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
 	return notes, nil
 }
 
+// ListTimers возвращает все заметки пользователя с установленным таймером
+// (напоминанием), независимо от топика и папки. Сортировка — по времени таймера.
+func (s *Service) ListTimers(userID int64) ([]model.Note, error) {
+	notes, err := s.noteRepo.ListNotes(userID, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var timers []model.Note
+	for _, n := range notes {
+		if n.ReminderAt != nil {
+			timers = append(timers, n)
+		}
+	}
+
+	sort.Slice(timers, func(i, j int) bool {
+		return timers[i].ReminderAt.Before(*timers[j].ReminderAt)
+	})
+
+	return timers, nil
+}
+
 // CountNotes возвращает количество активных заметок.
 func (s *Service) CountNotes(userID, topicID int64, folderID *int64) (int, error) {
 	return s.noteRepo.CountNotes(userID, topicID, folderID)

@@ -672,3 +672,214 @@ func TestReplyKeyboard(t *testing.T) {
 		t.Errorf("buttons in row = %d, want 2", len(row))
 	}
 }
+
+// --- Схлопывание папок ---
+
+func TestBuildCollapsedFoldersLabel(t *testing.T) {
+	label := buildCollapsedFoldersLabel([]string{"Работа", "Личное"})
+	if label != "[Работа, Личное] [🔽]" {
+		t.Errorf("label = %q, want %q", label, "[Работа, Личное] [🔽]")
+	}
+	if len(label) > 64 {
+		t.Errorf("label too long: %d bytes", len(label))
+	}
+}
+
+func TestBuildCollapsedFoldersLabel_Truncated(t *testing.T) {
+	names := []string{
+		"ОченьДлинноеНазваниеПапкиОдин",
+		"ЕщёОдноОченьДлинноеНазваниеПапкиДва",
+		"ТретьеОченьДлинноеНазваниеПапкиТри",
+	}
+	label := buildCollapsedFoldersLabel(names)
+	if len(label) > 64 {
+		t.Errorf("label too long: %d bytes", len(label))
+	}
+	// Индикатор разворачивания сохраняется даже при обрезке имён
+	if !strings.HasSuffix(label, "] [🔽]") {
+		t.Errorf("label should end with '] [🔽]': %q", label)
+	}
+	if !strings.Contains(label, "…") {
+		t.Errorf("truncated label should contain '…': %q", label)
+	}
+}
+
+func TestTruncateBytes_Short(t *testing.T) {
+	if got := truncateBytes("hello", 10); got != "hello" {
+		t.Errorf("truncateBytes = %q, want %q", got, "hello")
+	}
+}
+
+func TestTruncateBytes_UTF8Boundary(t *testing.T) {
+	// Кириллица — 2 байта на символ; "абвгд" = 10 байт.
+	// При лимите 9 байт помещаются 3 символа (6 байт) + «…» (3 байта).
+	got := truncateBytes("абвгд", 9)
+	if got != "абв…" {
+		t.Errorf("truncateBytes = %q, want %q", got, "абв…")
+	}
+}
+
+func TestBuildListMessage_CollapsedFolders(t *testing.T) {
+	items := []listItem{
+		{isCollapsed: true, levelKey: 0, folderNames: []string{"Работа", "Личное"}},
+		{note: model.Note{ID: 1, Text: "Заметка"}},
+	}
+	_, markup := buildListMessage(items, 1, "Топик", nil, nil, 0, 1, false, false, false, 0, false)
+
+	// свёрнутая папка + заметка = 2 строки
+	if len(markup.InlineKeyboard) != 2 {
+		t.Fatalf("keyboard rows = %d, want 2", len(markup.InlineKeyboard))
+	}
+	btn := markup.InlineKeyboard[0][0]
+	if btn.Text != "[Работа, Личное] [🔽]" {
+		t.Errorf("button text = %q, want %q", btn.Text, "[Работа, Личное] [🔽]")
+	}
+	if btn.CallbackData == nil || *btn.CallbackData != "expfolders:0" {
+		t.Errorf("button callback = %v, want 'expfolders:0'", btn.CallbackData)
+	}
+}
+
+func TestBuildListMessage_CollapsedFolders_InSubfolder(t *testing.T) {
+	items := []listItem{
+		{isCollapsed: true, levelKey: 42, folderNames: []string{"Подпапка1", "Подпапка2"}},
+	}
+	_, markup := buildListMessage(items, 1, "Топик", nil, nil, 0, 1, false, false, false, 0, false)
+
+	btn := markup.InlineKeyboard[0][0]
+	if btn.CallbackData == nil || *btn.CallbackData != "expfolders:42" {
+		t.Errorf("button callback = %v, want 'expfolders:42'", btn.CallbackData)
+	}
+}
+
+func TestFoldersCollapseState(t *testing.T) {
+	expanded := map[int64]bool{5: true}
+	tests := []struct {
+		name        string
+		enabled     bool
+		folderCount int
+		expanded    map[int64]bool
+		levelKey    int64
+		want        bool
+	}{
+		{"настройка выключена", false, 3, nil, 0, false},
+		{"одна папка — не схлопываем", true, 1, nil, 0, false},
+		{"две папки — схлопываем", true, 2, nil, 0, true},
+		{"уровень развёрнут вручную", true, 3, expanded, 5, false},
+		{"развёрнут другой уровень", true, 3, expanded, 6, true},
+		{"карта развёрнутых nil", true, 3, nil, 5, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := foldersCollapseState(tt.enabled, tt.folderCount, tt.expanded, tt.levelKey)
+			if got != tt.want {
+				t.Errorf("foldersCollapseState = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// --- buildSettingsMessage ---
+
+func TestBuildSettingsMessage_IncludesFoldersCollapse(t *testing.T) {
+	_, markup := buildSettingsMessage(false, false, false, false, 0, true)
+
+	found := false
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData != nil && *btn.CallbackData == "togglesettings:folderscollapse" {
+				found = true
+				if !strings.Contains(btn.Text, "Схлопывать папки") {
+					t.Errorf("toggle text = %q, want contains 'Схлопывать папки'", btn.Text)
+				}
+				if !strings.Contains(btn.Text, "Вкл") {
+					t.Errorf("toggle text = %q, want 'Вкл' when enabled", btn.Text)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("folderscollapse toggle not found in settings")
+	}
+}
+
+// --- buildTimersMessage ---
+
+func TestBuildTimersMessage_Empty(t *testing.T) {
+	text, markup := buildTimersMessage(nil, 0)
+	if !strings.Contains(text, "⏰ Таймеры (0)") {
+		t.Errorf("header = %q, want contains '⏰ Таймеры (0)'", text)
+	}
+	if !strings.Contains(text, "🔕 Таймеров нет") {
+		t.Errorf("text = %q, want contains '🔕 Таймеров нет'", text)
+	}
+	if len(markup.InlineKeyboard) != 1 {
+		t.Errorf("keyboard rows = %d, want 1", len(markup.InlineKeyboard))
+	}
+	back := markup.InlineKeyboard[0][0]
+	if back.CallbackData == nil || *back.CallbackData != "backtolist" {
+		t.Errorf("back button callback = %v, want 'backtolist'", back.CallbackData)
+	}
+}
+
+func TestBuildTimersMessage_WithNotes(t *testing.T) {
+	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC) // 18:00 МСК при offset=0
+	notes := []model.Note{
+		{ID: 1, Text: "Разовый таймер", Priority: model.PriorityHigh, ReminderAt: &at, ReminderRepeat: model.ReminderRepeatOnce},
+		{ID: 2, Text: "Ежедневный таймер", ReminderAt: &at, ReminderRepeat: model.ReminderRepeatDaily},
+		{ID: 3, Text: "Выполненная", Done: true, ReminderAt: &at, ReminderRepeat: model.ReminderRepeatOnce},
+	}
+
+	text, markup := buildTimersMessage(notes, 0)
+	if !strings.Contains(text, "⏰ Таймеры (3)") {
+		t.Errorf("header = %q, want contains '⏰ Таймеры (3)'", text)
+	}
+	// 3 заметки + строка "Назад"
+	if len(markup.InlineKeyboard) != 4 {
+		t.Fatalf("keyboard rows = %d, want 4", len(markup.InlineKeyboard))
+	}
+
+	btn0 := markup.InlineKeyboard[0][0]
+	if btn0.CallbackData == nil || *btn0.CallbackData != "view:1" {
+		t.Errorf("button callback = %v, want 'view:1'", btn0.CallbackData)
+	}
+	if !strings.Contains(btn0.Text, "🔴") || !strings.Contains(btn0.Text, "⏰") {
+		t.Errorf("button text = %q, want priority and timer emoji", btn0.Text)
+	}
+	if !strings.Contains(btn0.Text, "06.08.2026 18:00") {
+		t.Errorf("button text = %q, want date '06.08.2026 18:00'", btn0.Text)
+	}
+	if !strings.Contains(btn0.Text, "🔂") {
+		t.Errorf("button text = %q, want one-shot mode 🔂", btn0.Text)
+	}
+	if !strings.Contains(btn0.Text, "Разовый таймер") {
+		t.Errorf("button text = %q, want preview", btn0.Text)
+	}
+
+	btn1 := markup.InlineKeyboard[1][0]
+	if !strings.Contains(btn1.Text, "🔁") {
+		t.Errorf("button text = %q, want daily mode 🔁", btn1.Text)
+	}
+
+	btn2 := markup.InlineKeyboard[2][0]
+	if !strings.Contains(btn2.Text, "✅") {
+		t.Errorf("button text = %q, want done mark ✅", btn2.Text)
+	}
+
+	back := markup.InlineKeyboard[3][0]
+	if back.CallbackData == nil || *back.CallbackData != "backtolist" {
+		t.Errorf("back button callback = %v, want 'backtolist'", back.CallbackData)
+	}
+}
+
+func TestBuildTimersMessage_TimezoneOffset(t *testing.T) {
+	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+	notes := []model.Note{
+		{ID: 1, Text: "Таймер", ReminderAt: &at, ReminderRepeat: model.ReminderRepeatOnce},
+	}
+
+	// offset=-3 (например, UTC): 15:00 UTC → 15:00
+	_, markup := buildTimersMessage(notes, -3)
+	if !strings.Contains(markup.InlineKeyboard[0][0].Text, "06.08.2026 15:00") {
+		t.Errorf("button text = %q, want '06.08.2026 15:00' for offset -3", markup.InlineKeyboard[0][0].Text)
+	}
+}

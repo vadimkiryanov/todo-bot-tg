@@ -35,11 +35,16 @@ type UserSession struct {
 	MoveCurrentFolderID *int64 // текущая папка в навигаторе перемещения (nil = корень)
 
 	// Настройки
-	ShowCounts        bool // показывать количество заметок и папок рядом с названиями
-	BreadcrumbInline  bool // хлебные крошки inline-кнопками вместо текста
-	BreadcrumbBottom  bool // крошки внизу (только при BreadcrumbInline=true)
-	ShowKeyboard      bool // показывать быструю клавиатуру
-	TimezoneOffset    int  // смещение часового пояса от Москвы (0 = МСК, UTC+3)
+	ShowCounts       bool // показывать количество заметок и папок рядом с названиями
+	BreadcrumbInline bool // хлебные крошки inline-кнопками вместо текста
+	BreadcrumbBottom bool // крошки внизу (только при BreadcrumbInline=true)
+	ShowKeyboard     bool // показывать быструю клавиатуру
+	TimezoneOffset   int  // смещение часового пояса от Москвы (0 = МСК, UTC+3)
+	FoldersCollapsed bool // схлопывать папки уровня в одну кнопку
+
+	// Состояние схлопывания папок (в рамках текущего топика).
+	// Ключ уровня: 0 — корень топика, иначе ID папки-родителя.
+	ExpandedFolders map[int64]bool // уровни, развёрнутые пользователем вручную
 
 	// Виртуальная папка выполненных
 	DoneFolderActive bool // активен режим просмотра выполненных заметок
@@ -62,7 +67,7 @@ func NewStateManager() *StateManager {
 func (sm *StateManager) Get(userID int64) *UserSession {
 	s, ok := sm.sessions[userID]
 	if !ok {
-		s = &UserSession{State: StateIdle}
+		s = &UserSession{State: StateIdle, ExpandedFolders: make(map[int64]bool)}
 		sm.sessions[userID] = s
 	}
 	return s

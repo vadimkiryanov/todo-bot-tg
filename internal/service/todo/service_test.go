@@ -347,6 +347,54 @@ func TestService_ProcessPendingReminders(t *testing.T) {
 	}
 }
 
+func TestService_ListTimers(t *testing.T) {
+	svc := newTestService()
+
+	// Заметки пользователя 1 в разных топиках
+	n1, _ := svc.AddNote(1, 1, nil, "Ранний таймер", 0)
+	n2, _ := svc.AddNote(1, 2, nil, "Поздний таймер", 0)
+	_, _ = svc.AddNote(1, 1, nil, "Без таймера", 0)
+
+	early := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
+	late := time.Date(2026, 8, 6, 18, 0, 0, 0, time.UTC)
+	if err := svc.SetReminder(1, n1.ID, early, model.ReminderRepeatOnce); err != nil {
+		t.Fatalf("SetReminder() error: %v", err)
+	}
+	if err := svc.SetReminder(1, n2.ID, late, model.ReminderRepeatDaily); err != nil {
+		t.Fatalf("SetReminder() error: %v", err)
+	}
+
+	notes, err := svc.ListTimers(1)
+	if err != nil {
+		t.Fatalf("ListTimers() error: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("len = %d, want 2", len(notes))
+	}
+	// Сортировка по времени таймера
+	if notes[0].ID != n1.ID || notes[1].ID != n2.ID {
+		t.Errorf("order = [%d, %d], want [%d, %d]", notes[0].ID, notes[1].ID, n1.ID, n2.ID)
+	}
+	if notes[1].ReminderRepeat != model.ReminderRepeatDaily {
+		t.Errorf("ReminderRepeat = %q, want %q", notes[1].ReminderRepeat, model.ReminderRepeatDaily)
+	}
+}
+
+func TestService_ListTimers_OtherUser(t *testing.T) {
+	svc := newTestService()
+
+	note, _ := svc.AddNote(2, 1, nil, "Чужой таймер", 0)
+	_ = svc.SetReminder(2, note.ID, time.Now(), model.ReminderRepeatOnce)
+
+	notes, err := svc.ListTimers(1)
+	if err != nil {
+		t.Fatalf("ListTimers() error: %v", err)
+	}
+	if len(notes) != 0 {
+		t.Errorf("len = %d, want 0", len(notes))
+	}
+}
+
 func TestService_CountNotes(t *testing.T) {
 	svc := newTestService()
 	_, _ = svc.AddNote(1, 1, nil, "A", 0)
