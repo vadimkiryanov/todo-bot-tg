@@ -143,6 +143,13 @@ func TestBuildPriorityMessage(t *testing.T) {
 	}
 }
 
+func TestBuildPriorityMessage_EscapesSpecialChars(t *testing.T) {
+	text, _ := buildPriorityMessage("Купить_хлеб *финал*")
+	if !strings.Contains(text, "Купить\\_хлеб \\*финал\\*") {
+		t.Errorf("text = %q, want escaped special chars", text)
+	}
+}
+
 // --- buildDeleteConfirmMessage ---
 
 func TestBuildDeleteConfirmMessage(t *testing.T) {
@@ -153,6 +160,14 @@ func TestBuildDeleteConfirmMessage(t *testing.T) {
 	}
 	if len(markup.InlineKeyboard) != 1 {
 		t.Errorf("keyboard rows = %d, want 1", len(markup.InlineKeyboard))
+	}
+}
+
+func TestBuildDeleteConfirmMessage_EscapesSpecialChars(t *testing.T) {
+	note := model.Note{ID: 43, Text: "Купить_хлеб *финал*"}
+	text, _ := buildDeleteConfirmMessage(note)
+	if !strings.Contains(text, "Купить\\_хлеб \\*финал\\*") {
+		t.Errorf("text = %q, want escaped special chars", text)
 	}
 }
 
@@ -984,5 +999,20 @@ func TestBuildAttachmentDeleteConfirm_EscapesSpecialChars(t *testing.T) {
 	// Спецсимволы _ и * должны быть экранированы для Markdown, чтобы edit не падал
 	if !strings.Contains(text, "фото\\_final \\*v2\\*.txt") {
 		t.Errorf("text = %q, want escaped special chars in file name", text)
+	}
+}
+
+// Регрессия: имя с подчёркиваниями не должно быть обёрнуто в курсив _..._ —
+// legacy Markdown игнорирует `\_` внутри курсива, и Telegram падает с
+// "can't parse entities" (подтверждение удаления не появлялось).
+func TestBuildAttachmentDeleteConfirm_UnderscoreName_NotWrappedInItalic(t *testing.T) {
+	att := model.Attachment{ID: 9, NoteID: 42, Type: model.AttachmentDocument, FileName: "23_08_2026_Калининград—Псков.pdf"}
+	text, _ := buildAttachmentDeleteConfirm(att)
+
+	if strings.Contains(text, "_23\\_08") {
+		t.Errorf("text = %q, want name NOT wrapped in italic (legacy Markdown ломается)", text)
+	}
+	if !strings.Contains(text, "23\\_08\\_2026") {
+		t.Errorf("text = %q, want escaped underscores preserved", text)
 	}
 }

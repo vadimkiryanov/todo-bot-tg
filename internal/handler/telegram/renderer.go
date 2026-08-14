@@ -528,8 +528,11 @@ func buildReminderMenu(note model.Note, timezoneOffset int) (string, tgbotapi.In
 }
 
 // buildDeleteConfirmMessage строит диалог подтверждения удаления.
+// Текст заметки экранируется и не оборачивается в курсив — legacy Markdown
+// ломается на `_`/`*` из текста внутри `_..._` (см. buildAttachmentDeleteConfirm).
 func buildDeleteConfirmMessage(note model.Note) (string, tgbotapi.InlineKeyboardMarkup) {
-	text := fmt.Sprintf("🗑 Удалить заметку *#%d*?\n\n_%s_", note.ID, formatPreview(note.Text, 100, 3))
+	preview := tgbotapi.EscapeText(tgbotapi.ModeMarkdown, formatPreview(note.Text, 100, 3))
+	text := fmt.Sprintf("🗑 Удалить заметку *#%d*\n\n%s", note.ID, preview)
 	yesBtn := tgbotapi.NewInlineKeyboardButtonData("✅ Да", fmt.Sprintf("confdel:%d", note.ID))
 	noBtn := tgbotapi.NewInlineKeyboardButtonData("❌ Нет", fmt.Sprintf("view:%d", note.ID))
 	return text, tgbotapi.NewInlineKeyboardMarkup(
@@ -571,9 +574,11 @@ func buildAttachmentsMessage(attachments []model.Attachment, noteID int64) (stri
 }
 
 // buildAttachmentDeleteConfirm строит диалог подтверждения удаления вложения.
+// Имя НЕ оборачивается в курсив: legacy Markdown игнорирует экранирование `\_`
+// внутри `_..._`, и подчёркивания из имени файла разбивают entity.
 func buildAttachmentDeleteConfirm(att model.Attachment) (string, tgbotapi.InlineKeyboardMarkup) {
 	name := tgbotapi.EscapeText(tgbotapi.ModeMarkdown, formatAttachmentName(att))
-	text := fmt.Sprintf("🗑 Удалить вложение *%s*?\n\n_%s_", attachmentEmoji(att.Type), name)
+	text := fmt.Sprintf("🗑 Удалить вложение *%s*\n\n%s", attachmentEmoji(att.Type), name)
 	yesBtn := tgbotapi.NewInlineKeyboardButtonData("✅ Да", fmt.Sprintf("attconfdel:%d", att.ID))
 	noBtn := tgbotapi.NewInlineKeyboardButtonData("❌ Нет", fmt.Sprintf("attachments:%d", att.NoteID))
 	return text, tgbotapi.NewInlineKeyboardMarkup(
@@ -731,8 +736,10 @@ func userLocation(offset int) *time.Location {
 }
 
 // buildPriorityMessage строит сообщение выбора приоритета.
+// Текст экранируется и не оборачивается в курсив (см. buildAttachmentDeleteConfirm).
 func buildPriorityMessage(pendingText string) (string, tgbotapi.InlineKeyboardMarkup) {
-	text := fmt.Sprintf("📝 Приоритет:\n\n_%s_", formatPreview(pendingText, 100, 3))
+	preview := tgbotapi.EscapeText(tgbotapi.ModeMarkdown, formatPreview(pendingText, 100, 3))
+	text := fmt.Sprintf("📝 Приоритет:\n\n%s", preview)
 	markup := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔴 Высокий", "prio:3"),

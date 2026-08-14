@@ -3,6 +3,7 @@ package telegram
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -527,8 +528,10 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 	case "attdel":
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
+			log.Printf("attdel: не удалось распарсить id %q", idStr)
 			return
 		}
+		log.Printf("attdel: callback attID=%d chat=%d msg=%d user=%d", id, chatID, msgID, userID)
 		h.askDeleteAttachment(chatID, msgID, userID, id)
 	case "attconfdel":
 		id, err := strconv.ParseInt(idStr, 10, 64)
@@ -1469,19 +1472,24 @@ func (h *Handler) callbackCloseAttachment(chatID int64, msgID int, userID int64)
 func (h *Handler) askDeleteAttachment(chatID int64, msgID int, userID int64, attID int64) {
 	att, err := h.attachmentService.GetAttachment(userID, attID)
 	if err != nil {
+		log.Printf("attdel: GetAttachment(%d) ошибка: %v", attID, err)
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}
 	text, markup := buildAttachmentDeleteConfirm(att)
+	log.Printf("attdel: подтверждение type=%s name=%q text=%q", att.Type, att.FileName, text)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
 		return
 	}
+	log.Printf("attdel: edit подтверждения не удался: %v", err)
 	msg := h.newMsg(chatID, userID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	msg.ReplyMarkup = markup
-	h.api.Send(msg)
+	if _, err := h.api.Send(msg); err != nil {
+		log.Printf("attdel: fallback send не удался: %v", err)
+	}
 }
 
 // doDeleteAttachment удаляет вложение и обновляет список.
