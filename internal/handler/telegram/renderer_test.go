@@ -426,6 +426,63 @@ func TestBuildListMessage_DoneFolderActive_InlineBreadcrumb(t *testing.T) {
 	}
 }
 
+func TestBuildListMessage_InlineBreadcrumb_SkipsCurrentFolder(t *testing.T) {
+	// Текущая папка не показывается в inline-крошках — она вынесена в заголовок
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Заметка"}},
+	}
+	fid := int64(2)
+	folderChain := []model.Folder{
+		{ID: 1, Name: "Родитель"},
+		{ID: 2, Name: "Текущая"},
+	}
+	text, markup := buildListMessage(items, 1, "Личное", &fid, folderChain, 0, 1, false, true, false, 0, false)
+
+	// В крошках — только родитель, текущая папка не кнопка
+	crumbRow := markup.InlineKeyboard[0]
+	var crumbTexts []string
+	for _, btn := range crumbRow {
+		crumbTexts = append(crumbTexts, btn.Text)
+	}
+	joined := strings.Join(crumbTexts, "|")
+	if strings.Contains(joined, "Текущая") {
+		t.Errorf("current folder should NOT be in crumbs: %v", crumbTexts)
+	}
+	if !strings.Contains(joined, "📁 Родитель") {
+		t.Errorf("parent folder should be in crumbs: %v", crumbTexts)
+	}
+	// Заголовок: полный путь без внешних скобок, текущая папка в [ ]
+	if !strings.Contains(text, "Личное › Родитель › [Текущая]") {
+		t.Errorf("header should be 'Личное › Родитель › [Текущая]': %q", text)
+	}
+	if strings.Contains(text, "[Родитель]") {
+		t.Errorf("parent folder should NOT be in brackets: %q", text)
+	}
+}
+
+func TestBuildListMessage_InlineBreadcrumb_RootTopic(t *testing.T) {
+	// В корне топика (без папок) заголовок — только топик, крошки: ТОПИКИ + топик
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Заметка"}},
+	}
+	text, markup := buildListMessage(items, 1, "Личное", nil, nil, 0, 1, false, true, false, 0, false)
+
+	crumbRow := markup.InlineKeyboard[0]
+	if len(crumbRow) != 1 {
+		t.Errorf("crumb row len = %d, want 1 (только ТОПИКИ — топик скрыт в корне)", len(crumbRow))
+	}
+	if crumbRow[0].Text != "📔 ТОПИКИ" {
+		t.Errorf("crumb button = %q, want '📔 ТОПИКИ'", crumbRow[0].Text)
+	}
+	// В корне — заголовок просто название топика, без скобок
+	if text != "Личное" {
+		t.Errorf("header should be 'Личное' without brackets: %q", text)
+	}
+	if strings.Contains(text, "›") {
+		t.Errorf("header should not contain folder separator: %q", text)
+	}
+}
+
 func TestBuildListMessage_Ordering_FoldersBeforeNotesBeforeDone(t *testing.T) {
 	// Папки → заметки → done → пагинация
 	items := []listItem{

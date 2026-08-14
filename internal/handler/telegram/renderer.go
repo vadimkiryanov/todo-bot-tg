@@ -138,13 +138,21 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 		if breadcrumbInline {
 			// Inline-кнопочный breadcrumb
 			crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData("📔 ТОПИКИ", "crumb:0"))
-			if topicName != "" {
+			// Название топика — кнопка перехода в его корень. В корне топика
+			// это текущий уровень, поэтому скрываем (как и текущую папку)
+			if topicName != "" && len(folderChain) > 0 {
 				crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData(
-					fmt.Sprintf("🏠 %s", topicName),
+					fmt.Sprintf("%s", topicName),
 					"crumb:-1",
 				))
 			}
-			for _, f := range folderChain {
+			// Текущий уровень (где мы находимся) в крошках не показываем —
+			// он вынесен в заголовок текста
+			crumbs := folderChain
+			if len(crumbs) > 0 {
+				crumbs = crumbs[:len(crumbs)-1]
+			}
+			for _, f := range crumbs {
 				crumbRow = append(crumbRow, tgbotapi.NewInlineKeyboardButtonData(
 					fmt.Sprintf("📁 %s", f.Name),
 					fmt.Sprintf("crumb:%d", f.ID),
@@ -159,7 +167,19 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 			if !breadcrumbBottom {
 				btnRows = append(btnRows, crumbRow)
 			}
-			text = fmt.Sprintf("                                                     [%s]", topicName)
+			// Заголовок: полный путь без внешних скобок,
+			// текущая (последняя) папка выделена квадратными скобками
+			header := topicName
+			if len(folderChain) > 0 {
+				for _, f := range folderChain[:len(folderChain)-1] {
+					header += fmt.Sprintf(" › %s", f.Name)
+				}
+				header += fmt.Sprintf(" › [%s]", folderChain[len(folderChain)-1].Name)
+			}
+			text = header
+			if text == "" {
+				text = "📝" // Telegram требует непустой текст
+			}
 		} else {
 			text = "🏠 /TOPICS"
 			if topicName != "" {
