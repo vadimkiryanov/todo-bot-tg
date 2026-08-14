@@ -12,6 +12,7 @@ import (
 	repo "todo-bot-tg/internal/repository/todo"
 	"todo-bot-tg/internal/service/todo"
 	"todo-bot-tg/internal/storage/fs"
+	"todo-bot-tg/internal/worker/reminder"
 )
 
 func main() {
@@ -58,14 +59,18 @@ func main() {
 	// 3. Сервис
 	svc := todo.NewService(noteRepo, topicRepo, folderRepo, attRepo, fileStore)
 
-	// 4. Handler
+	// 4. Handler (реализует порт reminder.NotificationSender)
 	h, err := telegram.NewHandler(cfg.Token, svc, svc, svc, svc)
 	if err != nil {
 		log.Fatalf("Ошибка создания бота: %v", err)
 	}
 
+	// 5. Фоновый воркер напоминаний
+	reminderWorker := reminder.NewWorker(svc, h)
+	reminderWorker.Start()
+	defer reminderWorker.Stop()
+
 	log.Println("Бот запущен...")
-	h.StartReminderWorker()
 
 	// Запускаем Run в горутине, ждём сигнал или ошибку
 	errCh := make(chan error, 1)
