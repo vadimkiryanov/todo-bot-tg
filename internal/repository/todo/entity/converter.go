@@ -75,3 +75,35 @@ func FolderFromRecord(r FolderRecord) model.Folder {
 		Name:           r.Name,
 	}
 }
+
+// AttachmentToRecord конвертирует доменную модель вложения в persistence-record.
+func AttachmentToRecord(a model.Attachment) AttachmentRecord {
+	return AttachmentRecord{
+		ID:        a.ID,
+		NoteID:    a.NoteID,
+		UserID:    a.UserID,
+		Type:      string(a.Type),
+		FileID:    a.FileID,
+		FilePath:  a.FilePath,
+		FileName:  a.FileName,
+		MimeType:  a.MimeType,
+		FileSize:  a.FileSize,
+		CreatedAt: a.CreatedAt,
+	}
+}
+
+// AttachmentFromRecord конвертирует persistence-record в доменную модель вложения.
+func AttachmentFromRecord(r AttachmentRecord) model.Attachment {
+	return model.Attachment{
+		ID:        r.ID,
+		NoteID:    r.NoteID,
+		UserID:    r.UserID,
+		Type:      model.AttachmentType(r.Type),
+		FileID:    r.FileID,
+		FilePath:  r.FilePath,
+		FileName:  r.FileName,
+		MimeType:  r.MimeType,
+		FileSize:  r.FileSize,
+		CreatedAt: r.CreatedAt,
+	}
+}

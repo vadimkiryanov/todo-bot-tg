@@ -483,19 +483,20 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 		fmt.Sprintf("chprio:%d", note.ID),
 	)
 	moveBtn := tgbotapi.NewInlineKeyboardButtonData("🗂️♻️", fmt.Sprintf("move:%d", note.ID))
+	attBtn := tgbotapi.NewInlineKeyboardButtonData("📎", fmt.Sprintf("attachments:%d", note.ID))
 
 	if expanded {
 		collapseBtn := tgbotapi.NewInlineKeyboardButtonData("▲", fmt.Sprintf("collapse:%d", note.ID))
 		return text, tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, delBtn, collapseBtn),
-			tgbotapi.NewInlineKeyboardRow(archBtn, prioBtn, moveBtn),
+			tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, attBtn, collapseBtn),
+			tgbotapi.NewInlineKeyboardRow(archBtn, prioBtn, moveBtn, delBtn),
 			tgbotapi.NewInlineKeyboardRow(backBtn),
 		)
 	}
 
 	expandBtn := tgbotapi.NewInlineKeyboardButtonData("···", fmt.Sprintf("expand:%d", note.ID))
 	return text, tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, delBtn, expandBtn),
+		tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, attBtn, expandBtn),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)
 }
@@ -534,6 +535,111 @@ func buildDeleteConfirmMessage(note model.Note) (string, tgbotapi.InlineKeyboard
 	return text, tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(yesBtn, noBtn),
 	)
+}
+
+// buildAttachmentsMessage строит список вложений заметки.
+func buildAttachmentsMessage(attachments []model.Attachment, noteID int64) (string, tgbotapi.InlineKeyboardMarkup) {
+	addBtn := tgbotapi.NewInlineKeyboardButtonData("📥 Добавить", fmt.Sprintf("attadd:%d", noteID))
+	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", fmt.Sprintf("view:%d", noteID))
+
+	if len(attachments) == 0 {
+		return fmt.Sprintf("📎 Вложений нет\n\nЗаметка *#%d*", noteID), tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(addBtn),
+			tgbotapi.NewInlineKeyboardRow(backBtn),
+		)
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("📎 Вложения *#%d*\n\n", noteID))
+	for _, a := range attachments {
+		b.WriteString(attachmentLine(a))
+	}
+
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(attachments)+2)
+	for _, a := range attachments {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(attachmentBtnLabel(a), fmt.Sprintf("attget:%d", a.ID)),
+			tgbotapi.NewInlineKeyboardButtonData("🗑", fmt.Sprintf("attdel:%d", a.ID)),
+		))
+	}
+	rows = append(rows,
+		tgbotapi.NewInlineKeyboardRow(addBtn),
+		tgbotapi.NewInlineKeyboardRow(backBtn),
+	)
+
+	return b.String(), tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// buildAttachmentDeleteConfirm строит диалог подтверждения удаления вложения.
+func buildAttachmentDeleteConfirm(att model.Attachment) (string, tgbotapi.InlineKeyboardMarkup) {
+	name := tgbotapi.EscapeText(tgbotapi.ModeMarkdown, formatAttachmentName(att))
+	text := fmt.Sprintf("🗑 Удалить вложение *%s*?\n\n_%s_", attachmentEmoji(att.Type), name)
+	yesBtn := tgbotapi.NewInlineKeyboardButtonData("✅ Да", fmt.Sprintf("attconfdel:%d", att.ID))
+	noBtn := tgbotapi.NewInlineKeyboardButtonData("❌ Нет", fmt.Sprintf("attachments:%d", att.NoteID))
+	return text, tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(yesBtn, noBtn),
+	)
+}
+
+// attachmentLine возвращает однострочное описание вложения.
+// Имя экранируется: текст уходит в сообщение с ParseMode=Markdown,
+// и спецсимволы в имени файла (_, *, (, …) ломали бы разметку.
+func attachmentLine(a model.Attachment) string {
+	name := tgbotapi.EscapeText(tgbotapi.ModeMarkdown, formatAttachmentName(a))
+	line := fmt.Sprintf("%s %s", attachmentEmoji(a.Type), name)
+	if a.FileSize > 0 {
+		line += fmt.Sprintf(" · %s", formatFileSize(a.FileSize))
+	}
+	return line + "\n"
+}
+
+// attachmentBtnLabel возвращает текст кнопки вложения (эмодзи + имя).
+func attachmentBtnLabel(a model.Attachment) string {
+	return fmt.Sprintf("%s %s", attachmentEmoji(a.Type), formatAttachmentName(a))
+}
+
+// attachmentEmoji возвращает эмодзи для типа вложения.
+func attachmentEmoji(t model.AttachmentType) string {
+	switch t {
+	case model.AttachmentPhoto:
+		return "🖼"
+	case model.AttachmentDocument:
+		return "📄"
+	case model.AttachmentAudio:
+		return "🎵"
+	case model.AttachmentVideo:
+		return "🎬"
+	case model.AttachmentVoice:
+		return "🎙"
+	case model.AttachmentVideoNote:
+		return "🎥"
+	case model.AttachmentAnimation:
+		return "🎞"
+	case model.AttachmentSticker:
+		return "🃏"
+	default:
+		return "📎"
+	}
+}
+
+// formatAttachmentName возвращает имя вложения (или «файл», если имя пустое).
+func formatAttachmentName(a model.Attachment) string {
+	if a.FileName != "" {
+		return a.FileName
+	}
+	return "файл"
+}
+
+// formatFileSize форматирует размер файла (Б, КБ, МБ).
+func formatFileSize(size int64) string {
+	switch {
+	case size >= 1024*1024:
+		return fmt.Sprintf("%.1f МБ", float64(size)/(1024*1024))
+	case size >= 1024:
+		return fmt.Sprintf("%.0f КБ", float64(size)/1024)
+	default:
+		return fmt.Sprintf("%d Б", size)
+	}
 }
 
 // buildHelpMessage строит сообщение справки.

@@ -16,26 +16,32 @@ type MemStore struct {
 	topics        map[int64]entity.TopicRecord
 	notes         map[int64]entity.NoteRecord
 	folders       map[int64]entity.FolderRecord
+	attachments   map[int64]entity.AttachmentRecord
 	nextTopicID   int64
 	nextNoteID    int64
 	nextFolderID  int64
+	nextAttID     int64
 	userTopics    map[int64][]int64 // userID → []topicID
 	userNotes     map[int64][]int64 // userID → []noteID
 	userFolders   map[int64][]int64 // userID → []folderID
+	noteAtts      map[int64][]int64 // noteID → []attachmentID
 }
 
 // NewMemStore создаёт новый MemStore.
 func NewMemStore() *MemStore {
 	return &MemStore{
-		topics:      make(map[int64]entity.TopicRecord),
-		notes:       make(map[int64]entity.NoteRecord),
-		folders:     make(map[int64]entity.FolderRecord),
-		userTopics:  make(map[int64][]int64),
-		userNotes:   make(map[int64][]int64),
-		userFolders: make(map[int64][]int64),
+		topics:       make(map[int64]entity.TopicRecord),
+		notes:        make(map[int64]entity.NoteRecord),
+		folders:      make(map[int64]entity.FolderRecord),
+		attachments:  make(map[int64]entity.AttachmentRecord),
+		userTopics:   make(map[int64][]int64),
+		userNotes:    make(map[int64][]int64),
+		userFolders:  make(map[int64][]int64),
+		noteAtts:     make(map[int64][]int64),
 		nextTopicID:  1,
 		nextNoteID:   1,
 		nextFolderID: 1,
+		nextAttID:    1,
 	}
 }
 
@@ -101,9 +107,10 @@ func (s *MemStore) DeleteTopic(userID, topicID int64) error {
 		}
 	}
 
-	// Удаляем заметки топика
+	// Удаляем заметки топика и их вложения
 	for _, nid := range s.userNotes[userID] {
 		if n, ok := s.notes[nid]; ok && n.TopicID == topicID {
+			s.deleteAttachmentsLocked(nid)
 			delete(s.notes, nid)
 		}
 	}
@@ -200,6 +207,7 @@ func (s *MemStore) DeleteNote(userID, noteID int64) error {
 	if !ok || n.UserID != userID {
 		return errors.ErrNoteNotFound
 	}
+	s.deleteAttachmentsLocked(noteID)
 	delete(s.notes, noteID)
 	ids := s.userNotes[userID]
 	for i, id := range ids {
@@ -209,6 +217,14 @@ func (s *MemStore) DeleteNote(userID, noteID int64) error {
 		}
 	}
 	return nil
+}
+
+// deleteAttachmentsLocked удаляет вложения заметки (требует Lock).
+func (s *MemStore) deleteAttachmentsLocked(noteID int64) {
+	for _, aid := range s.noteAtts[noteID] {
+		delete(s.attachments, aid)
+	}
+	delete(s.noteAtts, noteID)
 }
 
 // CountDoneNotes возвращает количество выполненных заметок в топике/папке.
@@ -438,5 +454,65 @@ func (s *MemStore) MoveNote(userID, noteID int64, topicID int64, folderID *int64
 	n.TopicID = topicID
 	n.FolderID = folderID
 	s.notes[noteID] = n
+	return nil
+}
+
+// --- Attachments ---
+
+func (s *MemStore) CreateAttachment(att model.Attachment) (model.Attachment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	att.ID = s.nextAttID
+	s.nextAttID++
+
+	rec := entity.AttachmentToRecord(att)
+	s.attachments[rec.ID] = rec
+	s.noteAtts[att.NoteID] = append(s.noteAtts[att.NoteID], rec.ID)
+	return entity.AttachmentFromRecord(rec), nil
+}
+
+func (s *MemStore) ListAttachments(noteID int64) ([]model.Attachment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := s.noteAtts[noteID]
+	result := make([]model.Attachment, 0, len(ids))
+	for _, id := range ids {
+		if a, ok := s.attachments[id]; ok {
+			result = append(result, entity.AttachmentFromRecord(a))
+		}
+	}
+	return result, nil
+}
+
+func (s *MemStore) GetAttachment(attID int64) (model.Attachment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	a, ok := s.attachments[attID]
+	if !ok {
+		return model.Attachment{}, errors.ErrAttachmentNotFound
+	}
+	return entity.AttachmentFromRecord(a), nil
+}
+
+func (s *MemStore) DeleteAttachment(attID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a, ok := s.attachments[attID]
+	if !ok {
+		return errors.ErrAttachmentNotFound
+	}
+	delete(s.attachments, attID)
+
+	ids := s.noteAtts[a.NoteID]
+	for i, id := range ids {
+		if id == attID {
+			s.noteAtts[a.NoteID] = append(ids[:i], ids[i+1:]...)
+			break
+		}
+	}
 	return nil
 }

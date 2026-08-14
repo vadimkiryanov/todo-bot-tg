@@ -67,15 +67,28 @@
 
 ---
 
+## Этап 6: Вложения (2026-08-14)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| 38 | — | **Вложения 📎**: к заметкам можно прикреплять файлы (фото, документы, аудио, видео, голосовые, видео-сообщения, анимации, стикеры). Режим прикрепления: 📎 → «Добавить» → отправить медиа. Файлы хранятся на диске (`FILES_DIR`, по умолчанию `data/files`), метаданные — в БД (таблица `attachments`). Скачивание через Bot API с лимитом 20 МБ. Список вложений кнопками, просмотр, удаление с подтверждением; файлы удаляются вместе с заметкой/топиком |
+| 39 | — | **Вложения — простое прикрепление**: файл, отправленный вне режима 📎, прикрепляется к последней просмотренной заметке (`LastViewedNoteID`) — подтверждение «✅ Файл прикреплён к заметке #N», экран просмотра при этом не перетирается; если заметка ещё не открывалась — подсказка открыть заметку. Вложения показываются только через кнопку 📎 (список кнопками), без автоматической отправки при открытии заметки |
+| 40 | — | **Вложения — чистота**: сообщения-подтверждения «✅ Файл прикреплён…» автоудаляются через 5 секунд |
+| 41 | — | **fix: 📎 не срабатывал с заметками, у которых есть вложения** — имена файлов (и превью подтверждения удаления) со спецсимволами (`_`, `*`, `` ` ``, `[`) ломали Markdown-разметку edit-сообщения, ошибка молча игнорировалась, список вложений не открывался. Теперь имена экранируются (`EscapeText`), а callback'и вложений при неудачном edit отправляют новое сообщение (fallback) вместо молчаливого сбоя |
+| 42 | — | **Вложения — единое окно просмотра**: просмотр вложения открывается в одном сообщении (при том же типе медиа — `editMessageMedia`, иначе переотправка в то же окно), под медиа — кнопка «❌ Закрыть». При выходе из заметки (◀️ Назад, 📝 Список, 📂 Топики, /timers, /settings, /start, удаление заметки, переход к другой заметке) окно просмотра автоудаляется. После прикрепления файла через 📎 пользователь остаётся в списке вложений заметки, а не уходит в список заметок |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
 |------|-------|---------------------|
-| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go` | Note (Done, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic |
-| **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers` |
-| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes` |
-| **Handler** | `handler/telegram/{handler,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, reminder-воркер, схлопывание папок, `/timers` |
-| **Тесты** | `*_test.go` (во всех слоях) | `renderer_test` (208+ строк), `service_test` (400+ строк), `memstore_test` (606 строк), `converter_test`, `state_test` |
+| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go` | Note (Done, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация) |
+| **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment` |
+| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением |
+| **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
+| **Handler** | `handler/telegram/{handler,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, reminder-воркер, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений |
+| **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs) |
 
 ---
 
@@ -86,9 +99,10 @@ cmd/bot/main.go          — точка входа, ручной DI
 config/config.go         — загрузка .env
 internal/
   errors/errors.go       — sentinel-ошибки
-  model/                 — Note, Folder, Topic (агрегаты с бизнес-логикой)
+  model/                 — Note, Folder, Topic, Attachment (агрегаты с бизнес-логикой)
   service/todo/          — сервис-оркестратор (интерфейсы репозиториев здесь)
   repository/todo/       — MemStore + PostgresStore + Entity Records
+  storage/fs/            — файловое хранилище вложений
   handler/telegram/      — Telegram Bot API handler + renderer + FSM-состояния
 ```
 

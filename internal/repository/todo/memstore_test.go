@@ -603,4 +603,134 @@ func TestMemStore_AutoIncrementIDs(t *testing.T) {
 	if f2.ID != f1.ID+1 {
 		t.Errorf("folder IDs not sequential: %d -> %d", f1.ID, f2.ID)
 	}
+
+	a1, _ := s.CreateAttachment(model.Attachment{NoteID: 1, Type: model.AttachmentPhoto, FilePath: "files/1/1/a1.jpg"})
+	a2, _ := s.CreateAttachment(model.Attachment{NoteID: 1, Type: model.AttachmentPhoto, FilePath: "files/1/1/a2.jpg"})
+	if a2.ID != a1.ID+1 {
+		t.Errorf("attachment IDs not sequential: %d -> %d", a1.ID, a2.ID)
+	}
+}
+
+// --- Attachments ---
+
+func TestMemStore_CreateAttachment(t *testing.T) {
+	s := newTestStore()
+	att, err := s.CreateAttachment(model.Attachment{NoteID: 1, Type: model.AttachmentPhoto, FilePath: "files/1/1/p.jpg"})
+	if err != nil {
+		t.Fatalf("CreateAttachment() error: %v", err)
+	}
+	if att.ID == 0 {
+		t.Error("CreateAttachment() returned zero ID")
+	}
+	if att.NoteID != 1 || att.Type != model.AttachmentPhoto {
+		t.Errorf("att = %+v, want NoteID=1, Type=photo", att)
+	}
+}
+
+func TestMemStore_ListAttachments(t *testing.T) {
+	s := newTestStore()
+	_, _ = s.CreateAttachment(model.Attachment{NoteID: 1, Type: model.AttachmentPhoto, FilePath: "files/1/1/p.jpg"})
+	_, _ = s.CreateAttachment(model.Attachment{NoteID: 1, Type: model.AttachmentDocument, FilePath: "files/1/1/d.pdf"})
+	_, _ = s.CreateAttachment(model.Attachment{NoteID: 2, Type: model.AttachmentAudio, FilePath: "files/1/2/a.mp3"})
+
+	atts, err := s.ListAttachments(1)
+	if err != nil {
+		t.Fatalf("ListAttachments() error: %v", err)
+	}
+	if len(atts) != 2 {
+		t.Errorf("len = %d, want 2", len(atts))
+	}
+	if atts[0].Type != model.AttachmentPhoto {
+		t.Errorf("atts[0].Type = %v, want photo", atts[0].Type)
+	}
+}
+
+func TestMemStore_ListAttachments_Empty(t *testing.T) {
+	s := newTestStore()
+	atts, err := s.ListAttachments(999)
+	if err != nil {
+		t.Fatalf("ListAttachments() error: %v", err)
+	}
+	if len(atts) != 0 {
+		t.Errorf("len = %d, want 0", len(atts))
+	}
+}
+
+func TestMemStore_GetAttachment(t *testing.T) {
+	s := newTestStore()
+	created, _ := s.CreateAttachment(model.Attachment{NoteID: 1, Type: model.AttachmentPhoto, FilePath: "files/1/1/p.jpg"})
+
+	got, err := s.GetAttachment(created.ID)
+	if err != nil {
+		t.Fatalf("GetAttachment() error: %v", err)
+	}
+	if got.ID != created.ID {
+		t.Errorf("ID = %d, want %d", got.ID, created.ID)
+	}
+}
+
+func TestMemStore_GetAttachment_NotFound(t *testing.T) {
+	s := newTestStore()
+	_, err := s.GetAttachment(999)
+	if err != errors.ErrAttachmentNotFound {
+		t.Errorf("error = %v, want %v", err, errors.ErrAttachmentNotFound)
+	}
+}
+
+func TestMemStore_DeleteAttachment(t *testing.T) {
+	s := newTestStore()
+	att, _ := s.CreateAttachment(model.Attachment{NoteID: 1, Type: model.AttachmentPhoto, FilePath: "files/1/1/p.jpg"})
+
+	err := s.DeleteAttachment(att.ID)
+	if err != nil {
+		t.Fatalf("DeleteAttachment() error: %v", err)
+	}
+
+	_, err = s.GetAttachment(att.ID)
+	if err != errors.ErrAttachmentNotFound {
+		t.Errorf("attachment still exists after delete")
+	}
+	atts, _ := s.ListAttachments(1)
+	if len(atts) != 0 {
+		t.Errorf("noteAtts not cleaned: len = %d, want 0", len(atts))
+	}
+}
+
+func TestMemStore_DeleteAttachment_NotFound(t *testing.T) {
+	s := newTestStore()
+	err := s.DeleteAttachment(999)
+	if err != errors.ErrAttachmentNotFound {
+		t.Errorf("error = %v, want %v", err, errors.ErrAttachmentNotFound)
+	}
+}
+
+func TestMemStore_DeleteNote_CascadesAttachments(t *testing.T) {
+	s := newTestStore()
+	note, _ := s.CreateNote(model.Note{UserID: 1, TopicID: 1, Text: "N"})
+	_, _ = s.CreateAttachment(model.Attachment{NoteID: note.ID, Type: model.AttachmentPhoto, FilePath: "files/1/1/p.jpg"})
+
+	if err := s.DeleteNote(1, note.ID); err != nil {
+		t.Fatalf("DeleteNote() error: %v", err)
+	}
+
+	atts, _ := s.ListAttachments(note.ID)
+	if len(atts) != 0 {
+		t.Errorf("attachments not cascaded: len = %d, want 0", len(atts))
+	}
+}
+
+func TestMemStore_DeleteTopic_CascadesAttachments(t *testing.T) {
+	s := newTestStore()
+	topic, _ := s.CreateTopic(1, "T")
+	note, _ := s.CreateNote(model.Note{UserID: 1, TopicID: topic.ID, Text: "N"})
+	_, _ = s.CreateAttachment(model.Attachment{NoteID: note.ID, Type: model.AttachmentPhoto, FilePath: "files/1/1/p.jpg"})
+
+	if err := s.DeleteTopic(1, topic.ID); err != nil {
+		t.Fatalf("DeleteTopic() error: %v", err)
+	}
+
+	atts, _ := s.ListAttachments(note.ID)
+	if len(atts) != 0 {
+		t.Errorf("attachments not cascaded: len = %d, want 0", len(atts))
+	}
 }

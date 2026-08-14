@@ -1,10 +1,14 @@
 package todo
 
 import (
+	"fmt"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"todo-bot-tg/internal/errors"
 	"todo-bot-tg/internal/model"
 )
 
@@ -42,20 +46,39 @@ type FolderRepository interface {
 	CountFolders(userID, topicID int64, parentFolderID *int64) (int, error)
 }
 
+// AttachmentRepository — интерфейс хранилища вложений (определён потребителем — сервисом).
+type AttachmentRepository interface {
+	CreateAttachment(att model.Attachment) (model.Attachment, error)
+	ListAttachments(noteID int64) ([]model.Attachment, error)
+	GetAttachment(attID int64) (model.Attachment, error)
+	DeleteAttachment(attID int64) error
+}
+
+// FileStore — порт файлового хранилища (внешняя инфраструктура, ACL).
+type FileStore interface {
+	Save(userID, noteID int64, ext string, data []byte) (string, error)
+	Delete(relPath string) error
+	AbsPath(relPath string) string
+}
+
 // Service — сервисный слой, оркеструет бизнес-операции.
 type Service struct {
 	mu         sync.Mutex
 	noteRepo   NoteRepository
 	topicRepo  TopicRepository
 	folderRepo FolderRepository
+	attRepo    AttachmentRepository
+	fileStore  FileStore
 }
 
 // NewService создаёт новый сервис.
-func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo FolderRepository) *Service {
+func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo FolderRepository, attRepo AttachmentRepository, fileStore FileStore) *Service {
 	return &Service{
 		noteRepo:   noteRepo,
 		topicRepo:  topicRepo,
 		folderRepo: folderRepo,
+		attRepo:    attRepo,
+		fileStore:  fileStore,
 	}
 }
 
@@ -84,10 +107,18 @@ func (s *Service) GetTopic(userID, topicID int64) (model.Topic, error) {
 	return s.topicRepo.GetTopic(userID, topicID)
 }
 
-// DeleteTopic удаляет топик вместе с заметками.
+// DeleteTopic удаляет топик вместе с заметками и файлами вложений.
 func (s *Service) DeleteTopic(userID, topicID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	notes, err := s.noteRepo.ListNotes(userID, topicID, nil)
+	if err != nil {
+		return err
+	}
+	for _, n := range notes {
+		s.deleteNoteFiles(n.ID)
+	}
 	return s.topicRepo.DeleteTopic(userID, topicID)
 }
 
@@ -167,10 +198,15 @@ func (s *Service) EditNote(userID, noteID int64, text string) error {
 	return s.noteRepo.UpdateNote(note)
 }
 
-// DeleteNote удаляет заметку.
+// DeleteNote удаляет заметку вместе с файлами вложений.
 func (s *Service) DeleteNote(userID, noteID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if _, err := s.noteRepo.GetNote(userID, noteID); err != nil {
+		return err
+	}
+	s.deleteNoteFiles(noteID)
 	return s.noteRepo.DeleteNote(userID, noteID)
 }
 
@@ -420,4 +456,119 @@ func (s *Service) MoveNote(userID, noteID int64, topicID int64, folderID *int64)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.noteRepo.MoveNote(userID, noteID, topicID, folderID)
+}
+
+// --- Attachments ---
+
+// AddAttachment сохраняет файл на диск и создаёт запись вложения для заметки.
+// Файл сохраняется только после проверки, что заметка принадлежит пользователю.
+func (s *Service) AddAttachment(userID, noteID int64, attType model.AttachmentType, fileID, fileName, mimeType string, fileSize int64, data []byte) (model.Attachment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, err := s.noteRepo.GetNote(userID, noteID); err != nil {
+		return model.Attachment{}, err
+	}
+	if _, err := model.NewAttachmentType(string(attType)); err != nil {
+		return model.Attachment{}, err
+	}
+	if len(data) == 0 {
+		return model.Attachment{}, errors.ErrEmptyFile
+	}
+
+	// Уникализируем отображаемое имя: если файл с таким именем уже есть у заметки,
+	// добавляем порядковый постфикс — "фото.jpg", "фото (2).jpg", "фото (3).jpg"…
+	used := map[string]bool{}
+	if atts, err := s.attRepo.ListAttachments(noteID); err == nil {
+		for _, a := range atts {
+			used[a.FileName] = true
+		}
+	}
+	fileName = uniqueFileName(fileName, used)
+
+	rel, err := s.fileStore.Save(userID, noteID, extFromFileName(fileName), data)
+	if err != nil {
+		return model.Attachment{}, err
+	}
+
+	att, err := model.NewAttachment(userID, noteID, attType, fileID, rel, fileName, mimeType, fileSize)
+	if err != nil {
+		_ = s.fileStore.Delete(rel)
+		return model.Attachment{}, err
+	}
+
+	created, err := s.attRepo.CreateAttachment(*att)
+	if err != nil {
+		_ = s.fileStore.Delete(rel) // запись не создана — убираем файл-сироту
+		return model.Attachment{}, err
+	}
+	return created, nil
+}
+
+// ListAttachments возвращает вложения заметки (проверяя её владельца).
+func (s *Service) ListAttachments(userID, noteID int64) ([]model.Attachment, error) {
+	if _, err := s.noteRepo.GetNote(userID, noteID); err != nil {
+		return nil, err
+	}
+	return s.attRepo.ListAttachments(noteID)
+}
+
+// GetAttachment возвращает вложение, проверяя его владельца.
+func (s *Service) GetAttachment(userID, attID int64) (model.Attachment, error) {
+	att, err := s.attRepo.GetAttachment(attID)
+	if err != nil {
+		return model.Attachment{}, err
+	}
+	if att.UserID != userID {
+		return model.Attachment{}, errors.ErrAttachmentNotFound
+	}
+	return att, nil
+}
+
+// DeleteAttachment удаляет вложение: файл с диска и запись.
+func (s *Service) DeleteAttachment(userID, attID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	att, err := s.attRepo.GetAttachment(attID)
+	if err != nil {
+		return err
+	}
+	if att.UserID != userID {
+		return errors.ErrAttachmentNotFound
+	}
+	_ = s.fileStore.Delete(att.FilePath)
+	return s.attRepo.DeleteAttachment(attID)
+}
+
+// deleteNoteFiles удаляет файлы всех вложений заметки (вызывается под mutex).
+func (s *Service) deleteNoteFiles(noteID int64) {
+	atts, err := s.attRepo.ListAttachments(noteID)
+	if err != nil {
+		return
+	}
+	for _, a := range atts {
+		_ = s.fileStore.Delete(a.FilePath)
+	}
+}
+
+// extFromFileName извлекает расширение файла (с точкой) или "" если его нет.
+func extFromFileName(name string) string {
+	return filepath.Ext(name)
+}
+
+// uniqueFileName возвращает имя, не встречающееся в used: к занятому имени
+// добавляется порядковый постфикс перед расширением — "файл (2).txt", "файл (3).txt".
+func uniqueFileName(name string, used map[string]bool) string {
+	if !used[name] {
+		return name
+	}
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s (%d)%s", base, i, ext)
+		if !used[candidate] {
+			return candidate
+		}
+	}
 }

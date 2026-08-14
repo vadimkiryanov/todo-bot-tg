@@ -2,6 +2,8 @@ package telegram
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -10,6 +12,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"todo-bot-tg/internal/errors"
 	"todo-bot-tg/internal/model"
 )
 
@@ -55,32 +58,42 @@ type FolderService interface {
 	CountFolders(userID, topicID int64, parentFolderID *int64) (int, error)
 }
 
+// AttachmentService — интерфейс сервиса вложений (определён потребителем — handler'ом).
+type AttachmentService interface {
+	AddAttachment(userID, noteID int64, attType model.AttachmentType, fileID, fileName, mimeType string, fileSize int64, data []byte) (model.Attachment, error)
+	ListAttachments(userID, noteID int64) ([]model.Attachment, error)
+	GetAttachment(userID, attID int64) (model.Attachment, error)
+	DeleteAttachment(userID, attID int64) error
+}
+
 // Handler — обработчик обновлений Telegram.
 type Handler struct {
-	api           *tgbotapi.BotAPI
-	noteService   NoteService
-	topicService  TopicService
-	folderService FolderService
-	states        *StateManager
-	selfUsername  string // @-имя бота для обрезки SwitchInlineQuery
-	stopCh        chan struct{}
+	api               *tgbotapi.BotAPI
+	noteService       NoteService
+	topicService      TopicService
+	folderService     FolderService
+	attachmentService AttachmentService
+	states            *StateManager
+	selfUsername      string // @-имя бота для обрезки SwitchInlineQuery
+	stopCh            chan struct{}
 }
 
 // NewHandler создаёт новый Handler.
-func NewHandler(token string, noteService NoteService, topicService TopicService, folderService FolderService) (*Handler, error) {
+func NewHandler(token string, noteService NoteService, topicService TopicService, folderService FolderService, attachmentService AttachmentService) (*Handler, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка подключения к Telegram API: %w", err)
 	}
 
 	h := &Handler{
-		api:           api,
-		noteService:   noteService,
-		topicService:  topicService,
-		folderService: folderService,
-		states:        NewStateManager(),
-		selfUsername:  "@" + api.Self.UserName,
-		stopCh:        make(chan struct{}),
+		api:               api,
+		noteService:       noteService,
+		topicService:      topicService,
+		folderService:     folderService,
+		attachmentService: attachmentService,
+		states:            NewStateManager(),
+		selfUsername:      "@" + api.Self.UserName,
+		stopCh:            make(chan struct{}),
 	}
 
 	if err := h.registerCommands(); err != nil {
@@ -203,6 +216,12 @@ func (h *Handler) handleMessage(msg *tgbotapi.Message) {
 
 	s := h.states.Get(userID)
 
+	// Медиа-сообщение — вложение к заметке
+	if att, ok := extractMedia(msg); ok {
+		h.handleAttachmentMessage(msg, userID, att)
+		return
+	}
+
 	switch s.State {
 	case StateWaitingAddText:
 		h.finishAdd(msg, userID, text)
@@ -224,6 +243,12 @@ func (h *Handler) handleMessage(msg *tgbotapi.Message) {
 		h.finishSetTopic(msg, userID, text)
 	case StateWaitingNewFolder:
 		h.finishNewFolder(msg, userID, text)
+	case StateWaitingAttachment:
+		// Текст вместо медиа — отменяем прикрепление вложения
+		h.clearPrompt(msg.Chat.ID, userID)
+		h.deleteUserMsg(msg)
+		h.states.Reset(userID)
+		h.send(msg.Chat.ID, "❌ Ожидался файл. Прикрепление отменено.")
 	default:
 		// Обрезаем @bot_username из SwitchInlineQuery
 		if idx := strings.Index(text, "\n"); idx != -1 {
@@ -305,6 +330,11 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 		del := tgbotapi.NewDeleteMessage(chatID, msgID)
 		h.api.Request(del)
 		h.api.Request(tgbotapi.NewCallback(cb.ID, ""))
+		return
+	}
+	if data == "closeatt" {
+		// Закрытие окна просмотра вложения
+		h.callbackCloseAttachment(chatID, msgID, userID)
 		return
 	}
 
@@ -476,6 +506,36 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		h.callbackCollapseNote(chatID, msgID, userID, id)
+	case "attachments":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackAttachments(chatID, msgID, userID, id)
+	case "attadd":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackAddAttachment(chatID, msgID, userID, id)
+	case "attget":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.callbackSendAttachment(chatID, userID, id)
+	case "attdel":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.askDeleteAttachment(chatID, msgID, userID, id)
+	case "attconfdel":
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return
+		}
+		h.doDeleteAttachment(chatID, msgID, userID, id)
 	}
 }
 
@@ -487,6 +547,7 @@ func (h *Handler) cmdStart(msg *tgbotapi.Message) {
 	h.deleteUserMsg(msg)
 
 	userID := msg.From.ID
+	h.clearAttachmentView(msg.Chat.ID, userID)
 	// Создаём дефолтные топики и заметки для нового пользователя
 	if err := h.noteService.SeedDefaults(userID); err == nil {
 		// После сида ставим первый топик текущим
@@ -521,6 +582,7 @@ func (h *Handler) cmdHelp(msg *tgbotapi.Message) {
 
 func (h *Handler) cmdTopics(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
+	h.clearAttachmentView(msg.Chat.ID, userID)
 	h.showTopics(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID)
 }
 
@@ -649,6 +711,7 @@ func (h *Handler) cmdAdd(msg *tgbotapi.Message, userID int64, args string) {
 
 func (h *Handler) cmdList(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
+	h.clearAttachmentView(msg.Chat.ID, userID)
 	h.states.Get(userID).DoneFolderActive = false
 	h.showListPage(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID, 0)
 }
@@ -656,6 +719,7 @@ func (h *Handler) cmdList(msg *tgbotapi.Message, userID int64) {
 // cmdTimers показывает список всех заметок пользователя с установленным таймером.
 func (h *Handler) cmdTimers(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
+	h.clearAttachmentView(msg.Chat.ID, userID)
 	chatID := msg.Chat.ID
 	msgID := h.states.Get(userID).LastListMsgID
 
@@ -1147,6 +1211,7 @@ func (h *Handler) doEdit(chatID int64, userID int64, noteID int64, text string, 
 }
 
 func (h *Handler) doDelete(chatID int64, userID int64, noteID int64) {
+	h.clearAttachmentView(chatID, userID)
 	if err := h.noteService.DeleteNote(userID, noteID); err != nil {
 		h.send(chatID, fmt.Sprintf("❌ %v", err))
 		return
@@ -1251,9 +1316,14 @@ func (h *Handler) callbackViewNote(chatID int64, msgID int, userID int64, noteID
 	}
 
 	session := h.states.Get(userID)
-	session.LastViewedNoteID = note.ID
 	session.ExpandedNoteID = 0 // новый просмотр — свёрнутый вид
 	tzOffset := session.TimezoneOffset
+
+	// Переход на другую заметку — закрываем окно просмотра вложений предыдущей
+	if session.LastViewedNoteID != note.ID {
+		h.clearAttachmentView(chatID, userID)
+		session.LastViewedNoteID = note.ID
+	}
 
 	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -1289,6 +1359,156 @@ func (h *Handler) callbackCollapseNote(chatID int64, msgID int, userID int64, no
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	edit.ParseMode = tgbotapi.ModeMarkdown
 	h.api.Send(edit)
+}
+
+// callbackAttachments показывает список вложений заметки.
+func (h *Handler) callbackAttachments(chatID int64, msgID int, userID int64, noteID int64) {
+	s := h.states.Get(userID)
+	s.AttachmentListMsgID = msgID
+	s.AttachmentListNoteID = noteID
+	h.showAttachmentList(chatID, msgID, userID, noteID)
+}
+
+// showAttachmentList рендерит список вложений в сообщении msgID (или новым, если edit не удался).
+func (h *Handler) showAttachmentList(chatID int64, msgID int, userID int64, noteID int64) {
+	atts, err := h.attachmentService.ListAttachments(userID, noteID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	text, markup := buildAttachmentsMessage(atts, noteID)
+	if msgID != 0 {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+		edit.ParseMode = tgbotapi.ModeMarkdown
+		if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+			s := h.states.Get(userID)
+			s.AttachmentListMsgID = msgID
+			s.AttachmentListNoteID = noteID
+			return
+		}
+	}
+	// fallback: edit не удался (например, разметка) — отправляем новое сообщение
+	msg := h.newMsg(chatID, userID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = markup
+	if sent, err := h.api.Send(msg); err == nil {
+		s := h.states.Get(userID)
+		s.AttachmentListMsgID = sent.MessageID
+		s.AttachmentListNoteID = noteID
+	}
+}
+
+// callbackAddAttachment переводит бота в режим ожидания медиа-сообщения.
+func (h *Handler) callbackAddAttachment(chatID int64, msgID int, userID int64, noteID int64) {
+	if _, err := h.noteService.GetNote(userID, noteID); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	session := h.states.Get(userID)
+	session.State = StateWaitingAttachment
+	session.AttachmentNoteID = noteID
+	h.sendPrompt(chatID, userID, "📎 Отправь файл для прикрепления к заметке")
+}
+
+// callbackSendAttachment открывает вложение в едином окне просмотра.
+func (h *Handler) callbackSendAttachment(chatID int64, userID int64, attID int64) {
+	att, err := h.attachmentService.GetAttachment(userID, attID)
+	if err != nil {
+		h.send(chatID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	h.showAttachmentView(chatID, userID, att)
+}
+
+// showAttachmentView показывает вложение в едином окне просмотра:
+// переиспользует AttachmentViewMsgID (editMessageMedia при том же типе,
+// иначе — удаляет старое сообщение и отправляет новое), под медиа — кнопка «❌ Закрыть».
+func (h *Handler) showAttachmentView(chatID int64, userID int64, att model.Attachment) {
+	session := h.states.Get(userID)
+
+	if session.AttachmentViewMsgID != 0 {
+		if session.AttachmentViewType == att.Type {
+			if edit := h.attachmentEdit(chatID, session.AttachmentViewMsgID, att); edit != nil {
+				if _, err := h.api.Send(edit); err == nil {
+					return
+				}
+			}
+		}
+		// другой тип или edit не удался — переотправляем в окно просмотра
+		h.api.Request(tgbotapi.NewDeleteMessage(chatID, session.AttachmentViewMsgID))
+		session.AttachmentViewMsgID = 0
+	}
+
+	sent, err := h.api.Send(h.attachmentSend(chatID, att))
+	if err != nil {
+		return
+	}
+	session.AttachmentViewMsgID = sent.MessageID
+	session.AttachmentViewType = att.Type
+}
+
+// clearAttachmentView удаляет окно просмотра вложения (если оно открыто).
+func (h *Handler) clearAttachmentView(chatID int64, userID int64) {
+	session := h.states.Get(userID)
+	if session.AttachmentViewMsgID != 0 {
+		h.api.Request(tgbotapi.NewDeleteMessage(chatID, session.AttachmentViewMsgID))
+		session.AttachmentViewMsgID = 0
+	}
+}
+
+// callbackCloseAttachment закрывает окно просмотра вложения по кнопке «❌ Закрыть».
+func (h *Handler) callbackCloseAttachment(chatID int64, msgID int, userID int64) {
+	session := h.states.Get(userID)
+	if session.AttachmentViewMsgID == msgID {
+		session.AttachmentViewMsgID = 0
+	}
+	h.api.Request(tgbotapi.NewDeleteMessage(chatID, msgID))
+}
+
+// askDeleteAttachment показывает подтверждение удаления вложения.
+func (h *Handler) askDeleteAttachment(chatID int64, msgID int, userID int64, attID int64) {
+	att, err := h.attachmentService.GetAttachment(userID, attID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	text, markup := buildAttachmentDeleteConfirm(att)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+		return
+	}
+	msg := h.newMsg(chatID, userID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = markup
+	h.api.Send(msg)
+}
+
+// doDeleteAttachment удаляет вложение и обновляет список.
+func (h *Handler) doDeleteAttachment(chatID int64, msgID int, userID int64, attID int64) {
+	att, err := h.attachmentService.GetAttachment(userID, attID)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	noteID := att.NoteID
+
+	if err := h.attachmentService.DeleteAttachment(userID, attID); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	atts, _ := h.attachmentService.ListAttachments(userID, noteID)
+	text, markup := buildAttachmentsMessage(atts, noteID)
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+	edit.ParseMode = tgbotapi.ModeMarkdown
+	if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+		return
+	}
+	msg := h.newMsg(chatID, userID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = markup
+	h.api.Send(msg)
 }
 
 func (h *Handler) askDeleteNote(chatID int64, msgID int, userID int64, noteID int64) {
@@ -1424,6 +1644,7 @@ func (h *Handler) callbackBackToList(chatID int64, msgID int, userID int64) {
 	session := h.states.Get(userID)
 	session.DoneFolderActive = false
 	session.ExpandedNoteID = 0
+	h.clearAttachmentView(chatID, userID)
 	h.showListPage(chatID, msgID, userID, 0)
 }
 
@@ -1431,6 +1652,7 @@ func (h *Handler) callbackBackToList(chatID int64, msgID int, userID int64) {
 
 func (h *Handler) cmdSettings(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
+	h.clearAttachmentView(msg.Chat.ID, userID)
 	h.showSettings(msg.Chat.ID, h.states.Get(userID).LastListMsgID, userID)
 }
 
@@ -2012,6 +2234,22 @@ func (h *Handler) send(chatID int64, text string) {
 	h.api.Send(h.newMsg(chatID, 0, text))
 }
 
+// confirmAutoDelete — время жизни сообщения-подтверждения
+// («✅ …», «❌ …») перед автоудалением для чистоты чата.
+const confirmAutoDelete = 5 * time.Second
+
+// sendTimed отправляет сообщение и удаляет его через confirmAutoDelete.
+func (h *Handler) sendTimed(chatID int64, text string) {
+	sent, err := h.api.Send(h.newMsg(chatID, 0, text))
+	if err != nil {
+		return
+	}
+	time.AfterFunc(confirmAutoDelete, func() {
+		del := tgbotapi.NewDeleteMessage(chatID, sent.MessageID)
+		h.api.Request(del)
+	})
+}
+
 // sendPrompt отправляет сообщение-подсказку и сохраняет его ID для последующего удаления.
 func (h *Handler) sendPrompt(chatID int64, userID int64, text string) {
 	msg := h.newMsg(chatID, userID, text)
@@ -2058,6 +2296,218 @@ func (h *Handler) deleteLastBotMsg(chatID int64, userID int64) {
 		del := tgbotapi.NewDeleteMessage(chatID, lastMsgID)
 		h.api.Request(del)
 		h.states.Get(userID).LastListMsgID = 0
+	}
+}
+
+// --- Attachments ---
+
+// maxFileSize — лимит скачивания файлов ботом (Telegram: 20 МБ).
+const maxFileSize = 20 * 1024 * 1024
+
+// mediaInfo — извлечённые из сообщения данные медиа.
+type mediaInfo struct {
+	Type     model.AttachmentType
+	FileID   string
+	FileName string
+	MimeType string
+	FileSize int64
+}
+
+// extractMedia извлекает медиа из сообщения Telegram.
+// Поддерживаются все типы: фото, документ, аудио, видео, голосовое,
+// видеосообщение, анимация (GIF) и стикер.
+func extractMedia(msg *tgbotapi.Message) (mediaInfo, bool) {
+	switch {
+	case len(msg.Photo) > 0:
+		// Берём самый большой размер фото
+		p := msg.Photo[len(msg.Photo)-1]
+		return mediaInfo{Type: model.AttachmentPhoto, FileID: p.FileID, FileName: "photo.jpg", MimeType: "image/jpeg", FileSize: int64(p.FileSize)}, true
+	case msg.Document != nil:
+		return mediaInfo{Type: model.AttachmentDocument, FileID: msg.Document.FileID, FileName: msg.Document.FileName, MimeType: msg.Document.MimeType, FileSize: int64(msg.Document.FileSize)}, true
+	case msg.Audio != nil:
+		return mediaInfo{Type: model.AttachmentAudio, FileID: msg.Audio.FileID, FileName: msg.Audio.FileName, MimeType: msg.Audio.MimeType, FileSize: int64(msg.Audio.FileSize)}, true
+	case msg.Video != nil:
+		return mediaInfo{Type: model.AttachmentVideo, FileID: msg.Video.FileID, FileName: "video.mp4", MimeType: msg.Video.MimeType, FileSize: int64(msg.Video.FileSize)}, true
+	case msg.Voice != nil:
+		return mediaInfo{Type: model.AttachmentVoice, FileID: msg.Voice.FileID, FileName: "voice.ogg", MimeType: msg.Voice.MimeType, FileSize: int64(msg.Voice.FileSize)}, true
+	case msg.VideoNote != nil:
+		return mediaInfo{Type: model.AttachmentVideoNote, FileID: msg.VideoNote.FileID, FileName: "video_note.mp4", MimeType: "video/mp4", FileSize: int64(msg.VideoNote.FileSize)}, true
+	case msg.Animation != nil:
+		return mediaInfo{Type: model.AttachmentAnimation, FileID: msg.Animation.FileID, FileName: "animation.gif", MimeType: msg.Animation.MimeType, FileSize: int64(msg.Animation.FileSize)}, true
+	case msg.Sticker != nil:
+		return mediaInfo{Type: model.AttachmentSticker, FileID: msg.Sticker.FileID, FileName: "sticker.webp", MimeType: "image/webp", FileSize: int64(msg.Sticker.FileSize)}, true
+	}
+	return mediaInfo{}, false
+}
+
+// handleAttachmentMessage обрабатывает медиа-сообщение: скачивает файл
+// и прикрепляет его к заметке.
+//
+// Два режима:
+//   - режим StateWaitingAttachment: прикрепляем к AttachmentNoteID (через 📎),
+//     после — возврат к списку (refreshList);
+//   - простое прикрепление: файл прикрепляется к последней просмотренной
+//     заметке (LastViewedNoteID), экран просмотра при этом не перетирается.
+func (h *Handler) handleAttachmentMessage(msg *tgbotapi.Message, userID int64, att mediaInfo) {
+	s := h.states.Get(userID)
+	attachMode := s.State == StateWaitingAttachment && s.AttachmentNoteID != 0
+
+	noteID := s.AttachmentNoteID
+	if !attachMode {
+		// Простое прикрепление — к последней просмотренной заметке
+		noteID = s.LastViewedNoteID
+		if noteID == 0 {
+			h.deleteUserMsg(msg)
+			h.send(msg.Chat.ID, "❌ Сначала открой заметку, а затем отправь файл — он прикрепится к ней.")
+			return
+		}
+	}
+
+	h.deleteUserMsg(msg)
+	if attachMode {
+		h.clearPrompt(msg.Chat.ID, userID)
+	}
+	h.states.Reset(userID)
+
+	data, err := h.downloadFile(att.FileID)
+	if err != nil {
+		h.send(msg.Chat.ID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	_, err = h.attachmentService.AddAttachment(userID, noteID, att.Type, att.FileID, att.FileName, att.MimeType, att.FileSize, data)
+	if err != nil {
+		h.send(msg.Chat.ID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	if attachMode {
+		h.sendTimed(msg.Chat.ID, "✅ Файл прикреплён.")
+		// Остаёмся в списке вложений заметки, а не уходим в список заметок
+		h.showAttachmentList(msg.Chat.ID, s.AttachmentListMsgID, userID, noteID)
+		return
+	}
+
+	h.sendTimed(msg.Chat.ID, fmt.Sprintf("✅ Файл прикреплён к заметке #%d.", noteID))
+	// Если открыт список вложений этой же заметки — перерисовываем его,
+	// чтобы новый файл сразу появился в списке
+	if s.AttachmentListMsgID != 0 && s.AttachmentListNoteID == noteID {
+		h.showAttachmentList(msg.Chat.ID, s.AttachmentListMsgID, userID, noteID)
+	}
+}
+
+// downloadFile скачивает файл из Telegram по file_id (лимит 20 МБ).
+func (h *Handler) downloadFile(fileID string) ([]byte, error) {
+	f, err := h.api.GetFile(tgbotapi.FileConfig{FileID: fileID})
+	if err != nil {
+		return nil, fmt.Errorf("получение информации о файле: %w", err)
+	}
+	if f.FileSize > maxFileSize {
+		return nil, errors.ErrFileTooLarge
+	}
+
+	url := f.Link(h.api.Token)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("скачивание файла: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ошибка скачивания: HTTP %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("чтение файла: %w", err)
+	}
+	if len(data) > maxFileSize {
+		return nil, errors.ErrFileTooLarge
+	}
+	return data, nil
+}
+
+// attachmentCloseMarkup — кнопка «❌ Закрыть» под медиа-сообщением просмотра.
+func attachmentCloseMarkup() *tgbotapi.InlineKeyboardMarkup {
+	closeBtn := tgbotapi.NewInlineKeyboardButtonData("❌ Закрыть", "closeatt")
+	markup := tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(closeBtn))
+	return &markup
+}
+
+// attachmentSend строит сообщение с медиа вложения и кнопкой «❌ Закрыть».
+func (h *Handler) attachmentSend(chatID int64, att model.Attachment) tgbotapi.Chattable {
+	markup := attachmentCloseMarkup()
+
+	switch att.Type {
+	case model.AttachmentPhoto:
+		m := tgbotapi.NewPhoto(chatID, tgbotapi.FileID(att.FileID))
+		m.ReplyMarkup = markup
+		return m
+	case model.AttachmentSticker:
+		m := tgbotapi.NewSticker(chatID, tgbotapi.FileID(att.FileID))
+		m.ReplyMarkup = markup
+		return m
+	case model.AttachmentAudio:
+		m := tgbotapi.NewAudio(chatID, tgbotapi.FileID(att.FileID))
+		m.ReplyMarkup = markup
+		return m
+	case model.AttachmentVoice:
+		m := tgbotapi.NewVoice(chatID, tgbotapi.FileID(att.FileID))
+		m.ReplyMarkup = markup
+		return m
+	case model.AttachmentVideo:
+		m := tgbotapi.NewVideo(chatID, tgbotapi.FileID(att.FileID))
+		m.ReplyMarkup = markup
+		return m
+	case model.AttachmentVideoNote:
+		m := tgbotapi.NewVideoNote(chatID, 1, tgbotapi.FileID(att.FileID))
+		m.ReplyMarkup = markup
+		return m
+	case model.AttachmentAnimation:
+		m := tgbotapi.NewAnimation(chatID, tgbotapi.FileID(att.FileID))
+		m.ReplyMarkup = markup
+		return m
+	default:
+		m := tgbotapi.NewDocument(chatID, tgbotapi.FileID(att.FileID))
+		m.ReplyMarkup = markup
+		return m
+	}
+}
+
+// attachmentEdit строит editMessageMedia для вложения.
+// Возвращает nil для типов, которые Telegram не позволяет редактировать
+// (стикеры, голосовые, видео-кружки) — вызывающий код переотправляет их.
+func (h *Handler) attachmentEdit(chatID int64, msgID int, att model.Attachment) tgbotapi.Chattable {
+	markup := attachmentCloseMarkup()
+
+	switch att.Type {
+	case model.AttachmentPhoto:
+		return tgbotapi.EditMessageMediaConfig{
+			BaseEdit: tgbotapi.BaseEdit{ChatID: chatID, MessageID: msgID, ReplyMarkup: markup},
+			Media:    tgbotapi.NewInputMediaPhoto(tgbotapi.FileID(att.FileID)),
+		}
+	case model.AttachmentDocument:
+		return tgbotapi.EditMessageMediaConfig{
+			BaseEdit: tgbotapi.BaseEdit{ChatID: chatID, MessageID: msgID, ReplyMarkup: markup},
+			Media:    tgbotapi.NewInputMediaDocument(tgbotapi.FileID(att.FileID)),
+		}
+	case model.AttachmentAudio:
+		return tgbotapi.EditMessageMediaConfig{
+			BaseEdit: tgbotapi.BaseEdit{ChatID: chatID, MessageID: msgID, ReplyMarkup: markup},
+			Media:    tgbotapi.NewInputMediaAudio(tgbotapi.FileID(att.FileID)),
+		}
+	case model.AttachmentVideo:
+		return tgbotapi.EditMessageMediaConfig{
+			BaseEdit: tgbotapi.BaseEdit{ChatID: chatID, MessageID: msgID, ReplyMarkup: markup},
+			Media:    tgbotapi.NewInputMediaVideo(tgbotapi.FileID(att.FileID)),
+		}
+	case model.AttachmentAnimation:
+		return tgbotapi.EditMessageMediaConfig{
+			BaseEdit: tgbotapi.BaseEdit{ChatID: chatID, MessageID: msgID, ReplyMarkup: markup},
+			Media:    tgbotapi.NewInputMediaAnimation(tgbotapi.FileID(att.FileID)),
+		}
+	default:
+		return nil
 	}
 }
 

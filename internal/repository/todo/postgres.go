@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS folders (
     name TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS attachments (
+    id SERIAL PRIMARY KEY,
+    note_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    type TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_name TEXT NOT NULL DEFAULT '',
+    mime_type TEXT NOT NULL DEFAULT '',
+    file_size BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_at TIMESTAMPTZ;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_repeat TEXT NOT NULL DEFAULT 'once';
@@ -49,6 +62,8 @@ ALTER TABLE notes ADD COLUMN IF NOT EXISTS done BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_notes_user_topic ON notes(user_id, topic_id);
 CREATE INDEX IF NOT EXISTS idx_notes_user_folder ON notes(user_id, folder_id);
 CREATE INDEX IF NOT EXISTS idx_folders_user_topic ON folders(user_id, topic_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id);
 `
 
 // PostgresStore — реализация репозитория на PostgreSQL.
@@ -141,6 +156,13 @@ func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 		return fmt.Errorf("начало транзакции: %w", err)
 	}
 	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`DELETE FROM attachments WHERE user_id = $1 AND note_id IN (SELECT id FROM notes WHERE user_id = $1 AND topic_id = $2)`,
+		userID, topicID,
+	); err != nil {
+		return fmt.Errorf("удаление вложений топика: %w", err)
+	}
 
 	if _, err := tx.Exec(
 		`DELETE FROM notes WHERE user_id = $1 AND topic_id = $2`, userID, topicID,
@@ -266,7 +288,19 @@ func (s *PostgresStore) UpdateNote(note model.Note) error {
 }
 
 func (s *PostgresStore) DeleteNote(userID, noteID int64) error {
-	res, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("начало транзакции: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`DELETE FROM attachments WHERE note_id = $1 AND user_id = $2`, noteID, userID,
+	); err != nil {
+		return fmt.Errorf("удаление вложений заметки: %w", err)
+	}
+
+	res, err := tx.Exec(
 		`DELETE FROM notes WHERE id = $1 AND user_id = $2`,
 		noteID, userID,
 	)
@@ -277,7 +311,7 @@ func (s *PostgresStore) DeleteNote(userID, noteID int64) error {
 	if affected == 0 {
 		return errors.ErrNoteNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 // CountDoneNotes возвращает количество выполненных заметок в топике/папке.
@@ -545,4 +579,81 @@ func (s *PostgresStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
 		currentID = f.ParentFolderID
 	}
 	return chain, nil
+}
+
+// --- Attachments ---
+
+const attachmentColumns = `id, note_id, user_id, type, file_id, file_path, file_name, mime_type, file_size, created_at`
+
+func scanAttachment(scan func(dest ...any) error) (model.Attachment, error) {
+	var r entity.AttachmentRecord
+	if err := scan(&r.ID, &r.NoteID, &r.UserID, &r.Type, &r.FileID, &r.FilePath, &r.FileName, &r.MimeType, &r.FileSize, &r.CreatedAt); err != nil {
+		return model.Attachment{}, err
+	}
+	return entity.AttachmentFromRecord(r), nil
+}
+
+func (s *PostgresStore) CreateAttachment(att model.Attachment) (model.Attachment, error) {
+	rec := entity.AttachmentToRecord(att)
+	created, err := scanAttachment(func(dest ...any) error {
+		return s.db.QueryRow(
+			`INSERT INTO attachments (note_id, user_id, type, file_id, file_path, file_name, mime_type, file_size, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 RETURNING `+attachmentColumns,
+			rec.NoteID, rec.UserID, rec.Type, rec.FileID, rec.FilePath, rec.FileName, rec.MimeType, rec.FileSize, rec.CreatedAt,
+		).Scan(dest...)
+	})
+	if err != nil {
+		return model.Attachment{}, fmt.Errorf("добавление вложения: %w", err)
+	}
+	return created, nil
+}
+
+func (s *PostgresStore) ListAttachments(noteID int64) ([]model.Attachment, error) {
+	rows, err := s.db.Query(
+		`SELECT `+attachmentColumns+` FROM attachments WHERE note_id = $1 ORDER BY id`, noteID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("список вложений: %w", err)
+	}
+	defer rows.Close()
+
+	var result []model.Attachment
+	for rows.Next() {
+		att, err := scanAttachment(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("чтение вложения: %w", err)
+		}
+		result = append(result, att)
+	}
+	return result, rows.Err()
+}
+
+func (s *PostgresStore) GetAttachment(attID int64) (model.Attachment, error) {
+	att, err := scanAttachment(func(dest ...any) error {
+		return s.db.QueryRow(
+			`SELECT `+attachmentColumns+` FROM attachments WHERE id = $1`, attID,
+		).Scan(dest...)
+	})
+	if err == sql.ErrNoRows {
+		return model.Attachment{}, errors.ErrAttachmentNotFound
+	}
+	if err != nil {
+		return model.Attachment{}, fmt.Errorf("поиск вложения: %w", err)
+	}
+	return att, nil
+}
+
+func (s *PostgresStore) DeleteAttachment(attID int64) error {
+	res, err := s.db.Exec(
+		`DELETE FROM attachments WHERE id = $1`, attID,
+	)
+	if err != nil {
+		return fmt.Errorf("удаление вложения: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return errors.ErrAttachmentNotFound
+	}
+	return nil
 }

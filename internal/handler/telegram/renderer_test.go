@@ -883,3 +883,106 @@ func TestBuildTimersMessage_TimezoneOffset(t *testing.T) {
 		t.Errorf("button text = %q, want '06.08.2026 15:00' for offset -3", markup.InlineKeyboard[0][0].Text)
 	}
 }
+
+// --- buildAttachmentsMessage ---
+
+func TestBuildAttachmentsMessage_Empty(t *testing.T) {
+	text, markup := buildAttachmentsMessage(nil, 42)
+	if !strings.Contains(text, "Вложений нет") {
+		t.Errorf("text = %q, want contains 'Вложений нет'", text)
+	}
+	if !strings.Contains(text, "#42") {
+		t.Errorf("text = %q, want contains '#42'", text)
+	}
+	// Добавить + Назад = 2 строки
+	if len(markup.InlineKeyboard) != 2 {
+		t.Errorf("keyboard rows = %d, want 2", len(markup.InlineKeyboard))
+	}
+	addBtn := markup.InlineKeyboard[0][0]
+	if addBtn.CallbackData == nil || *addBtn.CallbackData != "attadd:42" {
+		t.Errorf("add button callback = %v, want 'attadd:42'", addBtn.CallbackData)
+	}
+}
+
+func TestBuildAttachmentsMessage_WithAttachments(t *testing.T) {
+	atts := []model.Attachment{
+		{ID: 1, NoteID: 42, Type: model.AttachmentPhoto, FileName: "photo.jpg", FileSize: 2048},
+		{ID: 2, NoteID: 42, Type: model.AttachmentDocument, FileName: "doc.pdf", FileSize: 5 * 1024 * 1024},
+		{ID: 3, NoteID: 42, Type: model.AttachmentVoice, FileSize: 1024},
+		{ID: 4, NoteID: 42, Type: model.AttachmentDocument, FileName: "отчет_final [v2].txt", FileSize: 512},
+	}
+	text, markup := buildAttachmentsMessage(atts, 42)
+
+	if !strings.Contains(text, "Вложения *#42*") {
+		t.Errorf("text = %q, want contains 'Вложения *#42*'", text)
+	}
+	if !strings.Contains(text, "🖼 photo.jpg · 2 КБ") {
+		t.Errorf("text = %q, want contains photo line", text)
+	}
+	if !strings.Contains(text, "📄 doc.pdf · 5.0 МБ") {
+		t.Errorf("text = %q, want contains document line", text)
+	}
+	if !strings.Contains(text, "🎙 файл · 1 КБ") {
+		t.Errorf("text = %q, want contains voice line with fallback name", text)
+	}
+	// Имя со спецсимволами (_ [) должно быть экранировано для Markdown
+	if !strings.Contains(text, "📄 отчет\\_final \\[v2].txt · 512 Б") {
+		t.Errorf("text = %q, want escaped special chars in name", text)
+	}
+
+	// 4 вложения (кнопка + 🗑) + Добавить + Назад = 6 строк
+	if len(markup.InlineKeyboard) != 6 {
+		t.Fatalf("keyboard rows = %d, want 6", len(markup.InlineKeyboard))
+	}
+	getBtn := markup.InlineKeyboard[0][0]
+	if getBtn.CallbackData == nil || *getBtn.CallbackData != "attget:1" {
+		t.Errorf("get button callback = %v, want 'attget:1'", getBtn.CallbackData)
+	}
+	delBtn := markup.InlineKeyboard[0][1]
+	if delBtn.CallbackData == nil || *delBtn.CallbackData != "attdel:1" {
+		t.Errorf("delete button callback = %v, want 'attdel:1'", delBtn.CallbackData)
+	}
+	addRow := markup.InlineKeyboard[4][0]
+	if addRow.CallbackData == nil || *addRow.CallbackData != "attadd:42" {
+		t.Errorf("add button callback = %v, want 'attadd:42'", addRow.CallbackData)
+	}
+	backRow := markup.InlineKeyboard[5][0]
+	if backRow.CallbackData == nil || *backRow.CallbackData != "view:42" {
+		t.Errorf("back button callback = %v, want 'view:42'", backRow.CallbackData)
+	}
+}
+
+// --- buildAttachmentDeleteConfirm ---
+
+func TestBuildAttachmentDeleteConfirm(t *testing.T) {
+	att := model.Attachment{ID: 7, NoteID: 42, Type: model.AttachmentPhoto, FileName: "photo.jpg"}
+	text, markup := buildAttachmentDeleteConfirm(att)
+
+	if !strings.Contains(text, "Удалить вложение") {
+		t.Errorf("text = %q, want contains 'Удалить вложение'", text)
+	}
+	if !strings.Contains(text, "photo.jpg") {
+		t.Errorf("text = %q, want contains file name", text)
+	}
+	if len(markup.InlineKeyboard) != 1 {
+		t.Fatalf("keyboard rows = %d, want 1", len(markup.InlineKeyboard))
+	}
+	yesBtn := markup.InlineKeyboard[0][0]
+	if yesBtn.CallbackData == nil || *yesBtn.CallbackData != "attconfdel:7" {
+		t.Errorf("yes button callback = %v, want 'attconfdel:7'", yesBtn.CallbackData)
+	}
+	noBtn := markup.InlineKeyboard[0][1]
+	if noBtn.CallbackData == nil || *noBtn.CallbackData != "attachments:42" {
+		t.Errorf("no button callback = %v, want 'attachments:42'", noBtn.CallbackData)
+	}
+}
+
+func TestBuildAttachmentDeleteConfirm_EscapesSpecialChars(t *testing.T) {
+	att := model.Attachment{ID: 8, NoteID: 42, Type: model.AttachmentDocument, FileName: "фото_final *v2*.txt"}
+	text, _ := buildAttachmentDeleteConfirm(att)
+
+	// Спецсимволы _ и * должны быть экранированы для Markdown, чтобы edit не падал
+	if !strings.Contains(text, "фото\\_final \\*v2\\*.txt") {
+		t.Errorf("text = %q, want escaped special chars in file name", text)
+	}
+}

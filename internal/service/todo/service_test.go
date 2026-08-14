@@ -1,23 +1,30 @@
 package todo
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	"todo-bot-tg/internal/errors"
 	"todo-bot-tg/internal/model"
 	"todo-bot-tg/internal/repository/todo"
+	"todo-bot-tg/internal/storage/fs"
 )
 
-func newTestService() *Service {
+func newTestService(t *testing.T) *Service {
+	t.Helper()
 	store := todo.NewMemStore()
-	return NewService(store, store, store)
+	fileStore, err := fs.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("fs.NewStore() error: %v", err)
+	}
+	return NewService(store, store, store, store, fileStore)
 }
 
 // --- Topics ---
 
 func TestService_CreateTopic(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	topic, err := svc.CreateTopic(1, "🏠 Личное")
 	if err != nil {
 		t.Fatalf("CreateTopic() error: %v", err)
@@ -31,7 +38,7 @@ func TestService_CreateTopic(t *testing.T) {
 }
 
 func TestService_CreateTopic_EmptyName(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	_, err := svc.CreateTopic(1, "")
 	if err != errors.ErrEmptyName {
 		t.Errorf("error = %v, want %v", err, errors.ErrEmptyName)
@@ -39,7 +46,7 @@ func TestService_CreateTopic_EmptyName(t *testing.T) {
 }
 
 func TestService_ListTopics(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	_, _ = svc.CreateTopic(1, "A")
 	_, _ = svc.CreateTopic(1, "B")
 
@@ -53,7 +60,7 @@ func TestService_ListTopics(t *testing.T) {
 }
 
 func TestService_GetTopic(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	created, _ := svc.CreateTopic(1, "Test")
 	got, err := svc.GetTopic(1, created.ID)
 	if err != nil {
@@ -65,7 +72,7 @@ func TestService_GetTopic(t *testing.T) {
 }
 
 func TestService_DeleteTopic(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	topic, _ := svc.CreateTopic(1, "Test")
 	_, _ = svc.AddNote(1, topic.ID, nil, "Note", 0)
 
@@ -83,7 +90,7 @@ func TestService_DeleteTopic(t *testing.T) {
 // --- Notes ---
 
 func TestService_AddNote(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, err := svc.AddNote(1, 0, nil, "Купить хлеб", model.PriorityHigh)
 	if err != nil {
 		t.Fatalf("AddNote() error: %v", err)
@@ -97,7 +104,7 @@ func TestService_AddNote(t *testing.T) {
 }
 
 func TestService_AddNote_EmptyText(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	_, err := svc.AddNote(1, 0, nil, "", 0)
 	if err != errors.ErrEmptyText {
 		t.Errorf("error = %v, want %v", err, errors.ErrEmptyText)
@@ -105,7 +112,7 @@ func TestService_AddNote_EmptyText(t *testing.T) {
 }
 
 func TestService_ListNotes_SortByPriority(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 
 	n1, _ := svc.AddNote(1, 0, nil, "Low", model.PriorityLow)       // должен быть последним
 	n2, _ := svc.AddNote(1, 0, nil, "High", model.PriorityHigh)      // должен быть первым
@@ -141,7 +148,7 @@ func TestService_ListNotes_SortByPriority(t *testing.T) {
 }
 
 func TestService_ListNotes_DoneGoesToEnd(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 
 	n1, _ := svc.AddNote(1, 0, nil, "Active High", model.PriorityHigh)
 	n2, _ := svc.AddNote(1, 0, nil, "Active Low", model.PriorityLow)
@@ -177,7 +184,7 @@ func TestService_ListNotes_DoneGoesToEnd(t *testing.T) {
 }
 
 func TestService_EditNote(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Before", 0)
 
 	err := svc.EditNote(1, note.ID, "After")
@@ -192,7 +199,7 @@ func TestService_EditNote(t *testing.T) {
 }
 
 func TestService_EditNote_EmptyText(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Before", 0)
 
 	err := svc.EditNote(1, note.ID, "")
@@ -202,7 +209,7 @@ func TestService_EditNote_EmptyText(t *testing.T) {
 }
 
 func TestService_DeleteNote(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 
 	err := svc.DeleteNote(1, note.ID)
@@ -217,7 +224,7 @@ func TestService_DeleteNote(t *testing.T) {
 }
 
 func TestService_ArchiveNote(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 
 	err := svc.ArchiveNote(1, note.ID)
@@ -232,7 +239,7 @@ func TestService_ArchiveNote(t *testing.T) {
 }
 
 func TestService_UnarchiveNote(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 	_ = svc.ArchiveNote(1, note.ID)
 
@@ -248,7 +255,7 @@ func TestService_UnarchiveNote(t *testing.T) {
 }
 
 func TestService_MarkDone(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 
 	err := svc.MarkDone(1, note.ID)
@@ -263,7 +270,7 @@ func TestService_MarkDone(t *testing.T) {
 }
 
 func TestService_MarkUndone(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 	_ = svc.MarkDone(1, note.ID)
 
@@ -279,7 +286,7 @@ func TestService_MarkUndone(t *testing.T) {
 }
 
 func TestService_SetPriority(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", model.PriorityNone)
 
 	err := svc.SetPriority(1, note.ID, model.PriorityHigh)
@@ -294,7 +301,7 @@ func TestService_SetPriority(t *testing.T) {
 }
 
 func TestService_SetReminder(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 
 	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
@@ -310,7 +317,7 @@ func TestService_SetReminder(t *testing.T) {
 }
 
 func TestService_ClearReminder(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 	_ = svc.SetReminder(1, note.ID, time.Now(), model.ReminderRepeatOnce)
 
@@ -326,7 +333,7 @@ func TestService_ClearReminder(t *testing.T) {
 }
 
 func TestService_ProcessPendingReminders(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	past := time.Now().Add(-1 * time.Hour)
 	_, _ = svc.AddNote(1, 0, nil, "Past", 0)
 	note2, _ := svc.AddNote(1, 1, nil, "Past 2", 0)
@@ -348,7 +355,7 @@ func TestService_ProcessPendingReminders(t *testing.T) {
 }
 
 func TestService_ListTimers(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 
 	// Заметки пользователя 1 в разных топиках
 	n1, _ := svc.AddNote(1, 1, nil, "Ранний таймер", 0)
@@ -381,7 +388,7 @@ func TestService_ListTimers(t *testing.T) {
 }
 
 func TestService_ListTimers_OtherUser(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 
 	note, _ := svc.AddNote(2, 1, nil, "Чужой таймер", 0)
 	_ = svc.SetReminder(2, note.ID, time.Now(), model.ReminderRepeatOnce)
@@ -396,7 +403,7 @@ func TestService_ListTimers_OtherUser(t *testing.T) {
 }
 
 func TestService_CountNotes(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	_, _ = svc.AddNote(1, 1, nil, "A", 0)
 	_, _ = svc.AddNote(1, 1, nil, "B", 0)
 	_, _ = svc.AddNote(1, 2, nil, "C", 0)
@@ -411,7 +418,7 @@ func TestService_CountNotes(t *testing.T) {
 }
 
 func TestService_ListArchived(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
 	_ = svc.ArchiveNote(1, note.ID)
 
@@ -425,7 +432,7 @@ func TestService_ListArchived(t *testing.T) {
 }
 
 func TestService_HasAnyData(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	if svc.HasAnyData(1) {
 		t.Error("HasAnyData() = true for empty user")
 	}
@@ -437,7 +444,7 @@ func TestService_HasAnyData(t *testing.T) {
 }
 
 func TestService_SeedDefaults(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	err := svc.SeedDefaults(1)
 	if err != nil {
 		t.Fatalf("SeedDefaults() error: %v", err)
@@ -467,7 +474,7 @@ func TestService_SeedDefaults(t *testing.T) {
 // --- Folders ---
 
 func TestService_CreateFolder(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	folder, err := svc.CreateFolder(1, 1, nil, "Моя папка")
 	if err != nil {
 		t.Fatalf("CreateFolder() error: %v", err)
@@ -478,7 +485,7 @@ func TestService_CreateFolder(t *testing.T) {
 }
 
 func TestService_CreateFolder_EmptyName(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	_, err := svc.CreateFolder(1, 1, nil, "")
 	if err != errors.ErrEmptyFolderName {
 		t.Errorf("error = %v, want %v", err, errors.ErrEmptyFolderName)
@@ -486,7 +493,7 @@ func TestService_CreateFolder_EmptyName(t *testing.T) {
 }
 
 func TestService_ListFolders(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	_, _ = svc.CreateFolder(1, 1, nil, "F1")
 	_, _ = svc.CreateFolder(1, 1, nil, "F2")
 
@@ -500,7 +507,7 @@ func TestService_ListFolders(t *testing.T) {
 }
 
 func TestService_GetFolder(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	created, _ := svc.CreateFolder(1, 1, nil, "Test")
 	got, err := svc.GetFolder(1, created.ID)
 	if err != nil {
@@ -512,7 +519,7 @@ func TestService_GetFolder(t *testing.T) {
 }
 
 func TestService_GetFolderChain(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	root, _ := svc.CreateFolder(1, 1, nil, "Root")
 	child, _ := svc.CreateFolder(1, 1, &root.ID, "Child")
 
@@ -532,7 +539,7 @@ func TestService_GetFolderChain(t *testing.T) {
 }
 
 func TestService_MoveNote(t *testing.T) {
-	svc := newTestService()
+	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 1, nil, "Test", 0)
 	folder, _ := svc.CreateFolder(1, 2, nil, "Target")
 
@@ -547,5 +554,253 @@ func TestService_MoveNote(t *testing.T) {
 	}
 	if got.FolderID == nil || *got.FolderID != folder.ID {
 		t.Errorf("FolderID = %v, want %d", got.FolderID, folder.ID)
+	}
+}
+
+// --- Attachments ---
+
+func TestService_AddAttachment(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "С заметкой", 0)
+
+	att, err := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "file_id_1", "photo.jpg", "image/jpeg", 1024, []byte("data"))
+	if err != nil {
+		t.Fatalf("AddAttachment() error: %v", err)
+	}
+	if att.ID == 0 {
+		t.Error("AddAttachment() returned zero ID")
+	}
+	if att.NoteID != note.ID {
+		t.Errorf("NoteID = %d, want %d", att.NoteID, note.ID)
+	}
+	if att.UserID != 1 {
+		t.Errorf("UserID = %d, want 1", att.UserID)
+	}
+	if att.FilePath == "" {
+		t.Error("FilePath is empty")
+	}
+	if att.FileID != "file_id_1" {
+		t.Errorf("FileID = %q, want file_id_1", att.FileID)
+	}
+
+	// Файл должен лежать на диске
+	if svc.fileStore.AbsPath(att.FilePath) == "" {
+		t.Errorf("AbsPath(%q) is empty", att.FilePath)
+	}
+}
+
+func TestService_AddAttachment_NoteNotFound(t *testing.T) {
+	svc := newTestService(t)
+	_, err := svc.AddAttachment(1, 999, model.AttachmentPhoto, "fid", "a.jpg", "image/jpeg", 1, []byte("x"))
+	if err != errors.ErrNoteNotFound {
+		t.Errorf("error = %v, want %v", err, errors.ErrNoteNotFound)
+	}
+}
+
+func TestService_AddAttachment_InvalidType(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	_, err := svc.AddAttachment(1, note.ID, "gif", "fid", "a.gif", "image/gif", 1, []byte("x"))
+	if err != errors.ErrInvalidAttachmentType {
+		t.Errorf("error = %v, want %v", err, errors.ErrInvalidAttachmentType)
+	}
+}
+
+func TestService_AddAttachment_EmptyData(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	_, err := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "fid", "a.txt", "text/plain", 0, nil)
+	if err != errors.ErrEmptyFile {
+		t.Errorf("error = %v, want %v", err, errors.ErrEmptyFile)
+	}
+}
+
+func TestService_AddAttachment_DuplicateFileName(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+
+	first, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "photo.jpg", "image/jpeg", 100, []byte("a"))
+	second, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f2", "photo.jpg", "image/jpeg", 100, []byte("b"))
+	third, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f3", "photo.jpg", "image/jpeg", 100, []byte("c"))
+
+	if first.FileName != "photo.jpg" {
+		t.Errorf("first FileName = %q, want photo.jpg", first.FileName)
+	}
+	if second.FileName != "photo (2).jpg" {
+		t.Errorf("second FileName = %q, want photo (2).jpg", second.FileName)
+	}
+	if third.FileName != "photo (3).jpg" {
+		t.Errorf("third FileName = %q, want photo (3).jpg", third.FileName)
+	}
+}
+
+func TestService_AddAttachment_DuplicateFileName_NoExt(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+
+	first, _ := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f1", "notes", "application/octet-stream", 10, []byte("a"))
+	second, _ := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f2", "notes", "application/octet-stream", 10, []byte("b"))
+
+	if first.FileName != "notes" {
+		t.Errorf("first FileName = %q, want notes", first.FileName)
+	}
+	if second.FileName != "notes (2)" {
+		t.Errorf("second FileName = %q, want notes (2)", second.FileName)
+	}
+}
+
+func TestService_AddAttachment_SameNameDifferentNote(t *testing.T) {
+	svc := newTestService(t)
+	note1, _ := svc.AddNote(1, 0, nil, "N1", 0)
+	note2, _ := svc.AddNote(1, 0, nil, "N2", 0)
+
+	a1, _ := svc.AddAttachment(1, note1.ID, model.AttachmentDocument, "f1", "same.pdf", "application/pdf", 10, []byte("a"))
+	a2, _ := svc.AddAttachment(1, note2.ID, model.AttachmentDocument, "f2", "same.pdf", "application/pdf", 10, []byte("b"))
+
+	// Разные заметки — постфикс не нужен
+	if a1.FileName != "same.pdf" || a2.FileName != "same.pdf" {
+		t.Errorf("FileNames = %q, %q, want both same.pdf", a1.FileName, a2.FileName)
+	}
+}
+
+func TestUniqueFileName(t *testing.T) {
+	used := map[string]bool{"file.txt": true, "file (2).txt": true}
+	if got := uniqueFileName("file.txt", used); got != "file (3).txt" {
+		t.Errorf("uniqueFileName(file.txt) = %q, want file (3).txt", got)
+	}
+	if got := uniqueFileName("new.txt", used); got != "new.txt" {
+		t.Errorf("uniqueFileName(new.txt) = %q, want new.txt", got)
+	}
+	if got := uniqueFileName("file", map[string]bool{"file": true}); got != "file (2)" {
+		t.Errorf("uniqueFileName(file) = %q, want file (2)", got)
+	}
+	if got := uniqueFileName("", map[string]bool{"": true}); got != " (2)" {
+		t.Errorf("uniqueFileName(empty) = %q, want  (2)", got)
+	}
+}
+
+func TestService_ListAttachments(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	_, _ = svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f1", "a.pdf", "application/pdf", 100, []byte("pdf"))
+	_, _ = svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f2", "b.png", "image/png", 200, []byte("png"))
+
+	atts, err := svc.ListAttachments(1, note.ID)
+	if err != nil {
+		t.Fatalf("ListAttachments() error: %v", err)
+	}
+	if len(atts) != 2 {
+		t.Errorf("len = %d, want 2", len(atts))
+	}
+}
+
+func TestService_ListAttachments_OtherUser(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	_, _ = svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
+
+	_, err := svc.ListAttachments(2, note.ID)
+	if err != errors.ErrNoteNotFound {
+		t.Errorf("error = %v, want %v", err, errors.ErrNoteNotFound)
+	}
+}
+
+func TestService_GetAttachment(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	created, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
+
+	got, err := svc.GetAttachment(1, created.ID)
+	if err != nil {
+		t.Fatalf("GetAttachment() error: %v", err)
+	}
+	if got.ID != created.ID {
+		t.Errorf("ID = %d, want %d", got.ID, created.ID)
+	}
+}
+
+func TestService_GetAttachment_OtherUser(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	created, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
+
+	_, err := svc.GetAttachment(2, created.ID)
+	if err != errors.ErrAttachmentNotFound {
+		t.Errorf("error = %v, want %v", err, errors.ErrAttachmentNotFound)
+	}
+}
+
+func TestService_DeleteAttachment(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	created, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
+
+	// Файл существует до удаления
+	if svc.fileStore.AbsPath(created.FilePath) == "" {
+		t.Fatal("file not saved before delete")
+	}
+
+	err := svc.DeleteAttachment(1, created.ID)
+	if err != nil {
+		t.Fatalf("DeleteAttachment() error: %v", err)
+	}
+
+	_, err = svc.GetAttachment(1, created.ID)
+	if err != errors.ErrAttachmentNotFound {
+		t.Errorf("attachment still exists after delete")
+	}
+	// Файл удалён с диска
+	if _, statErr := os.Stat(svc.fileStore.AbsPath(created.FilePath)); statErr == nil {
+		t.Error("file still on disk after delete")
+	}
+}
+
+func TestService_DeleteAttachment_OtherUser(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	created, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
+
+	err := svc.DeleteAttachment(2, created.ID)
+	if err != errors.ErrAttachmentNotFound {
+		t.Errorf("error = %v, want %v", err, errors.ErrAttachmentNotFound)
+	}
+	// Вложение должно остаться
+	if _, err := svc.GetAttachment(1, created.ID); err != nil {
+		t.Error("attachment deleted by other user")
+	}
+}
+
+func TestService_DeleteNote_RemovesFiles(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	att, _ := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f1", "a.pdf", "application/pdf", 100, []byte("pdf"))
+	att2, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f2", "b.jpg", "image/jpeg", 200, []byte("jpg"))
+
+	err := svc.DeleteNote(1, note.ID)
+	if err != nil {
+		t.Fatalf("DeleteNote() error: %v", err)
+	}
+
+	if _, statErr := os.Stat(svc.fileStore.AbsPath(att.FilePath)); statErr == nil {
+		t.Error("file 1 still on disk after note delete")
+	}
+	if _, statErr := os.Stat(svc.fileStore.AbsPath(att2.FilePath)); statErr == nil {
+		t.Error("file 2 still on disk after note delete")
+	}
+}
+
+func TestService_DeleteTopic_RemovesFiles(t *testing.T) {
+	svc := newTestService(t)
+	topic, _ := svc.CreateTopic(1, "T")
+	note, _ := svc.AddNote(1, topic.ID, nil, "N", 0)
+	att, _ := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f1", "a.pdf", "application/pdf", 100, []byte("pdf"))
+
+	err := svc.DeleteTopic(1, topic.ID)
+	if err != nil {
+		t.Fatalf("DeleteTopic() error: %v", err)
+	}
+
+	if _, statErr := os.Stat(svc.fileStore.AbsPath(att.FilePath)); statErr == nil {
+		t.Error("file still on disk after topic delete")
 	}
 }

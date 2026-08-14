@@ -138,3 +138,75 @@ func TestFolderToRecord_NilParent(t *testing.T) {
 		t.Errorf("ParentFolderID = %v, want nil", result.ParentFolderID)
 	}
 }
+
+func TestAttachmentToRecord_RoundTrip(t *testing.T) {
+	createdAt := time.Date(2026, 8, 14, 10, 30, 0, 0, time.UTC)
+	original := model.Attachment{
+		ID:        55,
+		NoteID:    12,
+		UserID:    3,
+		Type:      model.AttachmentPhoto,
+		FileID:    "AgACAgIAAxkDAAEBB",
+		FilePath:  "files/3/12/1723_abcd.jpg",
+		FileName:  "photo.jpg",
+		MimeType:  "image/jpeg",
+		FileSize:  1024,
+		CreatedAt: createdAt,
+	}
+
+	record := AttachmentToRecord(original)
+	result := AttachmentFromRecord(record)
+
+	if result.ID != original.ID {
+		t.Errorf("ID = %d, want %d", result.ID, original.ID)
+	}
+	if result.NoteID != original.NoteID {
+		t.Errorf("NoteID = %d, want %d", result.NoteID, original.NoteID)
+	}
+	if result.UserID != original.UserID {
+		t.Errorf("UserID = %d, want %d", result.UserID, original.UserID)
+	}
+	if result.Type != original.Type {
+		t.Errorf("Type = %q, want %q", result.Type, original.Type)
+	}
+	if result.FileID != original.FileID {
+		t.Errorf("FileID = %q, want %q", result.FileID, original.FileID)
+	}
+	if result.FilePath != original.FilePath {
+		t.Errorf("FilePath = %q, want %q", result.FilePath, original.FilePath)
+	}
+	if result.FileName != original.FileName {
+		t.Errorf("FileName = %q, want %q", result.FileName, original.FileName)
+	}
+	if result.MimeType != original.MimeType {
+		t.Errorf("MimeType = %q, want %q", result.MimeType, original.MimeType)
+	}
+	if result.FileSize != original.FileSize {
+		t.Errorf("FileSize = %d, want %d", result.FileSize, original.FileSize)
+	}
+	if !result.CreatedAt.Equal(original.CreatedAt) {
+		t.Errorf("CreatedAt = %v, want %v", result.CreatedAt, original.CreatedAt)
+	}
+}
+
+func TestAttachmentToRecord_EmptyOptional(t *testing.T) {
+	original := model.Attachment{
+		ID:     1,
+		NoteID: 1,
+		UserID: 1,
+		Type:   model.AttachmentDocument,
+	}
+
+	record := AttachmentToRecord(original)
+	result := AttachmentFromRecord(record)
+
+	if result.FileName != "" {
+		t.Errorf("FileName = %q, want empty", result.FileName)
+	}
+	if result.MimeType != "" {
+		t.Errorf("MimeType = %q, want empty", result.MimeType)
+	}
+	if result.FileSize != 0 {
+		t.Errorf("FileSize = %d, want 0", result.FileSize)
+	}
+}

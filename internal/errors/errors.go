@@ -27,3 +27,13 @@ var (
 	ErrFolderAlreadyExists = errors.New("папка с таким названием уже существует")
 	ErrFolderNotFound      = errors.New("папка не найдена")
 )
+
+// Attachment
+var (
+	ErrAttachmentNotFound    = errors.New("вложение не найдено")
+	ErrInvalidAttachmentType = errors.New("некорректный тип вложения")
+	ErrEmptyFileID           = errors.New("file_id вложения пуст")
+	ErrEmptyFilePath         = errors.New("путь к файлу вложения пуст")
+	ErrEmptyFile             = errors.New("файл пуст")
+	ErrFileTooLarge          = errors.New("файл слишком большой (лимит 20 МБ)")
+)

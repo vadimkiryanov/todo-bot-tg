@@ -6,6 +6,9 @@ services:
       - TZ=Europe/Moscow
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL не задан}
+      - FILES_DIR=/app/data/files
+    volumes:
+      - files:/app/data/files
     depends_on:
       db:
         condition: service_healthy
@@ -30,3 +33,4 @@ services:
 
 volumes:
   pgdata:
+  files:

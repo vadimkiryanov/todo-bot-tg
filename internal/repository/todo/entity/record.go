@@ -32,3 +32,17 @@ type FolderRecord struct {
 	ParentFolderID *int64
 	Name           string
 }
+
+// AttachmentRecord — persistence-модель для вложения (только базовые типы).
+type AttachmentRecord struct {
+	ID        int64
+	NoteID    int64
+	UserID    int64
+	Type      string // строкой, не AttachmentType
+	FileID    string
+	FilePath  string
+	FileName  string
+	MimeType  string
+	FileSize  int64
+	CreatedAt time.Time
+}
