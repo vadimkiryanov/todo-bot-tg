@@ -255,22 +255,6 @@ func (s *PostgresStore) GetNote(userID, noteID int64) (model.Note, error) {
 	return entity.NoteFromRecord(n), nil
 }
 
-func (s *PostgresStore) GetNoteByID(noteID int64) (model.Note, error) {
-	var n entity.NoteRecord
-	err := s.db.QueryRow(
-		`SELECT id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done
-		 FROM notes WHERE id = $1`,
-		noteID,
-	).Scan(&n.ID, &n.UserID, &n.TopicID, &n.FolderID, &n.Text, &n.Priority, &n.ReminderAt, &n.ReminderRepeat, &n.CreatedAt, &n.Archived, &n.Done)
-	if err == sql.ErrNoRows {
-		return model.Note{}, errors.ErrNoteNotFound
-	}
-	if err != nil {
-		return model.Note{}, fmt.Errorf("поиск заметки: %w", err)
-	}
-	return entity.NoteFromRecord(n), nil
-}
-
 func (s *PostgresStore) UpdateNote(note model.Note) error {
 	rec := entity.NoteToRecord(note)
 	res, err := s.db.Exec(

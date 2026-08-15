@@ -2,10 +2,10 @@ package todo
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"todo-bot-tg/internal/errors"
@@ -17,7 +17,6 @@ type NoteRepository interface {
 	CreateNote(note model.Note) (model.Note, error)
 	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
-	GetNoteByID(noteID int64) (model.Note, error)
 	UpdateNote(note model.Note) error
 	DeleteNote(userID, noteID int64) error
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)
@@ -63,7 +62,7 @@ type FileStore interface {
 
 // Service — сервисный слой, оркеструет бизнес-операции.
 type Service struct {
-	mu         sync.Mutex
+	locks      *userLocks // сериализация операций одного пользователя
 	noteRepo   NoteRepository
 	topicRepo  TopicRepository
 	folderRepo FolderRepository
@@ -74,6 +73,7 @@ type Service struct {
 // NewService создаёт новый сервис.
 func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo FolderRepository, attRepo AttachmentRepository, fileStore FileStore) *Service {
 	return &Service{
+		locks:      newUserLocks(),
 		noteRepo:   noteRepo,
 		topicRepo:  topicRepo,
 		folderRepo: folderRepo,
@@ -86,8 +86,8 @@ func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo F
 
 // CreateTopic создаёт новый топик.
 func (s *Service) CreateTopic(userID int64, name string) (model.Topic, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	topic, err := model.NewTopic(userID, name)
 	if err != nil {
@@ -109,15 +109,17 @@ func (s *Service) GetTopic(userID, topicID int64) (model.Topic, error) {
 
 // DeleteTopic удаляет топик вместе с заметками и файлами вложений.
 func (s *Service) DeleteTopic(userID, topicID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	notes, err := s.noteRepo.ListNotes(userID, topicID, nil)
 	if err != nil {
 		return err
 	}
 	for _, n := range notes {
-		s.deleteNoteFiles(n.ID)
+		if err := s.deleteNoteFiles(n.ID); err != nil {
+			return err
+		}
 	}
 	return s.topicRepo.DeleteTopic(userID, topicID)
 }
@@ -126,8 +128,8 @@ func (s *Service) DeleteTopic(userID, topicID int64) error {
 
 // AddNote добавляет новую заметку с указанным приоритетом.
 func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, priority model.Priority) (model.Note, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := model.NewNote(userID, topicID, folderID, text)
 	if err != nil {
@@ -168,8 +170,8 @@ func (s *Service) GetNote(userID, noteID int64) (model.Note, error) {
 
 // EditNote обновляет текст заметки.
 func (s *Service) EditNote(userID, noteID int64, text string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := s.noteRepo.GetNote(userID, noteID)
 	if err != nil {
@@ -185,20 +187,22 @@ func (s *Service) EditNote(userID, noteID int64, text string) error {
 
 // DeleteNote удаляет заметку вместе с файлами вложений.
 func (s *Service) DeleteNote(userID, noteID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	if _, err := s.noteRepo.GetNote(userID, noteID); err != nil {
 		return err
 	}
-	s.deleteNoteFiles(noteID)
+	if err := s.deleteNoteFiles(noteID); err != nil {
+		return err
+	}
 	return s.noteRepo.DeleteNote(userID, noteID)
 }
 
 // ArchiveNote архивирует заметку.
 func (s *Service) ArchiveNote(userID, noteID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := s.noteRepo.GetNote(userID, noteID)
 	if err != nil {
@@ -211,8 +215,8 @@ func (s *Service) ArchiveNote(userID, noteID int64) error {
 
 // UnarchiveNote разархивирует заметку.
 func (s *Service) UnarchiveNote(userID, noteID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := s.noteRepo.GetNote(userID, noteID)
 	if err != nil {
@@ -225,8 +229,8 @@ func (s *Service) UnarchiveNote(userID, noteID int64) error {
 
 // MarkDone помечает заметку как выполненную.
 func (s *Service) MarkDone(userID, noteID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := s.noteRepo.GetNote(userID, noteID)
 	if err != nil {
@@ -239,8 +243,8 @@ func (s *Service) MarkDone(userID, noteID int64) error {
 
 // MarkUndone снимает отметку выполнения с заметки.
 func (s *Service) MarkUndone(userID, noteID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := s.noteRepo.GetNote(userID, noteID)
 	if err != nil {
@@ -253,8 +257,8 @@ func (s *Service) MarkUndone(userID, noteID int64) error {
 
 // SetPriority меняет приоритет заметки.
 func (s *Service) SetPriority(userID, noteID int64, priority model.Priority) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := s.noteRepo.GetNote(userID, noteID)
 	if err != nil {
@@ -269,8 +273,8 @@ func (s *Service) SetPriority(userID, noteID int64, priority model.Priority) err
 
 // SetReminder устанавливает напоминание на заметку.
 func (s *Service) SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := s.noteRepo.GetNote(userID, noteID)
 	if err != nil {
@@ -285,8 +289,8 @@ func (s *Service) SetReminder(userID, noteID int64, at time.Time, repeat model.R
 
 // ClearReminder убирает напоминание с заметки.
 func (s *Service) ClearReminder(userID, noteID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	note, err := s.noteRepo.GetNote(userID, noteID)
 	if err != nil {
@@ -297,34 +301,51 @@ func (s *Service) ClearReminder(userID, noteID int64) error {
 	return s.noteRepo.UpdateNote(note)
 }
 
-// GetNoteByID возвращает заметку по ID (без проверки userID).
-func (s *Service) GetNoteByID(noteID int64) (model.Note, error) {
-	return s.noteRepo.GetNoteByID(noteID)
-}
-
 // ProcessPendingReminders возвращает заметки с просроченными напоминаниями.
 // Для одноразовых — сбрасывает ReminderAt. Для ежедневных — сдвигает на 24 часа.
+// Каждая заметка повторно читается под локом пользователя, чтобы обновление
+// не затирало правки, сделанные между выборкой и записью.
 func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	notes, err := s.noteRepo.GetPendingReminders()
 	if err != nil {
 		return nil, err
 	}
 
-	for i := range notes {
-		if notes[i].ReminderRepeat == model.ReminderRepeatDaily {
-			// Сдвигаем на 24 часа вперёд
-			next := notes[i].ReminderAt.Add(24 * time.Hour)
-			_ = notes[i].SetReminder(next, model.ReminderRepeatDaily)
-		} else {
-			notes[i].ClearReminder()
+	var due []model.Note
+	for _, n := range notes {
+		unlock := s.locks.Lock(n.UserID)
+		current, err := s.noteRepo.GetNote(n.UserID, n.ID)
+		if err != nil {
+			// Заметка удалена между выборкой и локом — пропускаем.
+			slog.Warn("напоминание: заметка недоступна", "note_id", n.ID, "error", err)
+			unlock()
+			continue
 		}
-		_ = s.noteRepo.UpdateNote(notes[i])
+		if current.ReminderAt == nil || current.ReminderAt.After(time.Now().UTC()) {
+			unlock()
+			continue // уже обработано или изменено пользователем
+		}
+
+		if current.ReminderRepeat == model.ReminderRepeatDaily {
+			next := current.ReminderAt.Add(24 * time.Hour)
+			if err := current.SetReminder(next, model.ReminderRepeatDaily); err != nil {
+				unlock()
+				return nil, err
+			}
+		} else {
+			current.ClearReminder()
+		}
+
+		if err := s.noteRepo.UpdateNote(current); err != nil {
+			slog.Error("обновление напоминания", "note_id", current.ID, "error", err)
+			unlock()
+			return nil, err
+		}
+		unlock()
+		due = append(due, current)
 	}
 
-	return notes, nil
+	return due, nil
 }
 
 // ListTimers возвращает все заметки пользователя с установленным таймером
@@ -376,8 +397,8 @@ func (s *Service) HasAnyData(userID int64) bool {
 
 // SeedDefaults создаёт дефолтные топики и заметки новому пользователю.
 func (s *Service) SeedDefaults(userID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	if s.noteRepo.HasAnyData(userID) {
 		return nil
@@ -393,11 +414,25 @@ func (s *Service) SeedDefaults(userID int64) error {
 		return err
 	}
 
-	_, _ = s.noteRepo.CreateNote(model.Note{UserID: userID, TopicID: personal.ID, Text: "Купить продукты: хлеб, молоко, яйца"})
-	_, _ = s.noteRepo.CreateNote(model.Note{UserID: userID, TopicID: personal.ID, Text: "Записаться к стоматологу"})
-	_, _ = s.noteRepo.CreateNote(model.Note{UserID: userID, TopicID: personal.ID, Text: "Позвонить родителям"})
-	_, _ = s.noteRepo.CreateNote(model.Note{UserID: userID, TopicID: work.ID, Text: "Подготовить отчёт за квартал"})
-	_, _ = s.noteRepo.CreateNote(model.Note{UserID: userID, TopicID: work.ID, Text: "Созвон с командой в 15:00"})
+	defaults := []struct {
+		topicID int64
+		text    string
+	}{
+		{personal.ID, "Купить продукты: хлеб, молоко, яйца"},
+		{personal.ID, "Записаться к стоматологу"},
+		{personal.ID, "Позвонить родителям"},
+		{work.ID, "Подготовить отчёт за квартал"},
+		{work.ID, "Созвон с командой в 15:00"},
+	}
+	for _, d := range defaults {
+		note, err := model.NewNote(userID, d.topicID, nil, d.text)
+		if err != nil {
+			return err
+		}
+		if _, err := s.noteRepo.CreateNote(*note); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -406,8 +441,8 @@ func (s *Service) SeedDefaults(userID int64) error {
 
 // CreateFolder создаёт новую папку.
 func (s *Service) CreateFolder(userID, topicID int64, parentFolderID *int64, name string) (model.Folder, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	folder, err := model.NewFolder(userID, topicID, parentFolderID, name)
 	if err != nil {
@@ -439,8 +474,8 @@ func (s *Service) CountFolders(userID, topicID int64, parentFolderID *int64) (in
 
 // MoveNote перемещает заметку в другой топик и/или папку.
 func (s *Service) MoveNote(userID, noteID int64, topicID int64, folderID *int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 	return s.noteRepo.MoveNote(userID, noteID, topicID, folderID)
 }
 
@@ -449,8 +484,8 @@ func (s *Service) MoveNote(userID, noteID int64, topicID int64, folderID *int64)
 // AddAttachment сохраняет файл на диск и создаёт запись вложения для заметки.
 // Файл сохраняется только после проверки, что заметка принадлежит пользователю.
 func (s *Service) AddAttachment(userID, noteID int64, attType model.AttachmentType, fileID, fileName, mimeType string, fileSize int64, data []byte) (model.Attachment, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	if _, err := s.noteRepo.GetNote(userID, noteID); err != nil {
 		return model.Attachment{}, err
@@ -513,8 +548,8 @@ func (s *Service) GetAttachment(userID, attID int64) (model.Attachment, error) {
 
 // DeleteAttachment удаляет вложение: файл с диска и запись.
 func (s *Service) DeleteAttachment(userID, attID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.locks.Lock(userID)
+	defer unlock()
 
 	att, err := s.attRepo.GetAttachment(attID)
 	if err != nil {
@@ -523,19 +558,24 @@ func (s *Service) DeleteAttachment(userID, attID int64) error {
 	if att.UserID != userID {
 		return errors.ErrAttachmentNotFound
 	}
-	_ = s.fileStore.Delete(att.FilePath)
+	if err := s.fileStore.Delete(att.FilePath); err != nil {
+		return err
+	}
 	return s.attRepo.DeleteAttachment(attID)
 }
 
-// deleteNoteFiles удаляет файлы всех вложений заметки (вызывается под mutex).
-func (s *Service) deleteNoteFiles(noteID int64) {
+// deleteNoteFiles удаляет файлы всех вложений заметки (вызывается под локом пользователя).
+func (s *Service) deleteNoteFiles(noteID int64) error {
 	atts, err := s.attRepo.ListAttachments(noteID)
 	if err != nil {
-		return
+		return fmt.Errorf("список вложений заметки %d: %w", noteID, err)
 	}
 	for _, a := range atts {
-		_ = s.fileStore.Delete(a.FilePath)
+		if err := s.fileStore.Delete(a.FilePath); err != nil {
+			return fmt.Errorf("удаление файла вложения %s: %w", a.FilePath, err)
+		}
 	}
+	return nil
 }
 
 // extFromFileName извлекает расширение файла (с точкой) или "" если его нет.

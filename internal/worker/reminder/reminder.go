@@ -5,6 +5,7 @@
 package reminder
 
 import (
+	"log/slog"
 	"time"
 
 	"todo-bot-tg/internal/model"
@@ -65,9 +66,13 @@ func (w *Worker) Stop() {
 func (w *Worker) processOnce() {
 	notes, err := w.noteService.ProcessPendingReminders()
 	if err != nil {
+		slog.Error("обработка просроченных напоминаний", "error", err)
 		return
 	}
 	for _, n := range notes {
-		_ = w.sender.SendReminder(n)
+		if err := w.sender.SendReminder(n); err != nil {
+			slog.Error("отправка напоминания", "note_id", n.ID, "user_id", n.UserID, "error", err)
+			continue
+		}
 	}
 }

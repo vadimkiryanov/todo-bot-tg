@@ -80,6 +80,16 @@
 
 ---
 
+## Этап 7: Рефакторинг (2026-08-15)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| 44 | `cd7c7cc` | **Итерация 1 — декомпозиция handler'а**: reminder-воркер вынесен в `internal/worker/reminder` (зависит только от порта `NotificationSender`), handler разбит на тематические файлы (`callbacks`, `commands`, `navigation`, `attachments`, `reminders`), огромный switch заменён типизированным диспетчером `CallbackAction → handler` |
+| 45 | `4f98ea0` | **Итерация 2 — Value Objects**: `Priority` — валидируемый тип с `SortKey()`/`Emoji()`, `ReminderRepeat` — с конструктором-валидацией, мутаторы `Note.SetPriority/SetReminder/ClearReminder` |
+| 46 | — | **Итерация 3 — атомарность и ошибки**: глобальный `sync.Mutex` в Service заменён keyed per-user lock (`userLocks`); `ProcessPendingReminders` повторно читает заметку под локом и логирует/возвращает ошибки (нет зацикленных напоминаний); `SeedDefaults` больше не глотает ошибки `CreateNote`; `deleteNoteFiles` возвращает ошибку (пробрасывается из `DeleteTopic`/`DeleteNote`/`DeleteAttachment`); закрыт небезопасный `GetNoteByID` (чтение без проверки владельца); воркер логирует ошибки через `slog` |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -88,7 +98,8 @@
 | **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment` |
 | **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
-| **Handler** | `handler/telegram/{handler,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, reminder-воркер, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений |
+| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений |
+| **Воркер** | `worker/reminder/reminder.go` | Фоновый опрос просроченных напоминаний, порт `NotificationSender` (не зависит от Telegram API) |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs) |
 
 ---

@@ -245,27 +245,6 @@ func TestMemStore_GetNote_WrongUser(t *testing.T) {
 	}
 }
 
-func TestMemStore_GetNoteByID(t *testing.T) {
-	s := newTestStore()
-	created, _ := s.CreateNote(model.Note{UserID: 1, TopicID: 1, Text: "Test"})
-
-	got, err := s.GetNoteByID(created.ID)
-	if err != nil {
-		t.Fatalf("GetNoteByID() error: %v", err)
-	}
-	if got.ID != created.ID {
-		t.Errorf("ID = %d, want %d", got.ID, created.ID)
-	}
-}
-
-func TestMemStore_GetNoteByID_NotFound(t *testing.T) {
-	s := newTestStore()
-	_, err := s.GetNoteByID(999)
-	if err != errors.ErrNoteNotFound {
-		t.Errorf("error = %v, want %v", err, errors.ErrNoteNotFound)
-	}
-}
-
 func TestMemStore_UpdateNote(t *testing.T) {
 	s := newTestStore()
 	created, _ := s.CreateNote(model.Note{UserID: 1, TopicID: 1, Text: "Before"})

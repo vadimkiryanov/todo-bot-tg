@@ -176,17 +176,6 @@ func (s *MemStore) GetNote(userID, noteID int64) (model.Note, error) {
 	return entity.NoteFromRecord(n), nil
 }
 
-func (s *MemStore) GetNoteByID(noteID int64) (model.Note, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	n, ok := s.notes[noteID]
-	if !ok {
-		return model.Note{}, errors.ErrNoteNotFound
-	}
-	return entity.NoteFromRecord(n), nil
-}
-
 func (s *MemStore) UpdateNote(note model.Note) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
