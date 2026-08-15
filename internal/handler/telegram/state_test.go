@@ -2,8 +2,6 @@ package telegram
 
 import (
 	"testing"
-
-	"todo-bot-tg/internal/model"
 )
 
 func TestStateManager_Get_CreatesSession(t *testing.T) {
@@ -54,7 +52,6 @@ func TestStateManager_Reset(t *testing.T) {
 	// Поля окон вложений и последней заметки Reset не трогает
 	session.AttachmentListMsgID = 111
 	session.AttachmentViewMsgID = 222
-	session.AttachmentViewType = model.AttachmentPhoto
 	session.LastViewedNoteID = 5
 
 	sm.Reset(1)
@@ -77,9 +74,6 @@ func TestStateManager_Reset(t *testing.T) {
 	}
 	if session.AttachmentViewMsgID != 222 {
 		t.Errorf("AttachmentViewMsgID = %d, want 222", session.AttachmentViewMsgID)
-	}
-	if session.AttachmentViewType != model.AttachmentPhoto {
-		t.Errorf("AttachmentViewType = %v, want photo", session.AttachmentViewType)
 	}
 	if session.LastViewedNoteID != 5 {
 		t.Errorf("LastViewedNoteID = %d, want 5", session.LastViewedNoteID)

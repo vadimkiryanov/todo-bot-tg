@@ -1,7 +1,5 @@
 package telegram
 
-import "todo-bot-tg/internal/model"
-
 // State — состояние диалога с пользователем.
 type State int
 
@@ -56,11 +54,10 @@ type UserSession struct {
 	ExpandedNoteID int64 // ID заметки, для которой раскрыты доп. кнопки (0 — свёрнуто)
 
 	// Вложения
-	AttachmentNoteID     int64                // ID заметки, к которой прикрепляем вложение (StateWaitingAttachment)
-	AttachmentListMsgID  int                  // ID сообщения со списком вложений (чтобы оставаться на нём после прикрепления)
-	AttachmentListNoteID int64                // ID заметки, чей список вложений открыт (для обновления при простом прикреплении)
-	AttachmentViewMsgID  int                  // ID сообщения-окна просмотра вложения (единое, переиспользуется)
-	AttachmentViewType   model.AttachmentType // тип медиа в окне просмотра (для editMessageMedia)
+	AttachmentNoteID     int64 // ID заметки, к которой прикрепляем вложение (StateWaitingAttachment)
+	AttachmentListMsgID  int   // ID сообщения со списком вложений (чтобы оставаться на нём после прикрепления)
+	AttachmentListNoteID int64 // ID заметки, чей список вложений открыт (для обновления при простом прикреплении)
+	AttachmentViewMsgID  int   // ID сообщения-окна просмотра вложения (единое, переиспользуется)
 }
 
 // StateManager управляет состояниями пользователей.

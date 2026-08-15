@@ -286,20 +286,20 @@ func (h *Handler) callbackSendAttachment(chatID int64, userID int64, attID int64
 }
 
 // showAttachmentView показывает вложение в едином окне просмотра:
-// переиспользует AttachmentViewMsgID (editMessageMedia при том же типе,
-// иначе — удаляет старое сообщение и отправляет новое), под медиа — кнопка «❌ Закрыть».
+// переиспользует AttachmentViewMsgID (editMessageMedia — в том числе при смене
+// типа медиа; для типов, которые Telegram не умеет редактировать, или при
+// неудачном edit — удаляет старое сообщение и отправляет новое),
+// под медиа — кнопка «❌ Закрыть».
 func (h *Handler) showAttachmentView(chatID int64, userID int64, att model.Attachment) {
 	session := h.states.Get(userID)
 
 	if session.AttachmentViewMsgID != 0 {
-		if session.AttachmentViewType == att.Type {
-			if edit := h.attachmentEdit(chatID, session.AttachmentViewMsgID, att); edit != nil {
-				if _, err := h.api.Send(edit); err == nil {
-					return
-				}
+		if edit := h.attachmentEdit(chatID, session.AttachmentViewMsgID, att); edit != nil {
+			if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+				return
 			}
 		}
-		// другой тип или edit не удался — переотправляем в окно просмотра
+		// нередактируемый тип или edit не удался — переотправляем в окно просмотра
 		h.api.Request(tgbotapi.NewDeleteMessage(chatID, session.AttachmentViewMsgID))
 		session.AttachmentViewMsgID = 0
 	}
@@ -309,7 +309,6 @@ func (h *Handler) showAttachmentView(chatID int64, userID int64, att model.Attac
 		return
 	}
 	session.AttachmentViewMsgID = sent.MessageID
-	session.AttachmentViewType = att.Type
 }
 
 // clearAttachmentView удаляет окно просмотра вложения (если оно открыто).
