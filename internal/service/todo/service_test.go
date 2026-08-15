@@ -115,9 +115,9 @@ func TestService_ListNotes_SortByPriority(t *testing.T) {
 	svc := newTestService(t)
 
 	n1, _ := svc.AddNote(1, 0, nil, "Low", model.PriorityLow)       // должен быть последним
-	n2, _ := svc.AddNote(1, 0, nil, "High", model.PriorityHigh)      // должен быть первым
-	n3, _ := svc.AddNote(1, 0, nil, "None", model.PriorityNone)      // после Medium
-	n4, _ := svc.AddNote(1, 0, nil, "Medium", model.PriorityMedium)  // после High
+	n2, _ := svc.AddNote(1, 0, nil, "High", model.PriorityHigh)     // должен быть первым
+	n3, _ := svc.AddNote(1, 0, nil, "None", model.PriorityNone)     // после Medium
+	n4, _ := svc.AddNote(1, 0, nil, "Medium", model.PriorityMedium) // после High
 
 	notes, err := svc.ListNotes(1, 0, nil)
 	if err != nil {
@@ -129,12 +129,12 @@ func TestService_ListNotes_SortByPriority(t *testing.T) {
 
 	expected := []struct {
 		id       int64
-		priority int
+		priority model.Priority
 	}{
-		{n2.ID, model.PriorityHigh},    // 0: High
-		{n4.ID, model.PriorityMedium},  // 1: Medium
-		{n3.ID, model.PriorityNone},    // 2: None
-		{n1.ID, model.PriorityLow},     // 3: Low
+		{n2.ID, model.PriorityHigh},   // 0: High
+		{n4.ID, model.PriorityMedium}, // 1: Medium
+		{n3.ID, model.PriorityNone},   // 2: None
+		{n1.ID, model.PriorityLow},    // 3: Low
 	}
 
 	for i, exp := range expected {

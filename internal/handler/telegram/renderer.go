@@ -255,7 +255,7 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 			prefix := ""
 			if item.note.Done {
 				prefix = "✅ "
-			} else if emoji := item.note.PriorityEmoji(); emoji != "" {
+			} else if emoji := item.note.Priority.Emoji(); emoji != "" {
 				prefix = emoji + " "
 			}
 			if item.note.ReminderAt != nil {
@@ -388,7 +388,7 @@ func buildTimersMessage(notes []model.Note, timezoneOffset int) (string, tgbotap
 		prefix := ""
 		if n.Done {
 			prefix = "✅ "
-		} else if emoji := n.PriorityEmoji(); emoji != "" {
+		} else if emoji := n.Priority.Emoji(); emoji != "" {
 			prefix = emoji + " "
 		}
 
@@ -426,7 +426,7 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 	prefix := ""
 	if note.Done {
 		prefix = "✅ "
-	} else if emoji := note.PriorityEmoji(); emoji != "" {
+	} else if emoji := note.Priority.Emoji(); emoji != "" {
 		prefix = emoji + " "
 	}
 
@@ -479,7 +479,7 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 	// Дополнительные кнопки (скрываются под ···)
 	archBtn := tgbotapi.NewInlineKeyboardButtonData("📦", fmt.Sprintf("archnote:%d", note.ID))
 	prioBtn := tgbotapi.NewInlineKeyboardButtonData(
-		prioBtnLabel(note.Priority, note.PriorityEmoji()),
+		prioBtnLabel(note.Priority, note.Priority.Emoji()),
 		fmt.Sprintf("chprio:%d", note.ID),
 	)
 	moveBtn := tgbotapi.NewInlineKeyboardButtonData("🗂️♻️", fmt.Sprintf("move:%d", note.ID))
@@ -754,7 +754,7 @@ func buildPriorityMessage(pendingText string) (string, tgbotapi.InlineKeyboardMa
 }
 
 // prioBtnLabel возвращает текст кнопки переключения приоритета.
-func prioBtnLabel(priority int, emoji string) string {
+func prioBtnLabel(priority model.Priority, emoji string) string {
 	if priority == model.PriorityNone {
 		return "🔄 —"
 	}

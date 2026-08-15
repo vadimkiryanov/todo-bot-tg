@@ -10,7 +10,7 @@ func NoteToRecord(n model.Note) NoteRecord {
 		TopicID:        n.TopicID,
 		FolderID:       n.FolderID,
 		Text:           n.Text,
-		Priority:       n.Priority,
+		Priority:       int(n.Priority),
 		ReminderAt:     n.ReminderAt,
 		ReminderRepeat: string(n.ReminderRepeat),
 		CreatedAt:      n.CreatedAt,
@@ -20,16 +20,22 @@ func NoteToRecord(n model.Note) NoteRecord {
 }
 
 // NoteFromRecord конвертирует persistence-record в доменную модель.
+// Невалидное значение ReminderRepeat из хранилища заменяется дефолтом
+// (ReminderRepeatOnce), а не проглатывается молча.
 func NoteFromRecord(r NoteRecord) model.Note {
+	repeat := model.ReminderRepeatOnce
+	if parsed, err := model.NewReminderRepeat(r.ReminderRepeat); err == nil {
+		repeat = parsed
+	}
 	return model.Note{
 		ID:             r.ID,
 		UserID:         r.UserID,
 		TopicID:        r.TopicID,
 		FolderID:       r.FolderID,
 		Text:           r.Text,
-		Priority:       r.Priority,
+		Priority:       model.Priority(r.Priority),
 		ReminderAt:     r.ReminderAt,
-		ReminderRepeat: model.ReminderRepeat(r.ReminderRepeat),
+		ReminderRepeat: repeat,
 		CreatedAt:      r.CreatedAt,
 		Archived:       r.Archived,
 		Done:           r.Done,

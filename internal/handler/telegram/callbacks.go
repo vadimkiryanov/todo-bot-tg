@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"todo-bot-tg/internal/model"
 )
 
 // CallbackAction — тип действия callback-кнопки.
@@ -322,7 +324,7 @@ func (h *Handler) callbackSetPriority(chatID int64, msgID int, userID int64, pri
 
 	h.states.Reset(userID)
 
-	_, err := h.noteService.AddNote(userID, topicID, folderID, text, priority)
+	_, err := h.noteService.AddNote(userID, topicID, folderID, text, model.Priority(priority))
 	if err != nil {
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return

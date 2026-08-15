@@ -12,7 +12,7 @@ import (
 
 // NoteService — интерфейс сервиса заметок (определён потребителем — handler'ом).
 type NoteService interface {
-	AddNote(userID, topicID int64, folderID *int64, text string, priority int) (model.Note, error)
+	AddNote(userID, topicID int64, folderID *int64, text string, priority model.Priority) (model.Note, error)
 	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
 	EditNote(userID, noteID int64, text string) error
@@ -21,7 +21,7 @@ type NoteService interface {
 	UnarchiveNote(userID, noteID int64) error
 	MarkDone(userID, noteID int64) error
 	MarkUndone(userID, noteID int64) error
-	SetPriority(userID, noteID int64, priority int) error
+	SetPriority(userID, noteID int64, priority model.Priority) error
 	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error
 	ClearReminder(userID, noteID int64) error
 	ProcessPendingReminders() ([]model.Note, error)

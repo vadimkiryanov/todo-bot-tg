@@ -83,7 +83,11 @@ func (h *Handler) callbackReminderRepeat(chatID int64, msgID int, userID int64, 
 
 	// Конвертируем пользовательское время в UTC для хранения
 	at := time.Date(year, time.Month(month), day, hour, minute, 0, 0, loc).UTC()
-	remRepeat := model.ReminderRepeat(repeat)
+	remRepeat, err := model.NewReminderRepeat(repeat)
+	if err != nil {
+		h.callbackAnswer(chatID, msgID, "❌ Некорректный тип повторения")
+		return
+	}
 
 	// Одноразовое напоминание не может быть в прошлом
 	if remRepeat == model.ReminderRepeatOnce && !at.After(now().UTC()) {

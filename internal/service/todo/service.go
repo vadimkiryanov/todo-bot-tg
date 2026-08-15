@@ -125,7 +125,7 @@ func (s *Service) DeleteTopic(userID, topicID int64) error {
 // --- Notes ---
 
 // AddNote добавляет новую заметку с указанным приоритетом.
-func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, priority int) (model.Note, error) {
+func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, priority model.Priority) (model.Note, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -134,7 +134,9 @@ func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, p
 		return model.Note{}, err
 	}
 
-	note.Priority = priority
+	if err := note.SetPriority(priority); err != nil {
+		return model.Note{}, err
+	}
 	return s.noteRepo.CreateNote(*note)
 }
 
@@ -153,27 +155,10 @@ func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Not
 			return !notes[i].Done
 		}
 		// Внутри группы — по приоритету
-		return prioritySortKey(notes[i].Priority) < prioritySortKey(notes[j].Priority)
+		return notes[i].Priority.SortKey() < notes[j].Priority.SortKey()
 	})
 
 	return notes, nil
-}
-
-// prioritySortKey возвращает ключ сортировки для приоритета.
-// Порядок: High(0) < Medium(1) < None(2) < Low(3).
-func prioritySortKey(priority int) int {
-	switch priority {
-	case model.PriorityHigh:
-		return 0
-	case model.PriorityMedium:
-		return 1
-	case model.PriorityNone:
-		return 2
-	case model.PriorityLow:
-		return 3
-	default:
-		return 2 // неизвестный приоритет — как None
-	}
 }
 
 // GetNote возвращает заметку по ID.
@@ -267,7 +252,7 @@ func (s *Service) MarkUndone(userID, noteID int64) error {
 }
 
 // SetPriority меняет приоритет заметки.
-func (s *Service) SetPriority(userID, noteID int64, priority int) error {
+func (s *Service) SetPriority(userID, noteID int64, priority model.Priority) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -276,7 +261,9 @@ func (s *Service) SetPriority(userID, noteID int64, priority int) error {
 		return err
 	}
 
-	note.Priority = priority
+	if err := note.SetPriority(priority); err != nil {
+		return err
+	}
 	return s.noteRepo.UpdateNote(note)
 }
 
@@ -290,8 +277,9 @@ func (s *Service) SetReminder(userID, noteID int64, at time.Time, repeat model.R
 		return err
 	}
 
-	note.ReminderAt = &at
-	note.ReminderRepeat = repeat
+	if err := note.SetReminder(at, repeat); err != nil {
+		return err
+	}
 	return s.noteRepo.UpdateNote(note)
 }
 
@@ -305,8 +293,7 @@ func (s *Service) ClearReminder(userID, noteID int64) error {
 		return err
 	}
 
-	note.ReminderAt = nil
-	note.ReminderRepeat = model.ReminderRepeatOnce
+	note.ClearReminder()
 	return s.noteRepo.UpdateNote(note)
 }
 
@@ -330,10 +317,9 @@ func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
 		if notes[i].ReminderRepeat == model.ReminderRepeatDaily {
 			// Сдвигаем на 24 часа вперёд
 			next := notes[i].ReminderAt.Add(24 * time.Hour)
-			notes[i].ReminderAt = &next
+			_ = notes[i].SetReminder(next, model.ReminderRepeatDaily)
 		} else {
-			notes[i].ReminderAt = nil
-			notes[i].ReminderRepeat = model.ReminderRepeatOnce
+			notes[i].ClearReminder()
 		}
 		_ = s.noteRepo.UpdateNote(notes[i])
 	}

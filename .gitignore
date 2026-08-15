@@ -1,3 +1,6 @@
 .env
 bin/
 /todobot
+bitbucket.log
+data/
+*.pdf

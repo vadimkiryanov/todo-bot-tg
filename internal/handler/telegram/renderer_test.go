@@ -101,7 +101,7 @@ func TestTranslit_Common(t *testing.T) {
 
 func TestPrioBtnLabel(t *testing.T) {
 	tests := []struct {
-		priority int
+		priority model.Priority
 		emoji    string
 		want     string
 	}{

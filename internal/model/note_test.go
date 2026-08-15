@@ -53,23 +53,54 @@ func TestNewNote_WithFolder(t *testing.T) {
 	}
 }
 
-func TestNote_PriorityEmoji(t *testing.T) {
-	tests := []struct {
-		priority int
-		want     string
-	}{
-		{PriorityNone, ""},
-		{PriorityLow, "🔵"},
-		{PriorityMedium, "🟡"},
-		{PriorityHigh, "🔴"},
-		{99, ""},
+func TestNote_SetPriority(t *testing.T) {
+	n := &Note{Priority: PriorityNone}
+
+	if err := n.SetPriority(PriorityHigh); err != nil {
+		t.Fatalf("SetPriority() unexpected error: %v", err)
+	}
+	if n.Priority != PriorityHigh {
+		t.Errorf("Priority = %d, want %d", n.Priority, PriorityHigh)
 	}
 
-	for _, tt := range tests {
-		n := &Note{Priority: tt.priority}
-		if got := n.PriorityEmoji(); got != tt.want {
-			t.Errorf("PriorityEmoji(%d) = %q, want %q", tt.priority, got, tt.want)
-		}
+	if err := n.SetPriority(Priority(99)); err != errors.ErrInvalidPriority {
+		t.Errorf("error = %v, want %v", err, errors.ErrInvalidPriority)
+	}
+	if n.Priority != PriorityHigh {
+		t.Errorf("Priority changed to %d, should remain %d", n.Priority, PriorityHigh)
+	}
+}
+
+func TestNote_SetReminder(t *testing.T) {
+	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+	n := &Note{}
+
+	if err := n.SetReminder(at, ReminderRepeatDaily); err != nil {
+		t.Fatalf("SetReminder() unexpected error: %v", err)
+	}
+	if n.ReminderAt == nil || !n.ReminderAt.Equal(at) {
+		t.Errorf("ReminderAt = %v, want %v", n.ReminderAt, at)
+	}
+	if n.ReminderRepeat != ReminderRepeatDaily {
+		t.Errorf("ReminderRepeat = %q, want %q", n.ReminderRepeat, ReminderRepeatDaily)
+	}
+
+	if err := n.SetReminder(at, ReminderRepeat("weekly")); err != errors.ErrInvalidReminderRepeat {
+		t.Errorf("error = %v, want %v", err, errors.ErrInvalidReminderRepeat)
+	}
+}
+
+func TestNote_ClearReminder(t *testing.T) {
+	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+	n := &Note{ReminderAt: &at, ReminderRepeat: ReminderRepeatDaily}
+
+	n.ClearReminder()
+
+	if n.ReminderAt != nil {
+		t.Error("ReminderAt should be nil after ClearReminder")
+	}
+	if n.ReminderRepeat != ReminderRepeatOnce {
+		t.Errorf("ReminderRepeat = %q, want %q", n.ReminderRepeat, ReminderRepeatOnce)
 	}
 }
 

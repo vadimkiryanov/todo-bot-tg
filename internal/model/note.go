@@ -6,49 +6,19 @@ import (
 	"todo-bot-tg/internal/errors"
 )
 
-// Приоритеты заметок.
-const (
-	PriorityNone   = 0
-	PriorityLow    = 1
-	PriorityMedium = 2
-	PriorityHigh   = 3
-)
-
 // Note — агрегат, представляющий заметку пользователя.
 type Note struct {
-	ID         int64
-	UserID     int64
-	TopicID    int64  // 0 — без топика
-	FolderID   *int64 // nil — в корне топика (не в папке)
-	Text       string
-	Priority   int        // PriorityNone / Low / Medium / High
+	ID             int64
+	UserID         int64
+	TopicID        int64  // 0 — без топика
+	FolderID       *int64 // nil — в корне топика (не в папке)
+	Text           string
+	Priority       Priority       // PriorityNone / Low / Medium / High
 	ReminderAt     *time.Time     // nil — без напоминания
 	ReminderRepeat ReminderRepeat // once / daily
 	CreatedAt      time.Time
-	Archived   bool
-	Done       bool // заметка выполнена (галочка)
-}
-
-// ReminderRepeat — тип повторения напоминания.
-type ReminderRepeat string
-
-const (
-	ReminderRepeatOnce  ReminderRepeat = "once"
-	ReminderRepeatDaily ReminderRepeat = "daily"
-)
-
-// PriorityEmoji возвращает эмодзи приоритета (пустая строка для None).
-func (n *Note) PriorityEmoji() string {
-	switch n.Priority {
-	case PriorityHigh:
-		return "🔴"
-	case PriorityMedium:
-		return "🟡"
-	case PriorityLow:
-		return "🔵"
-	default:
-		return ""
-	}
+	Archived       bool
+	Done           bool // заметка выполнена (галочка)
 }
 
 // NewNote создаёт новую заметку с валидацией (по умолчанию без приоритета).
@@ -64,6 +34,31 @@ func NewNote(userID, topicID int64, folderID *int64, text string) (*Note, error)
 		Priority:  PriorityNone,
 		CreatedAt: time.Now(),
 	}, nil
+}
+
+// SetPriority меняет приоритет заметки (валидирует диапазон).
+func (n *Note) SetPriority(p Priority) error {
+	if !p.valid() {
+		return errors.ErrInvalidPriority
+	}
+	n.Priority = p
+	return nil
+}
+
+// SetReminder устанавливает напоминание с валидацией типа повторения.
+func (n *Note) SetReminder(at time.Time, repeat ReminderRepeat) error {
+	if !repeat.valid() {
+		return errors.ErrInvalidReminderRepeat
+	}
+	n.ReminderAt = &at
+	n.ReminderRepeat = repeat
+	return nil
+}
+
+// ClearReminder убирает напоминание с заметки.
+func (n *Note) ClearReminder() {
+	n.ReminderAt = nil
+	n.ReminderRepeat = ReminderRepeatOnce
 }
 
 // Archive помечает заметку как архивную.

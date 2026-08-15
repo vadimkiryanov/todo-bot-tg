@@ -22,6 +22,12 @@ var (
 	ErrNoteNotFound = errors.New("заметка не найдена")
 )
 
+// Value Object
+var (
+	ErrInvalidPriority       = errors.New("некорректный приоритет заметки")
+	ErrInvalidReminderRepeat = errors.New("некорректный тип повторения напоминания")
+)
+
 // Folder
 var (
 	ErrFolderAlreadyExists = errors.New("папка с таким названием уже существует")
