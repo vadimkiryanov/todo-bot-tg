@@ -16,6 +16,7 @@ type NoteRecord struct {
 	CreatedAt      time.Time  `db:"created_at"`
 	Archived       bool       `db:"archived"`
 	Done           bool       `db:"done"`
+	Pinned         bool       `db:"pinned"`
 }
 
 // TopicRecord — persistence-модель для топика.

@@ -196,6 +196,58 @@ func TestBuildViewNoteMessage_WithReminder(t *testing.T) {
 	}
 }
 
+func TestBuildViewNoteMessage_Pinned(t *testing.T) {
+	note := model.Note{ID: 1, Text: "Test", Pinned: true}
+	text, markup := buildViewNoteMessage(note, false, 0)
+
+	if !strings.Contains(text, "📌 Закреплена") {
+		t.Errorf("text does not contain pinned line: %q", text)
+	}
+
+	// Первая строка кнопок: [✏️, ✅/🔄, ⏰, 📎, 📌, ···] — pin на 5-й позиции
+	row := markup.InlineKeyboard[0]
+	pinBtn := row[4]
+	if pinBtn.Text != "📌" {
+		t.Errorf("pin button text = %q, want %q", pinBtn.Text, "📌")
+	}
+	if pinBtn.CallbackData == nil || *pinBtn.CallbackData != "unpin:1" {
+		t.Errorf("pin button callback = %v, want 'unpin:1'", pinBtn.CallbackData)
+	}
+}
+
+func TestBuildViewNoteMessage_NotPinned(t *testing.T) {
+	note := model.Note{ID: 2, Text: "Test"}
+	_, markup := buildViewNoteMessage(note, false, 0)
+
+	row := markup.InlineKeyboard[0]
+	pinBtn := row[4]
+	if pinBtn.Text != "📌" {
+		t.Errorf("pin button text = %q, want %q", pinBtn.Text, "📌")
+	}
+	if pinBtn.CallbackData == nil || *pinBtn.CallbackData != "pin:2" {
+		t.Errorf("pin button callback = %v, want 'pin:2'", pinBtn.CallbackData)
+	}
+}
+
+func TestBuildListMessage_PinnedMarker(t *testing.T) {
+	items := []listItem{
+		{note: model.Note{ID: 1, Text: "Обычная", Priority: model.PriorityHigh}},
+		{note: model.Note{ID: 2, Text: "Закреплённая", Pinned: true}},
+	}
+	_, markup := buildListMessage(items, 0, "", nil, nil, 0, 1, false, false, false, 0, false)
+
+	// topicID=0 → первая строка «🔝 Топики», затем заметки по порядку
+	normalBtn := markup.InlineKeyboard[1][0]
+	if strings.HasPrefix(normalBtn.Text, "📌 ") {
+		t.Errorf("normal note button should not have pin marker: %q", normalBtn.Text)
+	}
+
+	pinnedBtn := markup.InlineKeyboard[2][0]
+	if !strings.HasPrefix(pinnedBtn.Text, "📌 ") {
+		t.Errorf("pinned note button = %q, want prefix %q", pinnedBtn.Text, "📌 ")
+	}
+}
+
 // --- buildReminderMenu ---
 
 func TestBuildReminderMenu(t *testing.T) {

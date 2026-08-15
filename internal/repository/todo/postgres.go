@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS notes (
     reminder_at TIMESTAMPTZ,
     reminder_repeat TEXT NOT NULL DEFAULT 'once',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    archived BOOLEAN NOT NULL DEFAULT FALSE
+    archived BOOLEAN NOT NULL DEFAULT FALSE,
+    done BOOLEAN NOT NULL DEFAULT FALSE,
+    pinned BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS folders (
@@ -60,6 +62,7 @@ ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_at TIMESTAMPTZ;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_repeat TEXT NOT NULL DEFAULT 'once';
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS folder_id BIGINT;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS done BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_notes_user_topic ON notes(user_id, topic_id);
 CREATE INDEX IF NOT EXISTS idx_notes_user_folder ON notes(user_id, folder_id);
@@ -199,13 +202,13 @@ func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 
 // --- Notes ---
 
-const noteColumns = `id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done`
+const noteColumns = `id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done, pinned`
 
 func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 	rec := entity.NoteToRecord(note)
 	rows, err := s.pool.Query(context.Background(),
-		`INSERT INTO notes (user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, done)
-		 VALUES (@user, @topic, @folder, @text, @priority, @reminder_at, @reminder_repeat, @created_at, @done)
+		`INSERT INTO notes (user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, done, pinned)
+		 VALUES (@user, @topic, @folder, @text, @priority, @reminder_at, @reminder_repeat, @created_at, @done, @pinned)
 		 RETURNING `+noteColumns,
 		pgx.NamedArgs{
 			"user":            rec.UserID,
@@ -217,6 +220,7 @@ func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 			"reminder_repeat": rec.ReminderRepeat,
 			"created_at":      rec.CreatedAt,
 			"done":            rec.Done,
+			"pinned":          rec.Pinned,
 		},
 	)
 	if err != nil {
@@ -280,7 +284,7 @@ func (s *PostgresStore) UpdateNote(note model.Note) error {
 	rec := entity.NoteToRecord(note)
 	res, err := s.pool.Exec(context.Background(),
 		`UPDATE notes SET text = @text, priority = @priority, reminder_at = @reminder_at,
-		 reminder_repeat = @reminder_repeat, archived = @archived, done = @done
+		 reminder_repeat = @reminder_repeat, archived = @archived, done = @done, pinned = @pinned
 		 WHERE id = @id AND user_id = @user`,
 		pgx.NamedArgs{
 			"text":            rec.Text,
@@ -289,6 +293,7 @@ func (s *PostgresStore) UpdateNote(note model.Note) error {
 			"reminder_repeat": rec.ReminderRepeat,
 			"archived":        rec.Archived,
 			"done":            rec.Done,
+			"pinned":          rec.Pinned,
 			"id":              rec.ID,
 			"user":            rec.UserID,
 		},

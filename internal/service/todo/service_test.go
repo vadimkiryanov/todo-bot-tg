@@ -285,6 +285,87 @@ func TestService_MarkUndone(t *testing.T) {
 	}
 }
 
+func TestService_PinNote(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+
+	err := svc.PinNote(1, note.ID)
+	if err != nil {
+		t.Fatalf("PinNote() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if !got.Pinned {
+		t.Error("PinNote() did not set Pinned to true")
+	}
+}
+
+func TestService_UnpinNote(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	_ = svc.PinNote(1, note.ID)
+
+	err := svc.UnpinNote(1, note.ID)
+	if err != nil {
+		t.Fatalf("UnpinNote() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if got.Pinned {
+		t.Error("UnpinNote() did not set Pinned to false")
+	}
+}
+
+func TestService_ListNotes_PinnedFirst(t *testing.T) {
+	svc := newTestService(t)
+
+	// High-приоритетная, но не закреплённая — должна идти после закреплённого Low
+	n1, _ := svc.AddNote(1, 0, nil, "High unpinned", model.PriorityHigh)
+	n2, _ := svc.AddNote(1, 0, nil, "Low pinned", model.PriorityLow)
+	_ = svc.PinNote(1, n2.ID)
+
+	notes, err := svc.ListNotes(1, 0, nil)
+	if err != nil {
+		t.Fatalf("ListNotes() error: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("len = %d, want 2", len(notes))
+	}
+
+	// Закреплённая — первая, несмотря на более низкий приоритет
+	if notes[0].ID != n2.ID || !notes[0].Pinned {
+		t.Errorf("notes[0] should be the pinned note")
+	}
+	if notes[1].ID != n1.ID || notes[1].Pinned {
+		t.Errorf("notes[1] should be the unpinned note")
+	}
+}
+
+func TestService_ListNotes_PinnedDoneStaysFirst(t *testing.T) {
+	svc := newTestService(t)
+
+	n1, _ := svc.AddNote(1, 0, nil, "Active", model.PriorityNone)
+	n2, _ := svc.AddNote(1, 0, nil, "Done pinned", model.PriorityNone)
+	_ = svc.PinNote(1, n2.ID)
+	_ = svc.MarkDone(1, n2.ID)
+
+	notes, err := svc.ListNotes(1, 0, nil)
+	if err != nil {
+		t.Fatalf("ListNotes() error: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("len = %d, want 2", len(notes))
+	}
+
+	// Закреплённая заметка всегда вверху — даже если выполнена
+	if notes[0].ID != n2.ID || !notes[0].Pinned {
+		t.Errorf("notes[0] should be the pinned done note")
+	}
+	if notes[1].ID != n1.ID || notes[1].Pinned {
+		t.Errorf("notes[1] should be the active note")
+	}
+}
+
 func TestService_SetPriority(t *testing.T) {
 	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", model.PriorityNone)

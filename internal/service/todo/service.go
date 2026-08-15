@@ -143,8 +143,8 @@ func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, p
 }
 
 // ListNotes возвращает список заметок пользователя (с фильтрацией по топику и папке).
-// Активные заметки сортируются по приоритету: High > Medium > None > Low.
-// Выполненные заметки идут после всех активных.
+// Закреплённые заметки идут первыми, затем активные по приоритету
+// (High > Medium > None > Low). Выполненные заметки идут после всех активных.
 func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error) {
 	notes, err := s.noteRepo.ListNotes(userID, topicID, folderID)
 	if err != nil {
@@ -152,6 +152,10 @@ func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Not
 	}
 
 	sort.Slice(notes, func(i, j int) bool {
+		// Закреплённые — в начало
+		if notes[i].Pinned != notes[j].Pinned {
+			return notes[i].Pinned
+		}
 		// Выполненные — в конец
 		if notes[i].Done != notes[j].Done {
 			return !notes[i].Done
@@ -252,6 +256,34 @@ func (s *Service) MarkUndone(userID, noteID int64) error {
 	}
 
 	note.MarkUndone()
+	return s.noteRepo.UpdateNote(note)
+}
+
+// PinNote закрепляет заметку (всегда вверху списка).
+func (s *Service) PinNote(userID, noteID int64) error {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+
+	note.Pin()
+	return s.noteRepo.UpdateNote(note)
+}
+
+// UnpinNote открепляет заметку.
+func (s *Service) UnpinNote(userID, noteID int64) error {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+
+	note.Unpin()
 	return s.noteRepo.UpdateNote(note)
 }
 

@@ -20,6 +20,8 @@ func TestNoteToRecord_RoundTrip(t *testing.T) {
 		ReminderAt: &reminder,
 		CreatedAt:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		Archived:   true,
+		Done:       true,
+		Pinned:     true,
 	}
 
 	record := NoteToRecord(original)
@@ -51,6 +53,12 @@ func TestNoteToRecord_RoundTrip(t *testing.T) {
 	}
 	if result.Archived != original.Archived {
 		t.Errorf("Archived = %v, want %v", result.Archived, original.Archived)
+	}
+	if result.Done != original.Done {
+		t.Errorf("Done = %v, want %v", result.Done, original.Done)
+	}
+	if result.Pinned != original.Pinned {
+		t.Errorf("Pinned = %v, want %v", result.Pinned, original.Pinned)
 	}
 }
 

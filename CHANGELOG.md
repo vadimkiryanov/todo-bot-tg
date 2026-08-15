@@ -90,6 +90,7 @@
 | 47 | — | **Предпросмотр вложений — только edit**: окно просмотра больше не пересоздаётся при смене типа медиа (photo → document и т.п.) — `showAttachmentView` всегда пробует `editMessageMedia` (Telegram умеет менять тип между photo/document/audio/video/animation), переотправка осталась только для стикеров/голосовых/видео-сообщений (ограничение API) и при неудачном edit; повторное открытие того же вложения больше не переотправляет сообщение (обработка `isNotModified`); мёртвое поле сессии `AttachmentViewType` удалено |
 | 49 | — | **fix: предпросмотр файла не удалялся при выходе из просмотра** — кнопка «◀️ Назад» в списке вложений (`view:<id>` на ту же заметку) оставляла окно предпросмотра открытым: `callbackViewNote` закрывал его только при переходе на *другую* заметку (`LastViewedNoteID != note.ID`). Теперь `clearAttachmentView` вызывается при любом возврате в просмотр заметки — окно предпросмотра файла автоудаляется при выходе из просмотра |
 | 50 | — | **Итерация 4 — pgx v5**: драйвер `lib/pq` заменён на `github.com/jackc/pgx/v5` — `pgxpool` (пул соединений), именованные параметры (`NamedArgs`) вместо позиционных `$1..$11`, маппинг структур через `CollectRows`/`CollectOneRow` + `RowToStructByName` вместо ручного `Scan`, транзакции через `pgx.Tx`; `sqlx` отклонён (pgx нативно покрывает маппинг и именованные параметры); `entity` Records получили `db`-теги; версия `pgx v5.7.5` — последняя совместимая с Go 1.23 (образ `golang:1.23-alpine` в Dockerfile) |
+| 51 | — | **Закрепление заметок 📌**: поле `Pinned` в модели (мутаторы `Pin`/`Unpin`), колонка `pinned` в PostgreSQL (миграция `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` + `CREATE TABLE`), кнопка `📌` в просмотре заметки (callback'и `pin:<id>`/`unpin:<id>`), маркер `📌` перед текстом закреплённой заметки в списке; закреплённые всегда вверху — даже выше папок: сортировка `pinned → папки → остальные заметки` (по приоритету), выполненные — в конец |
 
 ---
 
@@ -97,11 +98,11 @@
 
 | Слой | Файлы | Ключевые возможности |
 |------|-------|---------------------|
-| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go` | Note (Done, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация) |
-| **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment` |
+| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go` | Note (Done, Pinned, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация) |
+| **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, закрепление, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment` |
 | **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
-| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений |
+| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌 |
 | **Воркер** | `worker/reminder/reminder.go` | Фоновый опрос просроченных напоминаний, порт `NotificationSender` (не зависит от Telegram API) |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs) |
 

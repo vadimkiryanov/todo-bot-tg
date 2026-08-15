@@ -121,12 +121,20 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	}
 	foldersCollapsed := foldersCollapseState(session.FoldersCollapsed, len(folders), session.ExpandedFolders, levelKey)
 
-	totalItems := len(notes)
-	if foldersCollapsed {
-		totalItems++ // свёрнутый блок папок — один элемент
-	} else {
-		totalItems += len(folders)
+	// Закреплённые заметки идут выше папок: pinned → папки → остальные заметки
+	var pinnedNotes, restNotes []model.Note
+	for _, n := range notes {
+		if n.Pinned {
+			pinnedNotes = append(pinnedNotes, n)
+		} else {
+			restNotes = append(restNotes, n)
+		}
 	}
+	folderItems := len(folders)
+	if foldersCollapsed {
+		folderItems = 1
+	}
+	totalItems := len(pinnedNotes) + folderItems + len(restNotes)
 	doneFolderActive := false
 	showCounts := session.ShowCounts
 	breadcrumbInline := session.BreadcrumbInline
@@ -166,36 +174,31 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 		end = totalItems
 	}
 
-	// Собираем элементы текущей страницы: сначала папки, потом заметки
-	folderItems := len(folders)
-	if foldersCollapsed {
-		folderItems = 1
+	// Собираем элементы страницы: закреплённые заметки → папки → остальные заметки
+	allItems := make([]listItem, 0, totalItems)
+	for _, n := range pinnedNotes {
+		allItems = append(allItems, listItem{isFolder: false, note: n})
 	}
-	var pageItems []listItem
-	for i := start; i < end; i++ {
-		if i < folderItems {
-			if foldersCollapsed {
-				names := make([]string, len(folders))
-				for j, f := range folders {
-					names[j] = f.Name
-				}
-				pageItems = append(pageItems, listItem{isCollapsed: true, levelKey: levelKey, folderNames: names})
-			} else {
-				f := folders[i]
-				item := listItem{isFolder: true, folder: f}
-				if showCounts {
-					item.noteCount, _ = h.noteService.CountNotes(userID, topicID, &f.ID)
-					item.folderCount, _ = h.folderService.CountFolders(userID, topicID, &f.ID)
-				}
-				pageItems = append(pageItems, item)
+	if foldersCollapsed {
+		names := make([]string, len(folders))
+		for j, f := range folders {
+			names[j] = f.Name
+		}
+		allItems = append(allItems, listItem{isCollapsed: true, levelKey: levelKey, folderNames: names})
+	} else {
+		for _, f := range folders {
+			item := listItem{isFolder: true, folder: f}
+			if showCounts {
+				item.noteCount, _ = h.noteService.CountNotes(userID, topicID, &f.ID)
+				item.folderCount, _ = h.folderService.CountFolders(userID, topicID, &f.ID)
 			}
-		} else {
-			noteIdx := i - folderItems
-			if noteIdx < len(notes) {
-				pageItems = append(pageItems, listItem{isFolder: false, note: notes[noteIdx]})
-			}
+			allItems = append(allItems, item)
 		}
 	}
+	for _, n := range restNotes {
+		allItems = append(allItems, listItem{isFolder: false, note: n})
+	}
+	pageItems := allItems[start:end]
 
 	text, markup := buildListMessage(pageItems, topicID, topicName, folderID, folderChain, page, totalPages, showCounts, breadcrumbInline, session.BreadcrumbBottom, doneCount, doneFolderActive)
 

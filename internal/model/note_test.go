@@ -177,3 +177,26 @@ func TestNewNote_DoneDefaultFalse(t *testing.T) {
 		t.Error("New notes should have Done = false by default")
 	}
 }
+
+func TestNote_Pin(t *testing.T) {
+	n := &Note{Pinned: false}
+	n.Pin()
+	if !n.Pinned {
+		t.Error("Pin() did not set Pinned to true")
+	}
+}
+
+func TestNote_Unpin(t *testing.T) {
+	n := &Note{Pinned: true}
+	n.Unpin()
+	if n.Pinned {
+		t.Error("Unpin() did not set Pinned to false")
+	}
+}
+
+func TestNewNote_PinnedDefaultFalse(t *testing.T) {
+	note, _ := NewNote(1, 2, nil, "Test")
+	if note.Pinned {
+		t.Error("New notes should have Pinned = false by default")
+	}
+}

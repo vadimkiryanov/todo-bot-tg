@@ -16,6 +16,7 @@ func NoteToRecord(n model.Note) NoteRecord {
 		CreatedAt:      n.CreatedAt,
 		Archived:       n.Archived,
 		Done:           n.Done,
+		Pinned:         n.Pinned,
 	}
 }
 
@@ -39,6 +40,7 @@ func NoteFromRecord(r NoteRecord) model.Note {
 		CreatedAt:      r.CreatedAt,
 		Archived:       r.Archived,
 		Done:           r.Done,
+		Pinned:         r.Pinned,
 	}
 }
 

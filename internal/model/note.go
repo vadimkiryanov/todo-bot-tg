@@ -19,6 +19,7 @@ type Note struct {
 	CreatedAt      time.Time
 	Archived       bool
 	Done           bool // заметка выполнена (галочка)
+	Pinned         bool // заметка закреплена (всегда вверху списка)
 }
 
 // NewNote создаёт новую заметку с валидацией (по умолчанию без приоритета).
@@ -79,6 +80,16 @@ func (n *Note) MarkDone() {
 // MarkUndone снимает отметку выполнения.
 func (n *Note) MarkUndone() {
 	n.Done = false
+}
+
+// Pin закрепляет заметку (она всегда отображается первой в списке).
+func (n *Note) Pin() {
+	n.Pinned = true
+}
+
+// Unpin открепляет заметку.
+func (n *Note) Unpin() {
+	n.Pinned = false
 }
 
 // EditText обновляет текст заметки.

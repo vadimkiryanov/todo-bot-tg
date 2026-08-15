@@ -38,6 +38,8 @@ const (
 	ActionChPrio         CallbackAction = "chprio"
 	ActionDone           CallbackAction = "done"
 	ActionUndone         CallbackAction = "undone"
+	ActionPin            CallbackAction = "pin"
+	ActionUnpin          CallbackAction = "unpin"
 	ActionRemCal         CallbackAction = "remcal"
 	ActionRemDay         CallbackAction = "remday"
 	ActionRemHour        CallbackAction = "remhour"
@@ -136,6 +138,8 @@ var callbackHandlers = map[CallbackAction]callbackHandler{
 	ActionChPrio:      withNoteID((*Handler).callbackChangePriority),
 	ActionDone:        withNoteID((*Handler).callbackMarkDone),
 	ActionUndone:      withNoteID((*Handler).callbackMarkUndone),
+	ActionPin:         withNoteID((*Handler).callbackPinNote),
+	ActionUnpin:       withNoteID((*Handler).callbackUnpinNote),
 	ActionRemClear:    withNoteID((*Handler).callbackClearReminder),
 	ActionRemMenu:     withNoteID((*Handler).callbackReminderMenu),
 	ActionMove:        withNoteID((*Handler).callbackMovePicker),
@@ -371,8 +375,10 @@ func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, 
 	}
 }
 
-func (h *Handler) callbackMarkDone(chatID int64, msgID int, userID int64, noteID int64) {
-	if err := h.noteService.MarkDone(userID, noteID); err != nil {
+// mutateNote применяет мутацию к заметке (done/undone/pin/unpin), перерисовывает
+// просмотр и обновляет список в фоне. Переиспользуется всеми toggle-действиями.
+func (h *Handler) mutateNote(chatID int64, msgID int, userID int64, noteID int64, mutate func() error) {
+	if err := mutate(); err != nil {
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}
@@ -398,31 +404,28 @@ func (h *Handler) callbackMarkDone(chatID int64, msgID int, userID int64, noteID
 	}
 }
 
+func (h *Handler) callbackMarkDone(chatID int64, msgID int, userID int64, noteID int64) {
+	h.mutateNote(chatID, msgID, userID, noteID, func() error {
+		return h.noteService.MarkDone(userID, noteID)
+	})
+}
+
 func (h *Handler) callbackMarkUndone(chatID int64, msgID int, userID int64, noteID int64) {
-	if err := h.noteService.MarkUndone(userID, noteID); err != nil {
-		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
-		return
-	}
+	h.mutateNote(chatID, msgID, userID, noteID, func() error {
+		return h.noteService.MarkUndone(userID, noteID)
+	})
+}
 
-	note, err := h.noteService.GetNote(userID, noteID)
-	if err != nil {
-		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
-		return
-	}
+func (h *Handler) callbackPinNote(chatID int64, msgID int, userID int64, noteID int64) {
+	h.mutateNote(chatID, msgID, userID, noteID, func() error {
+		return h.noteService.PinNote(userID, noteID)
+	})
+}
 
-	session := h.states.Get(userID)
-	expanded := session.ExpandedNoteID == noteID
-	tzOffset := session.TimezoneOffset
-	text, markup := buildViewNoteMessage(note, expanded, tzOffset)
-	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
-	h.api.Send(edit)
-
-	// Обновляем список в фоне
-	lastMsgID := session.LastListMsgID
-	if lastMsgID != 0 && lastMsgID != msgID {
-		h.showListPage(chatID, lastMsgID, userID, 0)
-	}
+func (h *Handler) callbackUnpinNote(chatID int64, msgID int, userID int64, noteID int64) {
+	h.mutateNote(chatID, msgID, userID, noteID, func() error {
+		return h.noteService.UnpinNote(userID, noteID)
+	})
 }
 
 func (h *Handler) callbackBackToList(chatID int64, msgID int, userID int64) {

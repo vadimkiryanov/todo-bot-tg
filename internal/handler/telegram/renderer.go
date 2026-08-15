@@ -258,6 +258,9 @@ func buildListMessage(pageItems []listItem, topicID int64, topicName string, cur
 			} else if emoji := item.note.Priority.Emoji(); emoji != "" {
 				prefix = emoji + " "
 			}
+			if item.note.Pinned {
+				prefix = "📌 " + prefix
+			}
 			if item.note.ReminderAt != nil {
 				prefix += "⏰ "
 			}
@@ -435,6 +438,11 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 		doneLine = "\n✅ Выполнена"
 	}
 
+	pinnedLine := ""
+	if note.Pinned {
+		pinnedLine = "\n📌 Закреплена"
+	}
+
 	displayText := tgbotapi.EscapeText(tgbotapi.ModeMarkdown, note.Text)
 	if note.Done {
 		displayText = strikethrough(displayText)
@@ -449,7 +457,7 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 		}
 	}
 
-	text := fmt.Sprintf("%s*#%d*\n%s%s%s", prefix, note.ID, displayText, doneLine, reminderLine)
+	text := fmt.Sprintf("%s*#%d*\n%s%s%s%s", prefix, note.ID, displayText, doneLine, pinnedLine, reminderLine)
 	query := fmt.Sprintf("\n\n%s", note.Text)
 
 	editBtn := tgbotapi.InlineKeyboardButton{
@@ -473,6 +481,13 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 	}
 	remBtn := tgbotapi.NewInlineKeyboardButtonData("⏰", remCallback)
 
+	// 📌 — закрепить/открепить заметку
+	pinCallback := fmt.Sprintf("pin:%d", note.ID)
+	if note.Pinned {
+		pinCallback = fmt.Sprintf("unpin:%d", note.ID)
+	}
+	pinBtn := tgbotapi.NewInlineKeyboardButtonData("📌", pinCallback)
+
 	delBtn := tgbotapi.NewInlineKeyboardButtonData("🗑", fmt.Sprintf("askdel:%d", note.ID))
 	backBtn := tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "backtolist")
 
@@ -488,7 +503,7 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 	if expanded {
 		collapseBtn := tgbotapi.NewInlineKeyboardButtonData("▲", fmt.Sprintf("collapse:%d", note.ID))
 		return text, tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, attBtn, collapseBtn),
+			tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, attBtn, pinBtn, collapseBtn),
 			tgbotapi.NewInlineKeyboardRow(archBtn, prioBtn, moveBtn, delBtn),
 			tgbotapi.NewInlineKeyboardRow(backBtn),
 		)
@@ -496,7 +511,7 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 
 	expandBtn := tgbotapi.NewInlineKeyboardButtonData("···", fmt.Sprintf("expand:%d", note.ID))
 	return text, tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, attBtn, expandBtn),
+		tgbotapi.NewInlineKeyboardRow(editBtn, doneBtn, remBtn, attBtn, pinBtn, expandBtn),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)
 }

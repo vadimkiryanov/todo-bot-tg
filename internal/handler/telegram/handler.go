@@ -21,6 +21,8 @@ type NoteService interface {
 	UnarchiveNote(userID, noteID int64) error
 	MarkDone(userID, noteID int64) error
 	MarkUndone(userID, noteID int64) error
+	PinNote(userID, noteID int64) error
+	UnpinNote(userID, noteID int64) error
 	SetPriority(userID, noteID int64, priority model.Priority) error
 	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error
 	ClearReminder(userID, noteID int64) error
