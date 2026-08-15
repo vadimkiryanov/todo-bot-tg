@@ -253,9 +253,10 @@ func (h *Handler) callbackViewNote(chatID int64, msgID int, userID int64, noteID
 	session.ExpandedNoteID = 0 // новый просмотр — свёрнутый вид
 	tzOffset := session.TimezoneOffset
 
-	// Переход на другую заметку — закрываем окно просмотра вложений предыдущей
+	// Выход из просмотра вложения (кнопка «◀️ Назад» в списке вложений) —
+	// закрываем окно предпросмотра файла, если оно открыто.
+	h.clearAttachmentView(chatID, userID)
 	if session.LastViewedNoteID != note.ID {
-		h.clearAttachmentView(chatID, userID)
 		session.LastViewedNoteID = note.ID
 	}
 
