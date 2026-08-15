@@ -56,9 +56,9 @@ func TestNoteToRecord_RoundTrip(t *testing.T) {
 
 func TestNoteToRecord_NilFields(t *testing.T) {
 	original := model.Note{
-		ID:      1,
-		UserID:  1,
-		Text:    "Без папки и напоминания",
+		ID:     1,
+		UserID: 1,
+		Text:   "Без папки и напоминания",
 	}
 
 	record := NoteToRecord(original)

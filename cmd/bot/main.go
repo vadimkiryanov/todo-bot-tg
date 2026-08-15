@@ -31,7 +31,7 @@ func main() {
 	var attRepo todo.AttachmentRepository
 
 	if cfg.DatabaseURL != "" {
-		pgStore, err := repo.NewPostgresStore(cfg.DatabaseURL)
+		pgStore, err := repo.NewPostgresStore(ctx, cfg.DatabaseURL)
 		if err != nil {
 			log.Fatalf("Ошибка подключения к PostgreSQL: %v", err)
 		}

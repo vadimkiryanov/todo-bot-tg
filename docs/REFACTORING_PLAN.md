@@ -170,8 +170,14 @@
 
 ### Задачи
 
-- [ ] Заменить драйвер в `go.mod`: `github.com/lib/pq` → `github.com/jackc/pgx/v5` + `github.com/jmoiron/sqlx`
-- [ ] Перевести `PostgresStore` на `pgxpool`:
+- [x] Заменить драйвер в `go.mod`: `github.com/lib/pq` → `github.com/jackc/pgx/v5`
+  - **Решение по sqlx:** отклонён. pgx v5 нативно покрывает обе задачи sqlx: маппинг
+    структур по `db`-тегам (`RowToStructByName`) и именованные параметры (`NamedArgs`).
+    `sqlx.In` неприменим к нашим фильтрам (`folder_id IS NULL` vs `= $x` — не IN-списки).
+    Итог: один драйвер без моста `stdlib.OpenDBFromPool`.
+  - Версия `pgx v5.7.5` (последняя совместимая с Go 1.23 — образ `golang:1.23-alpine`
+    в Dockerfile; v5.8+ требует Go 1.24+)
+- [x] Перевести `PostgresStore` на `pgxpool`:
   ```go
   // repository/todo/postgres.go
   type PostgresStore struct {
@@ -185,7 +191,9 @@
   ```
   - Конструктор принимает `ctx`; `Close()` закрывает пул
   - `main.go` передаёт `ctx` (уже есть из `signal.NotifyContext`)
-- [ ] Именованные параметры вместо позиционных:
+  - Методы репозитория вызываются сервисом без ctx (интерфейс без контекста),
+    поэтому внутри методов — `context.Background()`
+- [x] Именованные параметры вместо позиционных:
   ```go
   rows, err := s.pool.Query(ctx, `
       SELECT id, user_id, topic_id, folder_id, text, priority,
@@ -193,14 +201,13 @@
       FROM notes WHERE id = $id AND user_id = $user`,
       pgx.NamedArgs{"id": noteID, "user": userID})
   ```
-- [ ] Убрать бойлерплейт `Scan` через `pgx.CollectRows` + `pgx.RowToStructByName`:
+- [x] Убрать бойлерплейт `Scan` через `pgx.CollectRows` + `pgx.RowToStructByName`:
   - Типизированный список колонок вместо 11 аргументов `Scan`
   - Транзакции (`DeleteTopic`, `DeleteNote`) — через `pgx.Tx` с `Begin(ctx)`
-- [ ] Упростить запросы через `sqlx`:
-  - `sqlx.In` для динамических фильтров (`folder_id IS NULL` vs `= $x`),
-    сейчас ветвление `switch` по 3 вариантам в `ListNotes`/`CountNotes`
-  - Маппинг в структуру через `StructScan`/`Get`
-- [ ] `entity` Records: добавить тег `db` для `sqlx`-маппинга:
+- [x] ~~Упростить запросы через `sqlx`~~ — заменено на нативные средства pgx:
+  - Динамические фильтры (`folder_id IS NULL` vs `= $x`) — построение WHERE + `NamedArgs`
+  - Маппинг в структуру — `CollectRows`/`CollectOneRow` + `RowToStructByName`
+- [x] `entity` Records: добавить тег `db` для pgx-маппинга:
   ```go
   type NoteRecord struct {
       ID    int64  `db:"id"`
@@ -210,9 +217,9 @@
 
 ### Критерии готовности
 
-- В `go.mod` нет `lib/pq`; `PostgresStore` работает через `pgxpool`
-- Ни одного ручного `rows.Scan(...)` с 10+ аргументами
-- `go test ./...` зелёные; поведение БД-репозитория не изменилось
+- [x] В `go.mod` нет `lib/pq`; `PostgresStore` работает через `pgxpool`
+- [x] Ни одного ручного `rows.Scan(...)` с 10+ аргументами
+- [x] `go test ./...` зелёные; поведение БД-репозитория не изменилось
 
 ---
 

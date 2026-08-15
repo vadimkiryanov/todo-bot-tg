@@ -12,19 +12,19 @@ import (
 
 // MemStore — in-memory реализация репозитория.
 type MemStore struct {
-	mu            sync.RWMutex
-	topics        map[int64]entity.TopicRecord
-	notes         map[int64]entity.NoteRecord
-	folders       map[int64]entity.FolderRecord
-	attachments   map[int64]entity.AttachmentRecord
-	nextTopicID   int64
-	nextNoteID    int64
-	nextFolderID  int64
-	nextAttID     int64
-	userTopics    map[int64][]int64 // userID → []topicID
-	userNotes     map[int64][]int64 // userID → []noteID
-	userFolders   map[int64][]int64 // userID → []folderID
-	noteAtts      map[int64][]int64 // noteID → []attachmentID
+	mu           sync.RWMutex
+	topics       map[int64]entity.TopicRecord
+	notes        map[int64]entity.NoteRecord
+	folders      map[int64]entity.FolderRecord
+	attachments  map[int64]entity.AttachmentRecord
+	nextTopicID  int64
+	nextNoteID   int64
+	nextFolderID int64
+	nextAttID    int64
+	userTopics   map[int64][]int64 // userID → []topicID
+	userNotes    map[int64][]int64 // userID → []noteID
+	userFolders  map[int64][]int64 // userID → []folderID
+	noteAtts     map[int64][]int64 // noteID → []attachmentID
 }
 
 // NewMemStore создаёт новый MemStore.

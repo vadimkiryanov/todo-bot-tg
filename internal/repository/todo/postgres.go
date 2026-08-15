@@ -1,12 +1,14 @@
 package todo
 
 import (
-	"database/sql"
+	"context"
+	"errors"
 	"fmt"
 
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	"todo-bot-tg/internal/errors"
+	errs "todo-bot-tg/internal/errors"
 	"todo-bot-tg/internal/model"
 	"todo-bot-tg/internal/repository/todo/entity"
 )
@@ -66,268 +68,288 @@ CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id);
 `
 
-// PostgresStore — реализация репозитория на PostgreSQL.
+// PostgresStore — реализация репозитория на PostgreSQL (pgxpool).
 type PostgresStore struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
-// NewPostgresStore создаёт подключение к PostgreSQL и применяет схему.
-func NewPostgresStore(dsn string) (*PostgresStore, error) {
-	db, err := sql.Open("postgres", dsn)
+// NewPostgresStore создаёт пул соединений и применяет схему.
+// Методы репозитория вызываются без ctx (интерфейс сервиса без контекста),
+// поэтому внутри используется context.Background().
+func NewPostgresStore(ctx context.Context, dsn string) (*PostgresStore, error) {
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("подключение к PostgreSQL: %w", err)
 	}
 
-	if err := db.Ping(); err != nil {
-		db.Close()
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("ping PostgreSQL: %w", err)
 	}
 
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
+	if _, err := pool.Exec(ctx, schema); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("миграция схемы: %w", err)
 	}
 
-	return &PostgresStore{db: db}, nil
+	return &PostgresStore{pool: pool}, nil
 }
 
-// Close закрывает соединение с БД.
-func (s *PostgresStore) Close() error {
-	return s.db.Close()
+// Close закрывает пул соединений.
+func (s *PostgresStore) Close() {
+	s.pool.Close()
 }
 
 // --- Topics ---
 
 func (s *PostgresStore) CreateTopic(userID int64, name string) (model.Topic, error) {
-	var t entity.TopicRecord
-	err := s.db.QueryRow(
-		`INSERT INTO topics (user_id, name) VALUES ($1, $2)
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx,
+		`INSERT INTO topics (user_id, name) VALUES (@user, @name)
 		 ON CONFLICT (user_id, name) DO NOTHING
 		 RETURNING id, user_id, name`,
-		userID, name,
-	).Scan(&t.ID, &t.UserID, &t.Name)
-	if err == sql.ErrNoRows {
-		return model.Topic{}, errors.ErrTopicAlreadyExists
+		pgx.NamedArgs{"user": userID, "name": name},
+	)
+	if err != nil {
+		return model.Topic{}, fmt.Errorf("создание топика: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.TopicRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Topic{}, errs.ErrTopicAlreadyExists
 	}
 	if err != nil {
 		return model.Topic{}, fmt.Errorf("создание топика: %w", err)
 	}
-	return entity.TopicFromRecord(t), nil
+	return entity.TopicFromRecord(rec), nil
 }
 
 func (s *PostgresStore) ListTopics(userID int64) ([]model.Topic, error) {
-	rows, err := s.db.Query(
-		`SELECT id, user_id, name FROM topics WHERE user_id = $1 ORDER BY id`, userID,
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT id, user_id, name FROM topics WHERE user_id = @user ORDER BY id`,
+		pgx.NamedArgs{"user": userID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("список топиков: %w", err)
 	}
-	defer rows.Close()
-
-	var result []model.Topic
-	for rows.Next() {
-		var t entity.TopicRecord
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Name); err != nil {
-			return nil, fmt.Errorf("чтение топика: %w", err)
-		}
-		result = append(result, entity.TopicFromRecord(t))
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.TopicRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение топиков: %w", err)
 	}
-	return result, rows.Err()
+	result := make([]model.Topic, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.TopicFromRecord(r))
+	}
+	return result, nil
 }
 
 func (s *PostgresStore) GetTopic(userID, topicID int64) (model.Topic, error) {
-	var t entity.TopicRecord
-	err := s.db.QueryRow(
-		`SELECT id, user_id, name FROM topics WHERE id = $1 AND user_id = $2`,
-		topicID, userID,
-	).Scan(&t.ID, &t.UserID, &t.Name)
-	if err == sql.ErrNoRows {
-		return model.Topic{}, errors.ErrTopicNotFound
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT id, user_id, name FROM topics WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{"id": topicID, "user": userID},
+	)
+	if err != nil {
+		return model.Topic{}, fmt.Errorf("поиск топика: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.TopicRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Topic{}, errs.ErrTopicNotFound
 	}
 	if err != nil {
 		return model.Topic{}, fmt.Errorf("поиск топика: %w", err)
 	}
-	return entity.TopicFromRecord(t), nil
+	return entity.TopicFromRecord(rec), nil
 }
 
 func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
-	tx, err := s.db.Begin()
+	ctx := context.Background()
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("начало транзакции: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(
-		`DELETE FROM attachments WHERE user_id = $1 AND note_id IN (SELECT id FROM notes WHERE user_id = $1 AND topic_id = $2)`,
-		userID, topicID,
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM attachments WHERE user_id = @user AND note_id IN
+		 (SELECT id FROM notes WHERE user_id = @user AND topic_id = @topic)`,
+		pgx.NamedArgs{"user": userID, "topic": topicID},
 	); err != nil {
 		return fmt.Errorf("удаление вложений топика: %w", err)
 	}
 
-	if _, err := tx.Exec(
-		`DELETE FROM notes WHERE user_id = $1 AND topic_id = $2`, userID, topicID,
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM notes WHERE user_id = @user AND topic_id = @topic`,
+		pgx.NamedArgs{"user": userID, "topic": topicID},
 	); err != nil {
 		return fmt.Errorf("удаление заметок топика: %w", err)
 	}
 
-	res, err := tx.Exec(
-		`DELETE FROM topics WHERE id = $1 AND user_id = $2`, topicID, userID,
+	res, err := tx.Exec(ctx,
+		`DELETE FROM topics WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{"id": topicID, "user": userID},
 	)
 	if err != nil {
 		return fmt.Errorf("удаление топика: %w", err)
 	}
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		return errors.ErrTopicNotFound
+	if res.RowsAffected() == 0 {
+		return errs.ErrTopicNotFound
 	}
 
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
 // --- Notes ---
 
+const noteColumns = `id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done`
+
 func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 	rec := entity.NoteToRecord(note)
-	err := s.db.QueryRow(
-		`INSERT INTO notes (user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, done) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done`,
-		rec.UserID, rec.TopicID, rec.FolderID, rec.Text, rec.Priority, rec.ReminderAt, rec.ReminderRepeat, rec.CreatedAt, rec.Done,
-	).Scan(&rec.ID, &rec.UserID, &rec.TopicID, &rec.FolderID, &rec.Text, &rec.Priority, &rec.ReminderAt, &rec.ReminderRepeat, &rec.CreatedAt, &rec.Archived, &rec.Done)
+	rows, err := s.pool.Query(context.Background(),
+		`INSERT INTO notes (user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, done)
+		 VALUES (@user, @topic, @folder, @text, @priority, @reminder_at, @reminder_repeat, @created_at, @done)
+		 RETURNING `+noteColumns,
+		pgx.NamedArgs{
+			"user":            rec.UserID,
+			"topic":           rec.TopicID,
+			"folder":          rec.FolderID,
+			"text":            rec.Text,
+			"priority":        rec.Priority,
+			"reminder_at":     rec.ReminderAt,
+			"reminder_repeat": rec.ReminderRepeat,
+			"created_at":      rec.CreatedAt,
+			"done":            rec.Done,
+		},
+	)
 	if err != nil {
 		return model.Note{}, fmt.Errorf("добавление заметки: %w", err)
 	}
-	return entity.NoteFromRecord(rec), nil
+	created, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.NoteRecord])
+	if err != nil {
+		return model.Note{}, fmt.Errorf("добавление заметки: %w", err)
+	}
+	return entity.NoteFromRecord(created), nil
 }
 
 func (s *PostgresStore) ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error) {
-	var rows *sql.Rows
-	var err error
-
+	where := "user_id = @user AND archived = FALSE"
+	args := pgx.NamedArgs{"user": userID}
 	switch {
 	case folderID != nil:
-		rows, err = s.db.Query(
-			`SELECT id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done
-			 FROM notes WHERE user_id = $1 AND folder_id = $2 AND archived = FALSE
-			 ORDER BY id DESC`, userID, *folderID,
-		)
+		where += " AND folder_id = @folder"
+		args["folder"] = *folderID
 	case topicID != 0:
-		rows, err = s.db.Query(
-			`SELECT id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done
-			 FROM notes WHERE user_id = $1 AND topic_id = $2 AND folder_id IS NULL AND archived = FALSE
-			 ORDER BY id DESC`, userID, topicID,
-		)
-	default:
-		rows, err = s.db.Query(
-			`SELECT id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done
-			 FROM notes WHERE user_id = $1 AND archived = FALSE
-			 ORDER BY id DESC`, userID,
-		)
+		where += " AND topic_id = @topic AND folder_id IS NULL"
+		args["topic"] = topicID
 	}
+
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+noteColumns+` FROM notes WHERE `+where+` ORDER BY id DESC`, args,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("список заметок: %w", err)
 	}
-	defer rows.Close()
-
-	var result []model.Note
-	for rows.Next() {
-		var n entity.NoteRecord
-		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.FolderID, &n.Text, &n.Priority, &n.ReminderAt, &n.ReminderRepeat, &n.CreatedAt, &n.Archived, &n.Done); err != nil {
-			return nil, fmt.Errorf("чтение заметки: %w", err)
-		}
-		result = append(result, entity.NoteFromRecord(n))
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.NoteRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение заметок: %w", err)
 	}
-	return result, rows.Err()
+	result := make([]model.Note, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.NoteFromRecord(r))
+	}
+	return result, nil
 }
 
 func (s *PostgresStore) GetNote(userID, noteID int64) (model.Note, error) {
-	var n entity.NoteRecord
-	err := s.db.QueryRow(
-		`SELECT id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done
-		 FROM notes WHERE id = $1 AND user_id = $2`,
-		noteID, userID,
-	).Scan(&n.ID, &n.UserID, &n.TopicID, &n.FolderID, &n.Text, &n.Priority, &n.ReminderAt, &n.ReminderRepeat, &n.CreatedAt, &n.Archived, &n.Done)
-	if err == sql.ErrNoRows {
-		return model.Note{}, errors.ErrNoteNotFound
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+noteColumns+` FROM notes WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{"id": noteID, "user": userID},
+	)
+	if err != nil {
+		return model.Note{}, fmt.Errorf("поиск заметки: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.NoteRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Note{}, errs.ErrNoteNotFound
 	}
 	if err != nil {
 		return model.Note{}, fmt.Errorf("поиск заметки: %w", err)
 	}
-	return entity.NoteFromRecord(n), nil
+	return entity.NoteFromRecord(rec), nil
 }
 
 func (s *PostgresStore) UpdateNote(note model.Note) error {
 	rec := entity.NoteToRecord(note)
-	res, err := s.db.Exec(
-		`UPDATE notes SET text = $1, priority = $2, reminder_at = $3, reminder_repeat = $4, archived = $5, done = $6 WHERE id = $7 AND user_id = $8`,
-		rec.Text, rec.Priority, rec.ReminderAt, rec.ReminderRepeat, rec.Archived, rec.Done, rec.ID, rec.UserID,
+	res, err := s.pool.Exec(context.Background(),
+		`UPDATE notes SET text = @text, priority = @priority, reminder_at = @reminder_at,
+		 reminder_repeat = @reminder_repeat, archived = @archived, done = @done
+		 WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{
+			"text":            rec.Text,
+			"priority":        rec.Priority,
+			"reminder_at":     rec.ReminderAt,
+			"reminder_repeat": rec.ReminderRepeat,
+			"archived":        rec.Archived,
+			"done":            rec.Done,
+			"id":              rec.ID,
+			"user":            rec.UserID,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("обновление заметки: %w", err)
 	}
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		return errors.ErrNoteNotFound
+	if res.RowsAffected() == 0 {
+		return errs.ErrNoteNotFound
 	}
 	return nil
 }
 
 func (s *PostgresStore) DeleteNote(userID, noteID int64) error {
-	tx, err := s.db.Begin()
+	ctx := context.Background()
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("начало транзакции: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(
-		`DELETE FROM attachments WHERE note_id = $1 AND user_id = $2`, noteID, userID,
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM attachments WHERE note_id = @id AND user_id = @user`,
+		pgx.NamedArgs{"id": noteID, "user": userID},
 	); err != nil {
 		return fmt.Errorf("удаление вложений заметки: %w", err)
 	}
 
-	res, err := tx.Exec(
-		`DELETE FROM notes WHERE id = $1 AND user_id = $2`,
-		noteID, userID,
+	res, err := tx.Exec(ctx,
+		`DELETE FROM notes WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{"id": noteID, "user": userID},
 	)
 	if err != nil {
 		return fmt.Errorf("удаление заметки: %w", err)
 	}
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		return errors.ErrNoteNotFound
+	if res.RowsAffected() == 0 {
+		return errs.ErrNoteNotFound
 	}
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
 // CountDoneNotes возвращает количество выполненных заметок в топике/папке.
 func (s *PostgresStore) CountDoneNotes(userID, topicID int64, folderID *int64) (int, error) {
-	var count int
-	var err error
-
-	if topicID != 0 {
-		if folderID != nil {
-			err = s.db.QueryRow(
-				`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND topic_id = $2 AND folder_id = $3 AND done = TRUE AND archived = FALSE`,
-				userID, topicID, *folderID,
-			).Scan(&count)
-		} else {
-			err = s.db.QueryRow(
-				`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND topic_id = $2 AND folder_id IS NULL AND done = TRUE AND archived = FALSE`,
-				userID, topicID,
-			).Scan(&count)
-		}
-	} else {
-		if folderID != nil {
-			err = s.db.QueryRow(
-				`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND folder_id = $2 AND done = TRUE AND archived = FALSE`,
-				userID, *folderID,
-			).Scan(&count)
-		} else {
-			err = s.db.QueryRow(
-				`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND folder_id IS NULL AND done = TRUE AND archived = FALSE`,
-				userID,
-			).Scan(&count)
-		}
+	where := "user_id = @user AND done = TRUE AND archived = FALSE"
+	args := pgx.NamedArgs{"user": userID}
+	switch {
+	case topicID != 0 && folderID != nil:
+		where += " AND topic_id = @topic AND folder_id = @folder"
+		args["topic"], args["folder"] = topicID, *folderID
+	case topicID != 0:
+		where += " AND topic_id = @topic AND folder_id IS NULL"
+		args["topic"] = topicID
+	case folderID != nil:
+		where += " AND folder_id = @folder"
+		args["folder"] = *folderID
+	default:
+		where += " AND folder_id IS NULL"
 	}
+
+	var count int
+	err := s.pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM notes WHERE `+where, args).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("подсчёт выполненных заметок: %w", err)
 	}
@@ -335,26 +357,19 @@ func (s *PostgresStore) CountDoneNotes(userID, topicID int64, folderID *int64) (
 }
 
 func (s *PostgresStore) CountNotes(userID, topicID int64, folderID *int64) (int, error) {
-	var count int
-	var err error
-
+	where := "user_id = @user AND archived = FALSE"
+	args := pgx.NamedArgs{"user": userID}
 	switch {
 	case folderID != nil:
-		err = s.db.QueryRow(
-			`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND folder_id = $2 AND archived = FALSE`,
-			userID, *folderID,
-		).Scan(&count)
+		where += " AND folder_id = @folder"
+		args["folder"] = *folderID
 	case topicID != 0:
-		err = s.db.QueryRow(
-			`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND topic_id = $2 AND folder_id IS NULL AND archived = FALSE`,
-			userID, topicID,
-		).Scan(&count)
-	default:
-		err = s.db.QueryRow(
-			`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND archived = FALSE`,
-			userID,
-		).Scan(&count)
+		where += " AND topic_id = @topic AND folder_id IS NULL"
+		args["topic"] = topicID
 	}
+
+	var count int
+	err := s.pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM notes WHERE `+where, args).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("подсчёт заметок: %w", err)
 	}
@@ -362,33 +377,30 @@ func (s *PostgresStore) CountNotes(userID, topicID int64, folderID *int64) (int,
 }
 
 func (s *PostgresStore) ListArchived(userID int64) ([]model.Note, error) {
-	rows, err := s.db.Query(
-		`SELECT id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done
-		 FROM notes WHERE user_id = $1 AND archived = TRUE
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+noteColumns+` FROM notes WHERE user_id = @user AND archived = TRUE
 		 ORDER BY created_at DESC`,
-		userID,
+		pgx.NamedArgs{"user": userID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("чтение архива: %w", err)
 	}
-	defer rows.Close()
-
-	var result []model.Note
-	for rows.Next() {
-		var n entity.NoteRecord
-		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.FolderID, &n.Text, &n.Priority, &n.ReminderAt, &n.ReminderRepeat, &n.CreatedAt, &n.Archived, &n.Done); err != nil {
-			return nil, fmt.Errorf("чтение заметки: %w", err)
-		}
-		result = append(result, entity.NoteFromRecord(n))
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.NoteRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение архива: %w", err)
 	}
-	return result, rows.Err()
+	result := make([]model.Note, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.NoteFromRecord(r))
+	}
+	return result, nil
 }
 
 func (s *PostgresStore) CountArchived(userID int64) (int, error) {
 	var count int
-	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM notes WHERE user_id = $1 AND archived = TRUE`,
-		userID,
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM notes WHERE user_id = @user AND archived = TRUE`,
+		pgx.NamedArgs{"user": userID},
 	).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("подсчёт архива: %w", err)
@@ -398,47 +410,50 @@ func (s *PostgresStore) CountArchived(userID int64) (int, error) {
 
 // GetPendingReminders возвращает заметки с просроченными напоминаниями.
 func (s *PostgresStore) GetPendingReminders() ([]model.Note, error) {
-	rows, err := s.db.Query(
-		`SELECT id, user_id, topic_id, folder_id, text, priority, reminder_at, reminder_repeat, created_at, archived, done
-		 FROM notes WHERE reminder_at IS NOT NULL AND reminder_at <= NOW() AND archived = FALSE`,
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+noteColumns+` FROM notes
+		 WHERE reminder_at IS NOT NULL AND reminder_at <= NOW() AND archived = FALSE`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("поиск просроченных напоминаний: %w", err)
 	}
-	defer rows.Close()
-
-	var result []model.Note
-	for rows.Next() {
-		var n entity.NoteRecord
-		if err := rows.Scan(&n.ID, &n.UserID, &n.TopicID, &n.FolderID, &n.Text, &n.Priority, &n.ReminderAt, &n.ReminderRepeat, &n.CreatedAt, &n.Archived, &n.Done); err != nil {
-			return nil, fmt.Errorf("чтение заметки: %w", err)
-		}
-		result = append(result, entity.NoteFromRecord(n))
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.NoteRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение напоминаний: %w", err)
 	}
-	return result, rows.Err()
+	result := make([]model.Note, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.NoteFromRecord(r))
+	}
+	return result, nil
 }
 
 // HasAnyData возвращает true, если у пользователя уже есть данные.
 func (s *PostgresStore) HasAnyData(userID int64) bool {
 	var count int
-	_ = s.db.QueryRow(
-		`SELECT COUNT(*) FROM notes WHERE user_id = $1`, userID,
+	_ = s.pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM notes WHERE user_id = @user`,
+		pgx.NamedArgs{"user": userID},
 	).Scan(&count)
 	return count > 0
 }
 
 // MoveNote перемещает заметку в другой топик и/или папку.
 func (s *PostgresStore) MoveNote(userID, noteID int64, topicID int64, folderID *int64) error {
-	res, err := s.db.Exec(
-		`UPDATE notes SET topic_id = $1, folder_id = $2 WHERE id = $3 AND user_id = $4`,
-		topicID, folderID, noteID, userID,
+	res, err := s.pool.Exec(context.Background(),
+		`UPDATE notes SET topic_id = @topic, folder_id = @folder WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{
+			"topic":  topicID,
+			"folder": folderID,
+			"id":     noteID,
+			"user":   userID,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("перемещение заметки: %w", err)
 	}
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		return errors.ErrNoteNotFound
+	if res.RowsAffected() == 0 {
+		return errs.ErrNoteNotFound
 	}
 	return nil
 }
@@ -446,101 +461,112 @@ func (s *PostgresStore) MoveNote(userID, noteID int64, topicID int64, folderID *
 // --- Folders ---
 
 func (s *PostgresStore) CreateFolder(folder model.Folder) (model.Folder, error) {
+	ctx := context.Background()
 	// Проверяем дубликат на уровне приложения (NULL-safe)
 	var exists int
-	_ = s.db.QueryRow(
+	_ = s.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM folders
-		 WHERE user_id = $1 AND topic_id = $2 AND name = $3
-		 AND parent_folder_id IS NOT DISTINCT FROM $4`,
-		folder.UserID, folder.TopicID, folder.Name, folder.ParentFolderID,
+		 WHERE user_id = @user AND topic_id = @topic AND name = @name
+		 AND parent_folder_id IS NOT DISTINCT FROM @parent`,
+		pgx.NamedArgs{
+			"user":   folder.UserID,
+			"topic":  folder.TopicID,
+			"name":   folder.Name,
+			"parent": folder.ParentFolderID,
+		},
 	).Scan(&exists)
 	if exists > 0 {
-		return model.Folder{}, errors.ErrFolderAlreadyExists
+		return model.Folder{}, errs.ErrFolderAlreadyExists
 	}
 
 	f := entity.FolderToRecord(folder)
-	err := s.db.QueryRow(
-		`INSERT INTO folders (user_id, topic_id, parent_folder_id, name) VALUES ($1, $2, $3, $4)
+	rows, err := s.pool.Query(ctx,
+		`INSERT INTO folders (user_id, topic_id, parent_folder_id, name) VALUES (@user, @topic, @parent, @name)
 		 RETURNING id, user_id, topic_id, parent_folder_id, name`,
-		f.UserID, f.TopicID, f.ParentFolderID, f.Name,
-	).Scan(&f.ID, &f.UserID, &f.TopicID, &f.ParentFolderID, &f.Name)
+		pgx.NamedArgs{
+			"user":   f.UserID,
+			"topic":  f.TopicID,
+			"parent": f.ParentFolderID,
+			"name":   f.Name,
+		},
+	)
 	if err != nil {
 		return model.Folder{}, fmt.Errorf("создание папки: %w", err)
 	}
-	return entity.FolderFromRecord(f), nil
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.FolderRecord])
+	if err != nil {
+		return model.Folder{}, fmt.Errorf("создание папки: %w", err)
+	}
+	return entity.FolderFromRecord(rec), nil
 }
 
 func (s *PostgresStore) ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error) {
-	var rows *sql.Rows
-	var err error
-
+	where := "user_id = @user AND topic_id = @topic"
+	args := pgx.NamedArgs{"user": userID, "topic": topicID}
 	if parentFolderID == nil {
-		rows, err = s.db.Query(
-			`SELECT id, user_id, topic_id, parent_folder_id, name
-			 FROM folders WHERE user_id = $1 AND topic_id = $2 AND parent_folder_id IS NULL
-			 ORDER BY id`, userID, topicID,
-		)
+		where += " AND parent_folder_id IS NULL"
 	} else {
-		rows, err = s.db.Query(
-			`SELECT id, user_id, topic_id, parent_folder_id, name
-			 FROM folders WHERE user_id = $1 AND topic_id = $2 AND parent_folder_id = $3
-			 ORDER BY id`, userID, topicID, *parentFolderID,
-		)
+		where += " AND parent_folder_id = @parent"
+		args["parent"] = *parentFolderID
 	}
+
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT id, user_id, topic_id, parent_folder_id, name FROM folders WHERE `+where+` ORDER BY id`,
+		args,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("список папок: %w", err)
 	}
-	defer rows.Close()
-
-	var result []model.Folder
-	for rows.Next() {
-		var f entity.FolderRecord
-		if err := rows.Scan(&f.ID, &f.UserID, &f.TopicID, &f.ParentFolderID, &f.Name); err != nil {
-			return nil, fmt.Errorf("чтение папки: %w", err)
-		}
-		result = append(result, entity.FolderFromRecord(f))
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.FolderRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение папок: %w", err)
 	}
-	return result, rows.Err()
+	result := make([]model.Folder, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.FolderFromRecord(r))
+	}
+	return result, nil
 }
 
 func (s *PostgresStore) GetFolder(userID, folderID int64) (model.Folder, error) {
-	var f entity.FolderRecord
-	err := s.db.QueryRow(
-		`SELECT id, user_id, topic_id, parent_folder_id, name
-		 FROM folders WHERE id = $1 AND user_id = $2`,
-		folderID, userID,
-	).Scan(&f.ID, &f.UserID, &f.TopicID, &f.ParentFolderID, &f.Name)
-	if err == sql.ErrNoRows {
-		return model.Folder{}, errors.ErrFolderNotFound
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT id, user_id, topic_id, parent_folder_id, name FROM folders WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{"id": folderID, "user": userID},
+	)
+	if err != nil {
+		return model.Folder{}, fmt.Errorf("поиск папки: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.FolderRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Folder{}, errs.ErrFolderNotFound
 	}
 	if err != nil {
 		return model.Folder{}, fmt.Errorf("поиск папки: %w", err)
 	}
-	return entity.FolderFromRecord(f), nil
+	return entity.FolderFromRecord(rec), nil
 }
 
 func (s *PostgresStore) CountFolders(userID, topicID int64, parentFolderID *int64) (int, error) {
-	var count int
-	var err error
-
+	where := "user_id = @user AND topic_id = @topic"
+	args := pgx.NamedArgs{"user": userID, "topic": topicID}
 	if parentFolderID == nil {
-		err = s.db.QueryRow(
-			`SELECT COUNT(*) FROM folders WHERE user_id = $1 AND topic_id = $2 AND parent_folder_id IS NULL`,
-			userID, topicID,
-		).Scan(&count)
+		where += " AND parent_folder_id IS NULL"
 	} else {
-		err = s.db.QueryRow(
-			`SELECT COUNT(*) FROM folders WHERE user_id = $1 AND topic_id = $2 AND parent_folder_id = $3`,
-			userID, topicID, *parentFolderID,
-		).Scan(&count)
+		where += " AND parent_folder_id = @parent"
+		args["parent"] = *parentFolderID
 	}
+
+	var count int
+	err := s.pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM folders WHERE `+where, args).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("подсчёт папок: %w", err)
 	}
 	return count, nil
 }
 
+// GetFolderChain возвращает цепочку папок от заданной к корню (внутренняя → внешняя).
 func (s *PostgresStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
+	ctx := context.Background()
 	var chain []model.Folder
 	currentID := &folderID
 	visited := make(map[int64]bool)
@@ -551,16 +577,19 @@ func (s *PostgresStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
 		}
 		visited[*currentID] = true
 
-		var f entity.FolderRecord
-		err := s.db.QueryRow(
-			`SELECT id, user_id, topic_id, parent_folder_id, name FROM folders WHERE id = $1`,
-			*currentID,
-		).Scan(&f.ID, &f.UserID, &f.TopicID, &f.ParentFolderID, &f.Name)
+		rows, err := s.pool.Query(ctx,
+			`SELECT id, user_id, topic_id, parent_folder_id, name FROM folders WHERE id = @id`,
+			pgx.NamedArgs{"id": *currentID},
+		)
 		if err != nil {
 			break
 		}
-		chain = append([]model.Folder{entity.FolderFromRecord(f)}, chain...)
-		currentID = f.ParentFolderID
+		rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.FolderRecord])
+		if err != nil {
+			break
+		}
+		chain = append([]model.Folder{entity.FolderFromRecord(rec)}, chain...)
+		currentID = rec.ParentFolderID
 	}
 	return chain, nil
 }
@@ -569,75 +598,81 @@ func (s *PostgresStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
 
 const attachmentColumns = `id, note_id, user_id, type, file_id, file_path, file_name, mime_type, file_size, created_at`
 
-func scanAttachment(scan func(dest ...any) error) (model.Attachment, error) {
-	var r entity.AttachmentRecord
-	if err := scan(&r.ID, &r.NoteID, &r.UserID, &r.Type, &r.FileID, &r.FilePath, &r.FileName, &r.MimeType, &r.FileSize, &r.CreatedAt); err != nil {
-		return model.Attachment{}, err
-	}
-	return entity.AttachmentFromRecord(r), nil
-}
-
 func (s *PostgresStore) CreateAttachment(att model.Attachment) (model.Attachment, error) {
 	rec := entity.AttachmentToRecord(att)
-	created, err := scanAttachment(func(dest ...any) error {
-		return s.db.QueryRow(
-			`INSERT INTO attachments (note_id, user_id, type, file_id, file_path, file_name, mime_type, file_size, created_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			 RETURNING `+attachmentColumns,
-			rec.NoteID, rec.UserID, rec.Type, rec.FileID, rec.FilePath, rec.FileName, rec.MimeType, rec.FileSize, rec.CreatedAt,
-		).Scan(dest...)
-	})
+	rows, err := s.pool.Query(context.Background(),
+		`INSERT INTO attachments (note_id, user_id, type, file_id, file_path, file_name, mime_type, file_size, created_at)
+		 VALUES (@note_id, @user_id, @type, @file_id, @file_path, @file_name, @mime_type, @file_size, @created_at)
+		 RETURNING `+attachmentColumns,
+		pgx.NamedArgs{
+			"note_id":    rec.NoteID,
+			"user_id":    rec.UserID,
+			"type":       rec.Type,
+			"file_id":    rec.FileID,
+			"file_path":  rec.FilePath,
+			"file_name":  rec.FileName,
+			"mime_type":  rec.MimeType,
+			"file_size":  rec.FileSize,
+			"created_at": rec.CreatedAt,
+		},
+	)
 	if err != nil {
 		return model.Attachment{}, fmt.Errorf("добавление вложения: %w", err)
 	}
-	return created, nil
+	created, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.AttachmentRecord])
+	if err != nil {
+		return model.Attachment{}, fmt.Errorf("добавление вложения: %w", err)
+	}
+	return entity.AttachmentFromRecord(created), nil
 }
 
 func (s *PostgresStore) ListAttachments(noteID int64) ([]model.Attachment, error) {
-	rows, err := s.db.Query(
-		`SELECT `+attachmentColumns+` FROM attachments WHERE note_id = $1 ORDER BY id`, noteID,
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+attachmentColumns+` FROM attachments WHERE note_id = @note_id ORDER BY id`,
+		pgx.NamedArgs{"note_id": noteID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("список вложений: %w", err)
 	}
-	defer rows.Close()
-
-	var result []model.Attachment
-	for rows.Next() {
-		att, err := scanAttachment(rows.Scan)
-		if err != nil {
-			return nil, fmt.Errorf("чтение вложения: %w", err)
-		}
-		result = append(result, att)
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.AttachmentRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение вложений: %w", err)
 	}
-	return result, rows.Err()
+	result := make([]model.Attachment, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.AttachmentFromRecord(r))
+	}
+	return result, nil
 }
 
 func (s *PostgresStore) GetAttachment(attID int64) (model.Attachment, error) {
-	att, err := scanAttachment(func(dest ...any) error {
-		return s.db.QueryRow(
-			`SELECT `+attachmentColumns+` FROM attachments WHERE id = $1`, attID,
-		).Scan(dest...)
-	})
-	if err == sql.ErrNoRows {
-		return model.Attachment{}, errors.ErrAttachmentNotFound
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+attachmentColumns+` FROM attachments WHERE id = @id`,
+		pgx.NamedArgs{"id": attID},
+	)
+	if err != nil {
+		return model.Attachment{}, fmt.Errorf("поиск вложения: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.AttachmentRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Attachment{}, errs.ErrAttachmentNotFound
 	}
 	if err != nil {
 		return model.Attachment{}, fmt.Errorf("поиск вложения: %w", err)
 	}
-	return att, nil
+	return entity.AttachmentFromRecord(rec), nil
 }
 
 func (s *PostgresStore) DeleteAttachment(attID int64) error {
-	res, err := s.db.Exec(
-		`DELETE FROM attachments WHERE id = $1`, attID,
+	res, err := s.pool.Exec(context.Background(),
+		`DELETE FROM attachments WHERE id = @id`,
+		pgx.NamedArgs{"id": attID},
 	)
 	if err != nil {
 		return fmt.Errorf("удаление вложения: %w", err)
 	}
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		return errors.ErrAttachmentNotFound
+	if res.RowsAffected() == 0 {
+		return errs.ErrAttachmentNotFound
 	}
 	return nil
 }
