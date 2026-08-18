@@ -15,6 +15,8 @@ import (
 
 func (h *Handler) showTopics(chatID int64, msgID int, userID int64) {
 	currentID := h.states.Get(userID).CurrentTopicID
+	// Уходим со списка заметок — скрываем сообщение с быстрыми топиками
+	h.hideQuickTopics(chatID, userID)
 	topics, err := h.topicService.ListTopics(userID)
 	if err != nil {
 		h.send(chatID, fmt.Sprintf("❌ %v", err))
@@ -66,6 +68,73 @@ func (h *Handler) showList(chatID int64, userID int64) {
 	h.showListPage(chatID, 0, userID, 0)
 }
 
+// showQuickTopics показывает отдельное сообщение с быстрыми топиками
+// (выбранными пользователем в настройках) ПЕРЕД списком заметок.
+// Если настройка выключена (0) или выбранных топиков нет — скрывает
+// уже показанное сообщение. Если сообщение уже есть — редактирует его
+// (обновляет пометку текущего топика).
+func (h *Handler) showQuickTopics(chatID int64, userID int64) {
+	session := h.states.Get(userID)
+
+	count := session.QuickTopicsCount
+	if count <= 0 || len(session.QuickTopicIDs) == 0 {
+		h.hideQuickTopics(chatID, userID)
+		return
+	}
+	allTopics, err := h.topicService.ListTopics(userID)
+	if err != nil {
+		h.hideQuickTopics(chatID, userID)
+		return
+	}
+	topics := filterQuickTopics(allTopics, session.QuickTopicIDs)
+	if len(topics) == 0 {
+		h.hideQuickTopics(chatID, userID)
+		return
+	}
+	if count < len(topics) {
+		topics = topics[:count]
+	}
+
+	text, markup := buildQuickTopicsMessage(topics, session.CurrentTopicID)
+
+	if session.QuickTopicsMsgID != 0 {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, session.QuickTopicsMsgID, text, markup)
+		if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+			return
+		}
+		// Сообщение могло быть удалено вручную — отправляем заново
+		session.QuickTopicsMsgID = 0
+	}
+
+	// Живого сообщения быстрых топиков нет. Новое сообщение уйдёт в самый низ
+	// чата — ПОСЛЕ уже показанного списка. Чтобы быстрые топики остались
+	// ПЕРЕД списком, старый список удаляем и пересоздаём ниже (showListPage
+	// увидит LastListMsgID=0 и отправит список заново).
+	if session.LastListMsgID != 0 {
+		del := tgbotapi.NewDeleteMessage(chatID, session.LastListMsgID)
+		h.api.Request(del)
+		session.LastListMsgID = 0
+	}
+
+	msg := h.newMsg(chatID, userID, text)
+	msg.ReplyMarkup = markup
+	sent, err := h.api.Send(msg)
+	if err == nil {
+		session.QuickTopicsMsgID = sent.MessageID
+	}
+}
+
+// hideQuickTopics удаляет отдельное сообщение с быстрыми топиками
+// (вызывается при уходе со списка заметок).
+func (h *Handler) hideQuickTopics(chatID int64, userID int64) {
+	session := h.states.Get(userID)
+	if session.QuickTopicsMsgID != 0 {
+		del := tgbotapi.NewDeleteMessage(chatID, session.QuickTopicsMsgID)
+		h.api.Request(del)
+		session.QuickTopicsMsgID = 0
+	}
+}
+
 func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) {
 	const perPage = 10
 	session := h.states.Get(userID)
@@ -76,6 +145,16 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	if session.DoneFolderActive && topicID != 0 {
 		h.showDoneFolderPage(chatID, msgID, userID, topicID, folderID, page, perPage)
 		return
+	}
+
+	// Быстрые топики — отдельным сообщением ПЕРЕД списком
+	h.showQuickTopics(chatID, userID)
+
+	// showQuickTopics мог пересоздать сообщение быстрых топиков (его не было
+	// на экране) и удалить старый список, чтобы быстрые топики остались ПЕРЕД
+	// списком — в этом случае список отправляется заново новым сообщением.
+	if msgID != 0 && session.LastListMsgID == 0 {
+		msgID = 0
 	}
 
 	// Получаем папки в текущем контексте (только если выбран топик)
@@ -220,6 +299,15 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 func (h *Handler) showDoneFolderPage(chatID int64, msgID int, userID int64, topicID int64, folderID *int64, page int, perPage int) {
 	session := h.states.Get(userID)
 
+	// Быстрые топики — отдельным сообщением ПЕРЕД списком
+	h.showQuickTopics(chatID, userID)
+
+	// showQuickTopics мог пересоздать сообщение быстрых топиков (его не было
+	// на экране) и удалить старый список — пересоздаём список заново ниже.
+	if msgID != 0 && session.LastListMsgID == 0 {
+		msgID = 0
+	}
+
 	var topicName string
 	if t, err := h.topicService.GetTopic(userID, topicID); err == nil {
 		topicName = t.Name
@@ -292,6 +380,9 @@ func (h *Handler) showDoneFolderPage(chatID int64, msgID int, userID int64, topi
 }
 
 func (h *Handler) showArchived(chatID int64, msgID int, userID int64) {
+	// Уходим со списка заметок — скрываем сообщение с быстрыми топиками
+	h.hideQuickTopics(chatID, userID)
+
 	notes, err := h.noteService.ListArchived(userID)
 	if err != nil {
 		if msgID != 0 {

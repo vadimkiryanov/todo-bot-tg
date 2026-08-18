@@ -25,6 +25,7 @@ type UserSession struct {
 	EditNoteID         int64  // ID заметки для редактирования в StateWaitingEditText
 	LastViewedNoteID   int64  // ID последней просмотренной заметки (для SwitchInlineQuery)
 	LastListMsgID      int    // ID последнего сообщения со списком
+	QuickTopicsMsgID   int    // ID отдельного сообщения с быстрыми топиками (0 — не показано)
 	PendingNoteText    string // текст заметки, ожидающий выбора приоритета
 	PendingNoteTopicID int64  // топик для заметки, ожидающей приоритет
 	PromptMsgID        int    // ID сообщения-подсказки для удаления
@@ -41,8 +42,10 @@ type UserSession struct {
 	BreadcrumbBottom bool // крошки внизу (только при BreadcrumbInline=true)
 	ShowKeyboard     bool // показывать быструю клавиатуру
 	TimezoneOffset   int  // смещение часового пояса от Москвы (0 = МСК, UTC+3)
-	FoldersCollapsed bool // схлопывать папки уровня в одну кнопку
-	SettingsLoaded   bool // настройки уже загружены из хранилища (однократно за процесс)
+	FoldersCollapsed bool   // схлопывать папки уровня в одну кнопку
+	QuickTopicsCount int    // сколько быстрых топиков показывать кнопками
+	QuickTopicIDs    []int64 // ID топиков, выбранных для быстрых кнопок (ручной выбор)
+	SettingsLoaded   bool   // настройки уже загружены из хранилища (однократно за процесс)
 
 	// Состояние схлопывания папок (в рамках текущего топика).
 	// Ключ уровня: 0 — корень топика, иначе ID папки-родителя.
@@ -75,7 +78,11 @@ func NewStateManager() *StateManager {
 func (sm *StateManager) Get(userID int64) *UserSession {
 	s, ok := sm.sessions[userID]
 	if !ok {
-		s = &UserSession{State: StateIdle, ExpandedFolders: make(map[int64]bool)}
+		s = &UserSession{
+			State:            StateIdle,
+			QuickTopicsCount: 4, // по умолчанию 4 быстрых топика (до загрузки настроек)
+			ExpandedFolders:  make(map[int64]bool),
+		}
 		sm.sessions[userID] = s
 	}
 	return s

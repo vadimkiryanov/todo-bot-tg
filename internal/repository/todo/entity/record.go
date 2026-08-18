@@ -58,4 +58,5 @@ type SettingsRecord struct {
 	ShowKeyboard     bool  `db:"show_keyboard"`
 	TimezoneOffset   int   `db:"timezone_offset"`
 	FoldersCollapsed bool  `db:"folders_collapsed"`
+	QuickTopicsCount int   `db:"quick_topics_count"`
 }

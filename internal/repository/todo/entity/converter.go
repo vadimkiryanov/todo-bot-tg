@@ -126,6 +126,7 @@ func SettingsToRecord(s model.UserSettings) SettingsRecord {
 		ShowKeyboard:     s.ShowKeyboard,
 		TimezoneOffset:   s.TimezoneOffset,
 		FoldersCollapsed: s.FoldersCollapsed,
+		QuickTopicsCount: s.QuickTopicsCount,
 	}
 }
 
@@ -139,5 +140,6 @@ func SettingsFromRecord(r SettingsRecord) model.UserSettings {
 		ShowKeyboard:     r.ShowKeyboard,
 		TimezoneOffset:   r.TimezoneOffset,
 		FoldersCollapsed: r.FoldersCollapsed,
+		QuickTopicsCount: r.QuickTopicsCount,
 	}
 }

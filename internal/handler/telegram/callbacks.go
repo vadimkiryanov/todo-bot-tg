@@ -63,6 +63,8 @@ const (
 	ActionAttGet         CallbackAction = "attget"
 	ActionAttDel         CallbackAction = "attdel"
 	ActionAttConfDel     CallbackAction = "attconfdel"
+	ActionQuickPick      CallbackAction = "quickpick"  // экран выбора топиков для быстрых кнопок
+	ActionQuickToggle    CallbackAction = "quicktoggle" // отметить/снять топик в экране выбора
 )
 
 // callbackHandler обрабатывает callback-нажатие.
@@ -169,6 +171,10 @@ var callbackHandlers = map[CallbackAction]callbackHandler{
 	ActionRemMRange:      (*Handler).callbackReminderMinuteRange,
 	ActionRemRepeat:      (*Handler).callbackReminderRepeat,
 
+	// Выбор топиков для быстрых кнопок
+	ActionQuickPick:   noArg((*Handler).showQuickPick),
+	ActionQuickToggle: withNoteID((*Handler).callbackQuickToggle),
+
 	// Без аргумента, но с особым разбором data
 	ActionTopics:   noArg((*Handler).callbackTopicsFromList),
 	ActionArchived: noArg((*Handler).callbackShowArchived),
@@ -229,20 +235,29 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 // --- Callback implementations (notes) ---
 
 func (h *Handler) callbackSetTopic(chatID int64, msgID int, userID int64, topicID int64) {
+	session := h.states.Get(userID)
 	if topicID != 0 {
 		_, err := h.topicService.GetTopic(userID, topicID)
 		if err != nil {
 			h.send(chatID, fmt.Sprintf("❌ %v", err))
 			return
 		}
-		h.states.Get(userID).CurrentTopicID = topicID
+		session.CurrentTopicID = topicID
 	} else {
-		h.states.Get(userID).CurrentTopicID = 0
+		session.CurrentTopicID = 0
 	}
-	h.states.Get(userID).CurrentFolderID = nil
-	h.states.Get(userID).DoneFolderActive = false
-	h.states.Get(userID).ExpandedFolders = make(map[int64]bool) // сброс авто-схлопывания при смене топика
-	h.states.Get(userID).LastListMsgID = msgID
+	session.CurrentFolderID = nil
+	session.DoneFolderActive = false
+	session.ExpandedFolders = make(map[int64]bool) // сброс авто-схлопывания при смене топика
+
+	if msgID == session.QuickTopicsMsgID {
+		// Нажали кнопку в отдельном сообщении быстрых топиков — список
+		// остаётся на своём месте, сообщение быстрых топиков перерисуется
+		// внутри showListPage (пометка текущего топика).
+		h.showListPage(chatID, session.LastListMsgID, userID, 0)
+		return
+	}
+	session.LastListMsgID = msgID
 	h.showListPage(chatID, msgID, userID, 0)
 }
 

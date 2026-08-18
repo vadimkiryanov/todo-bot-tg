@@ -26,6 +26,7 @@ type MemStore struct {
 	userNotes    map[int64][]int64 // userID → []noteID
 	userFolders  map[int64][]int64 // userID → []folderID
 	noteAtts     map[int64][]int64 // noteID → []attachmentID
+	quickTopics  map[int64][]int64 // userID → []topicID (выбранные для быстрых кнопок)
 }
 
 // NewMemStore создаёт новый MemStore.
@@ -40,6 +41,7 @@ func NewMemStore() *MemStore {
 		userNotes:    make(map[int64][]int64),
 		userFolders:  make(map[int64][]int64),
 		noteAtts:     make(map[int64][]int64),
+		quickTopics:  make(map[int64][]int64),
 		nextTopicID:  1,
 		nextNoteID:   1,
 		nextFolderID: 1,
@@ -105,6 +107,15 @@ func (s *MemStore) DeleteTopic(userID, topicID int64) error {
 	for i, id := range ids {
 		if id == topicID {
 			s.userTopics[userID] = append(ids[:i], ids[i+1:]...)
+			break
+		}
+	}
+
+	// Убираем удалённый топик из выбранных для быстрых кнопок
+	quick := s.quickTopics[userID]
+	for i, id := range quick {
+		if id == topicID {
+			s.quickTopics[userID] = append(quick[:i], quick[i+1:]...)
 			break
 		}
 	}
@@ -519,7 +530,9 @@ func (s *MemStore) GetSettings(userID int64) (model.UserSettings, error) {
 	if !ok {
 		return model.UserSettings{}, errors.ErrSettingsNotFound
 	}
-	return entity.SettingsFromRecord(rec), nil
+	settings := entity.SettingsFromRecord(rec)
+	settings.QuickTopicIDs = append([]int64(nil), s.quickTopics[userID]...)
+	return settings, nil
 }
 
 // SaveSettings сохраняет (создаёт или обновляет) настройки пользователя.
@@ -528,5 +541,6 @@ func (s *MemStore) SaveSettings(settings model.UserSettings) error {
 	defer s.mu.Unlock()
 
 	s.settings[settings.UserID] = entity.SettingsToRecord(settings)
+	s.quickTopics[settings.UserID] = append([]int64(nil), settings.QuickTopicIDs...)
 	return nil
 }

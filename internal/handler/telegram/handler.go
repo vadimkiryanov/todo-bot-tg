@@ -169,6 +169,11 @@ func (h *Handler) ensureSettings(userID int64) {
 	session.ShowKeyboard = settings.ShowKeyboard
 	session.TimezoneOffset = settings.TimezoneOffset
 	session.FoldersCollapsed = settings.FoldersCollapsed
+	session.QuickTopicsCount = settings.QuickTopicsCount
+	session.QuickTopicIDs = settings.QuickTopicIDs
+	if session.QuickTopicsCount < 0 {
+		session.QuickTopicsCount = 0
+	}
 }
 
 // persistSettings сохраняет настройки из сессии в хранилище.
@@ -182,6 +187,8 @@ func (h *Handler) persistSettings(userID int64) {
 		ShowKeyboard:     session.ShowKeyboard,
 		TimezoneOffset:   session.TimezoneOffset,
 		FoldersCollapsed: session.FoldersCollapsed,
+		QuickTopicsCount: session.QuickTopicsCount,
+		QuickTopicIDs:    append([]int64(nil), session.QuickTopicIDs...),
 	}
 	if err := h.settingsService.SaveSettings(settings); err != nil {
 		slog.Warn("сохранение настроек", "user_id", userID, "error", err)

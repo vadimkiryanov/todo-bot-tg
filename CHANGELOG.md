@@ -99,6 +99,19 @@
 | # | Коммит | Что сделано |
 |---|--------|-------------|
 | 52 | — | **Настройки в БД ⚙️**: настройки пользователя (`ShowCounts`, `BreadcrumbInline`, `BreadcrumbBottom`, `ShowKeyboard`, `TimezoneOffset`, `FoldersCollapsed`) больше не живут только в памяти процесса — таблица `user_settings` (UPSERT по `user_id`), модель `model.UserSettings`, `SettingsRepository` (PG + MemStore), методы `Service.GetSettings`/`SaveSettings`. Handler загружает настройки из БД в сессию однократно при первом обращении пользователя (`ensureSettings`, флаг `SettingsLoaded`) и сохраняет при каждом переключении в `/settings` (`persistSettings`) — настройки переживают перезапуск и передеплой бота; у пользователей без записи — значения по умолчанию |
+| 53 | — | **Топики по 3 в ряд**: список топиков больше не растягивается по одной кнопке на ряд — теперь по 3 топика в строке (первый ряд остаётся за «📂 Все»), перенос на следующую строку при переполнении |
+| 54 | — | **fix: создание топика не обновляло список** — после `doNewTopic` (команда `/newtopic` или ввод названия) не было ни обновления экрана, ни подтверждения: сообщения удалялись, результат невидим, пользователь повторял ввод того же имени и получал ложное «❌ топик с таким названием уже существует» (второй `CreateTopic` возвращал `ErrTopicAlreadyExists`), а новый топик появлялся только после принудительного обновления. Теперь после успешного создания сразу показывается обновлённый список топиков (`showTopics` на `LastListMsgID`), как в `doNewFolder` |
+
+---
+
+## Этап 9: Быстрые топики (2026-08-18)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| 55 | — | **Быстрые топики 🚀**: строка inline-кнопок с самыми посещаемыми топиками в самом верху списка заметок (в режиме «все заметки» тоже). Отбор — по счётчику посещений: колонка `visits` в таблице `topics` (инкремент при каждом открытии топика через `settopic:<id>` или команду), `Service.ListTopTopics`/`IncrementTopicVisits` (Postgres: `visits DESC, id ASC LIMIT`; MemStore: `sort.SliceStable`). Текущий топик помечен «✅ ». Настройка `QuickTopicsCount` в `/settings` (строка «🚀 Быстрые топики: N» с кнопками −/+): количество кнопок 0–10, по умолчанию 4, 0 = функция выключена; значение персистентное (таблица `user_settings`) |
+| 56 | — | **fix: клик по быстрой кнопке не перезаписывал список** — кнопки быстрых топиков живут в отдельном сообщении ПЕРЕД списком, но `callbackSetTopic` всегда перерисовывал список в том сообщении, откуда пришёл callback. При нажатии на кнопку быстрых топиков это перетирало список заметок содержимым списка и дублировало его. Теперь при клике из сообщения быстрых топиков перерисовывается сам список (`LastListMsgID`), а сообщение быстрых топиков обновляется (пометка текущего топика); вдобавок сообщение быстрых топиков скрывается при уходе со списка (`/timers`, `/settings`) — его не видно на других экранах |
+| 57 | — | **Быстрые топики: ручной выбор 🎯** — вместо автотопа по посещениям (счётчик `visits`) топики для строки быстрых кнопок пользователь выбирает сам. В `/settings` при включённых быстрых топиках появилась кнопка «🎯 Выбрать топики» — экран со списком всех топиков (галочка «✅ » у выбранных, клик переключает), внизу «◀️ Назад» в настройки. Выбранные ID хранятся в новой таблице `user_quick_topics` (`QuickTopicIDs` в `UserSettings`/сессии), персистентно переживают рестарт; в строке показывается до `QuickTopicsCount` топиков в порядке выбора, удалённые топики отбрасываются. Механизм посещений (`visits`, `ListTopTopics`, `IncrementTopicVisits`) удалён из кода |
+| 58 | — | **Табы не исчезают при просмотре заметки** — раньше при переходе в заметку сообщение с быстрыми топиками удалялось (появлялось только после возврата к списку). Теперь `callbackViewNote` больше не скрывает табы: строка быстрых топиков остаётся на месте и при просмотре заметки, и после возврата в список |
 
 ---
 
@@ -106,9 +119,9 @@
 
 | Слой | Файлы | Ключевые возможности |
 |------|-------|---------------------|
-| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go` | Note (Done, Pinned, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки) |
+| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go` | Note (Done, Pinned, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки, QuickTopicsCount, QuickTopicIDs) |
 | **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, закрепление, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
-| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings` |
+| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`) |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
 | **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌 |
 | **Воркер** | `worker/reminder/reminder.go` | Фоновый опрос просроченных напоминаний, порт `NotificationSender` (не зависит от Telegram API) |

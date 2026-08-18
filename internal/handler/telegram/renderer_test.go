@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -248,6 +249,142 @@ func TestBuildListMessage_PinnedMarker(t *testing.T) {
 	}
 }
 
+// --- buildQuickTopicsMessage (отдельное сообщение) ---
+
+func TestBuildQuickTopicsMessage(t *testing.T) {
+	topics := []model.Topic{
+		{ID: 1, UserID: 1, Name: "🏠 Личное"},
+		{ID: 2, UserID: 1, Name: "💼 Работа"},
+	}
+	text, markup := buildQuickTopicsMessage(topics, 1)
+
+	// Текст — непустой (минималистичный UI)
+	if strings.TrimSpace(text) == "" {
+		t.Errorf("text = %q, want non-empty", text)
+	}
+	// Одна строка кнопок — по одной на каждый быстрый топик
+	if len(markup.InlineKeyboard) != 1 {
+		t.Fatalf("keyboard rows = %d, want 1", len(markup.InlineKeyboard))
+	}
+	row := markup.InlineKeyboard[0]
+	if len(row) != 2 {
+		t.Fatalf("quick topics row buttons = %d, want 2", len(row))
+	}
+	// Текущий топик помечен галочкой
+	if row[0].CallbackData == nil || *row[0].CallbackData != "settopic:1" {
+		t.Errorf("first quick button callback = %v, want 'settopic:1'", row[0].CallbackData)
+	}
+	if !strings.HasPrefix(row[0].Text, "✅ ") {
+		t.Errorf("current topic button = %q, want prefix '✅ '", row[0].Text)
+	}
+	if row[1].CallbackData == nil || *row[1].CallbackData != "settopic:2" {
+		t.Errorf("second quick button callback = %v, want 'settopic:2'", row[1].CallbackData)
+	}
+	if strings.HasPrefix(row[1].Text, "✅ ") {
+		t.Errorf("non-current topic button = %q, should not have checkmark", row[1].Text)
+	}
+}
+
+func TestBuildQuickTopicsMessage_NoCurrentTopic(t *testing.T) {
+	topics := []model.Topic{
+		{ID: 1, UserID: 1, Name: "🏠 Личное"},
+	}
+	// currentTopicID=0 (режим «все заметки») — без галочки
+	_, markup := buildQuickTopicsMessage(topics, 0)
+
+	row := markup.InlineKeyboard[0]
+	if len(row) != 1 {
+		t.Fatalf("quick topics row buttons = %d, want 1", len(row))
+	}
+	if strings.HasPrefix(row[0].Text, "✅ ") {
+		t.Errorf("quick button = %q, should not have checkmark when no current topic", row[0].Text)
+	}
+}
+
+func TestBuildQuickTopicsMessage_EmptyName(t *testing.T) {
+	topics := []model.Topic{
+		{ID: 1, UserID: 1, Name: "   "},
+	}
+	_, markup := buildQuickTopicsMessage(topics, 0)
+
+	row := markup.InlineKeyboard[0]
+	if len(row) != 1 {
+		t.Fatalf("quick topics row buttons = %d, want 1", len(row))
+	}
+	// Пустое название → placeholder «...»
+	if row[0].Text != "..." {
+		t.Errorf("button text = %q, want '...'", row[0].Text)
+	}
+}
+
+// --- buildQuickPickMessage (экран выбора топиков) ---
+
+func TestBuildQuickPickMessage(t *testing.T) {
+	topics := []model.Topic{
+		{ID: 1, UserID: 1, Name: "🏠 Личное"},
+		{ID: 2, UserID: 1, Name: "💼 Работа"},
+		{ID: 3, UserID: 1, Name: "📚 Учёба"},
+	}
+	text, markup := buildQuickPickMessage(topics, []int64{2}, 4)
+
+	// Текст показывает текущее количество
+	if text != "🚀 Быстрые топики (4)" {
+		t.Errorf("text = %q, want '🚀 Быстрые топики (4)'", text)
+	}
+	// По кнопке на топик + кнопка «Назад»
+	if len(markup.InlineKeyboard) != 4 {
+		t.Fatalf("keyboard rows = %d, want 4", len(markup.InlineKeyboard))
+	}
+	// Выбранный топик помечен галочкой
+	row2 := markup.InlineKeyboard[1]
+	if len(row2) != 1 || row2[0].CallbackData == nil || *row2[0].CallbackData != "quicktoggle:2" {
+		t.Fatalf("second row = %+v, want quicktoggle:2", row2)
+	}
+	if !strings.HasPrefix(row2[0].Text, "✅ ") {
+		t.Errorf("selected topic button = %q, want prefix '✅ '", row2[0].Text)
+	}
+	// Невыбранный топик — без галочки
+	row1 := markup.InlineKeyboard[0]
+	if strings.HasPrefix(row1[0].Text, "✅ ") {
+		t.Errorf("unselected topic button = %q, should not have checkmark", row1[0].Text)
+	}
+	// Последняя строка — «Назад» в настройки
+	last := markup.InlineKeyboard[3]
+	if len(last) != 1 || last[0].CallbackData == nil || *last[0].CallbackData != "togglesettings:back" {
+		t.Errorf("last row = %+v, want 'togglesettings:back'", last)
+	}
+}
+
+func TestBuildQuickPickMessage_NoTopics(t *testing.T) {
+	_, markup := buildQuickPickMessage(nil, nil, 2)
+	// Только кнопка «Назад»
+	if len(markup.InlineKeyboard) != 1 {
+		t.Fatalf("keyboard rows = %d, want 1", len(markup.InlineKeyboard))
+	}
+}
+
+// --- filterQuickTopics ---
+
+func TestFilterQuickTopics_KeepsOrderAndDropsMissing(t *testing.T) {
+	all := []model.Topic{
+		{ID: 1, UserID: 1, Name: "A"},
+		{ID: 2, UserID: 1, Name: "B"},
+		{ID: 3, UserID: 1, Name: "C"},
+	}
+	// Порядок выбора сохраняется; удалённый топик (99) отбрасывается
+	got := filterQuickTopics(all, []int64{3, 99, 1})
+	if len(got) != 2 || got[0].ID != 3 || got[1].ID != 1 {
+		t.Errorf("filterQuickTopics() = %+v, want [3 1]", got)
+	}
+}
+
+func TestFilterQuickTopics_EmptySelection(t *testing.T) {
+	all := []model.Topic{{ID: 1, UserID: 1, Name: "A"}}
+	if got := filterQuickTopics(all, nil); len(got) != 0 {
+		t.Errorf("filterQuickTopics(nil) = %+v, want empty", got)
+	}
+}
+
 // --- buildReminderMenu ---
 
 func TestBuildReminderMenu(t *testing.T) {
@@ -273,9 +410,12 @@ func TestBuildTopicsMessage(t *testing.T) {
 	if !strings.Contains(text, "Топики") {
 		t.Errorf("text does not contain header: %q", text)
 	}
-	// 3 rows: "Все", topic1, topic2
-	if len(markup.InlineKeyboard) != 3 {
-		t.Errorf("keyboard rows = %d, want 3", len(markup.InlineKeyboard))
+	// 2 rows: "Все" + топики (2 штуки в одном ряду)
+	if len(markup.InlineKeyboard) != 2 {
+		t.Errorf("keyboard rows = %d, want 2", len(markup.InlineKeyboard))
+	}
+	if len(markup.InlineKeyboard[1]) != 2 {
+		t.Errorf("topic row buttons = %d, want 2", len(markup.InlineKeyboard[1]))
 	}
 }
 
@@ -312,6 +452,34 @@ func TestBuildTopicsMessage_NoCounts(t *testing.T) {
 	btn0 := markup.InlineKeyboard[0][0].Text
 	if strings.Contains(btn0, "📝") || strings.Contains(btn0, "📁") {
 		t.Errorf("button should not contain counts when disabled: %q", btn0)
+	}
+}
+
+// --- TestBuildTopicsMessage_ThreePerRow ---
+
+func TestBuildTopicsMessage_ThreePerRow(t *testing.T) {
+	topics := make([]model.Topic, 7)
+	for i := range topics {
+		topics[i] = model.Topic{ID: int64(i + 1), UserID: 1, Name: fmt.Sprintf("T%d", i+1)}
+	}
+	counts := make(map[int64]int, len(topics))
+	for _, tp := range topics {
+		counts[tp.ID] = 1
+	}
+	_, markup := buildTopicsMessage(topics, 0, 1, counts, nil, false)
+
+	// Ряды: "Все" + 3 ряда топиков (3, 3, 1)
+	if len(markup.InlineKeyboard) != 4 {
+		t.Errorf("keyboard rows = %d, want 4", len(markup.InlineKeyboard))
+	}
+	if len(markup.InlineKeyboard[1]) != 3 || len(markup.InlineKeyboard[2]) != 3 || len(markup.InlineKeyboard[3]) != 1 {
+		t.Errorf(
+			"topic row sizes = %d,%d,%d, want 3,3,1",
+			len(markup.InlineKeyboard[1]), len(markup.InlineKeyboard[2]), len(markup.InlineKeyboard[3]),
+		)
+	}
+	if markup.InlineKeyboard[3][0].CallbackData == nil || *markup.InlineKeyboard[3][0].CallbackData != "settopic:7" {
+		t.Errorf("last topic button callback = %v, want settopic:7", markup.InlineKeyboard[3][0].CallbackData)
 	}
 }
 
@@ -848,7 +1016,7 @@ func TestFoldersCollapseState(t *testing.T) {
 // --- buildSettingsMessage ---
 
 func TestBuildSettingsMessage_IncludesFoldersCollapse(t *testing.T) {
-	_, markup := buildSettingsMessage(false, false, false, false, 0, true)
+	_, markup := buildSettingsMessage(false, false, false, false, 0, true, 4)
 
 	found := false
 	for _, row := range markup.InlineKeyboard {
@@ -866,6 +1034,81 @@ func TestBuildSettingsMessage_IncludesFoldersCollapse(t *testing.T) {
 	}
 	if !found {
 		t.Error("folderscollapse toggle not found in settings")
+	}
+}
+
+func TestBuildSettingsMessage_QuickTopicsCount(t *testing.T) {
+	_, markup := buildSettingsMessage(false, false, false, false, 0, false, 4)
+
+	minus, plus, display := (*string)(nil), (*string)(nil), ""
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData == nil {
+				continue
+			}
+			switch *btn.CallbackData {
+			case "togglesettings:quickminus":
+				minus = btn.CallbackData
+			case "togglesettings:quickplus":
+				plus = btn.CallbackData
+			case "none":
+				if strings.Contains(btn.Text, "Быстрые топики") {
+					display = btn.Text
+				}
+			}
+		}
+	}
+	if minus == nil || plus == nil || display == "" {
+		t.Fatal("quick topics buttons not found in settings")
+	}
+	if !strings.Contains(display, "Быстрые топики: 4") {
+		t.Errorf("quick topics label = %q, want contains 'Быстрые топики: 4'", display)
+	}
+}
+
+func TestBuildSettingsMessage_QuickTopicsZero(t *testing.T) {
+	_, markup := buildSettingsMessage(false, false, false, false, 0, false, 0)
+
+	found := false
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData != nil && *btn.CallbackData == "none" && strings.Contains(btn.Text, "Быстрые топики: 0") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("quick topics label with 0 not found in settings")
+	}
+}
+
+func TestBuildSettingsMessage_PickTopicsButton(t *testing.T) {
+	// При включённых быстрых топиках — кнопка выбора топиков есть
+	_, markup := buildSettingsMessage(false, false, false, false, 0, false, 4)
+
+	found := false
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData != nil && *btn.CallbackData == "quickpick" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("pick topics button (quickpick) not found in settings when quick topics enabled")
+	}
+}
+
+func TestBuildSettingsMessage_PickTopicsButtonHiddenWhenDisabled(t *testing.T) {
+	// При выключенных быстрых топиках (0) кнопки выбора быть не должно
+	_, markup := buildSettingsMessage(false, false, false, false, 0, false, 0)
+
+	for _, row := range markup.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData != nil && *btn.CallbackData == "quickpick" {
+				t.Error("pick topics button should be hidden when quick topics disabled")
+			}
+		}
 	}
 }
 

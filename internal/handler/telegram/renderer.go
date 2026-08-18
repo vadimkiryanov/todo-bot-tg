@@ -136,6 +136,7 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 		),
 	))
 
+	var topicRows [][]tgbotapi.InlineKeyboardButton
 	for _, t := range topics {
 		count := counts[t.ID]
 		fc := folderCounts[t.ID]
@@ -148,13 +149,83 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 			countStr = formatCounts(count, fc)
 		}
 		label := fmt.Sprintf("%s%s%s", prefix, t.Name, countStr)
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("settopic:%d", t.ID)),
-		))
+		btn := tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("settopic:%d", t.ID))
+
+		// По 3 топика в ряд
+		if len(topicRows) == 0 || len(topicRows[len(topicRows)-1]) >= 3 {
+			topicRows = append(topicRows, tgbotapi.NewInlineKeyboardRow(btn))
+		} else {
+			topicRows[len(topicRows)-1] = append(topicRows[len(topicRows)-1], btn)
+		}
 	}
+	rows = append(rows, topicRows...)
 
 	text := "📂 *Топики*"
 	return text, tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// buildQuickTopicsMessage строит отдельное сообщение с быстрыми топиками
+// (выбранными пользователем в настройках). Текст — один эмодзи, ниже —
+// одна строка кнопок. Текущий топик помечается галочкой.
+func buildQuickTopicsMessage(topics []model.Topic, currentTopicID int64) (string, tgbotapi.InlineKeyboardMarkup) {
+	row := make([]tgbotapi.InlineKeyboardButton, 0, len(topics))
+	for _, t := range topics {
+		label := formatPreview(t.Name, 20, 1)
+		if label == "" {
+			label = "..."
+		}
+		if t.ID == currentTopicID {
+			label = "✅ " + label
+		}
+		row = append(row, tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("settopic:%d", t.ID)))
+	}
+	return "                        [Табы]", tgbotapi.NewInlineKeyboardMarkup(row)
+}
+
+// filterQuickTopics возвращает топики из all в порядке следования ids,
+// исключая несуществующие (удалённые) топики.
+func filterQuickTopics(all []model.Topic, ids []int64) []model.Topic {
+	byID := make(map[int64]model.Topic, len(all))
+	for _, t := range all {
+		byID[t.ID] = t
+	}
+	topics := make([]model.Topic, 0, len(ids))
+	for _, id := range ids {
+		if t, ok := byID[id]; ok {
+			topics = append(topics, t)
+		}
+	}
+	return topics
+}
+
+// buildQuickPickMessage строит экран выбора топиков для быстрых кнопок.
+// Выбранные топики помечаются галочкой; под списком — возврат в настройки.
+func buildQuickPickMessage(allTopics []model.Topic, selected []int64, count int) (string, tgbotapi.InlineKeyboardMarkup) {
+	selectedSet := make(map[int64]bool, len(selected))
+	for _, id := range selected {
+		selectedSet[id] = true
+	}
+
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(allTopics)+1)
+	for _, t := range allTopics {
+		label := formatPreview(t.Name, 30, 1)
+		if label == "" {
+			label = "..."
+		}
+		if selectedSet[t.ID] {
+			label = "✅ " + label
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("quicktoggle:%d", t.ID)),
+		))
+	}
+	rows = append(rows,
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "togglesettings:back"),
+		),
+	)
+
+	return fmt.Sprintf("🚀 Быстрые топики (%d)", count), tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
 // buildListMessage строит текст и разметку для списка заметок и папок.
@@ -164,6 +235,7 @@ func buildTopicsMessage(topics []model.Topic, currentID int64, userID int64, cou
 // doneFolderActive — активен режим просмотра выполненных заметок.
 func buildListMessage(pageItems []listItem, topicID int64, topicName string, currentFolderID *int64, folderChain []model.Folder, page, totalPages int, showCounts bool, breadcrumbInline bool, breadcrumbBottom bool, doneCount int, doneFolderActive bool) (string, tgbotapi.InlineKeyboardMarkup) {
 	btnRows := make([][]tgbotapi.InlineKeyboardButton, 0)
+
 	var crumbRow []tgbotapi.InlineKeyboardButton // для отложенного добавления вниз
 
 	// Текст сообщения — breadcrumb
@@ -691,7 +763,7 @@ func buildHelpMessage() (string, tgbotapi.InlineKeyboardMarkup) {
 }
 
 // buildSettingsMessage строит сообщение с настройками.
-func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBottom bool, showKeyboard bool, timezoneOffset int, foldersCollapsed bool) (string, tgbotapi.InlineKeyboardMarkup) {
+func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBottom bool, showKeyboard bool, timezoneOffset int, foldersCollapsed bool, quickTopicsCount int) (string, tgbotapi.InlineKeyboardMarkup) {
 	countsLabel := fmt.Sprintf("🔢 Счётчики: %s", boolLabel(showCounts))
 	toggleCounts := tgbotapi.NewInlineKeyboardButtonData(countsLabel, "togglesettings:showcounts")
 
@@ -703,6 +775,13 @@ func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBott
 
 	collapseLabel := fmt.Sprintf("📂 Схлопывать папки: %s", boolLabel(foldersCollapsed))
 	toggleCollapse := tgbotapi.NewInlineKeyboardButtonData(collapseLabel, "togglesettings:folderscollapse")
+
+	// Количество быстрых топиков вверху списка (0 — выключено)
+	quickLabel := fmt.Sprintf("🚀 Быстрые топики: %d", quickTopicsCount)
+	quickMinus := tgbotapi.NewInlineKeyboardButtonData("−", "togglesettings:quickminus")
+	quickDisplay := tgbotapi.NewInlineKeyboardButtonData(quickLabel, "none")
+	quickPlus := tgbotapi.NewInlineKeyboardButtonData("+", "togglesettings:quickplus")
+	pickTopics := tgbotapi.NewInlineKeyboardButtonData("🎯 Выбрать топики", "quickpick")
 
 	tzLabel := fmt.Sprintf("МСК%+d", timezoneOffset)
 	tzMinus := tgbotapi.NewInlineKeyboardButtonData("−", "togglesettings:tzminus")
@@ -726,6 +805,13 @@ func buildSettingsMessage(showCounts bool, breadcrumbInline bool, breadcrumbBott
 	rows = append(rows,
 		tgbotapi.NewInlineKeyboardRow(toggleKeyboard),
 		tgbotapi.NewInlineKeyboardRow(toggleCollapse),
+		tgbotapi.NewInlineKeyboardRow(quickMinus, quickDisplay, quickPlus),
+	)
+	// Кнопка выбора топиков — только когда быстрые топики включены
+	if quickTopicsCount > 0 {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(pickTopics))
+	}
+	rows = append(rows,
 		tgbotapi.NewInlineKeyboardRow(tzMinus, tzDisplay, tzPlus),
 		tgbotapi.NewInlineKeyboardRow(backBtn),
 	)

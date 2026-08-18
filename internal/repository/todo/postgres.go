@@ -64,7 +64,15 @@ CREATE TABLE IF NOT EXISTS user_settings (
     breadcrumb_bottom BOOLEAN NOT NULL DEFAULT FALSE,
     show_keyboard BOOLEAN NOT NULL DEFAULT FALSE,
     timezone_offset INTEGER NOT NULL DEFAULT 0,
-    folders_collapsed BOOLEAN NOT NULL DEFAULT FALSE
+    folders_collapsed BOOLEAN NOT NULL DEFAULT FALSE,
+    quick_topics_count INTEGER NOT NULL DEFAULT 4
+);
+
+-- Выбранные пользователем топики для быстрых кнопок (ручной отбор)
+CREATE TABLE IF NOT EXISTS user_quick_topics (
+    user_id BIGINT NOT NULL,
+    topic_id BIGINT NOT NULL,
+    PRIMARY KEY (user_id, topic_id)
 );
 
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
@@ -73,12 +81,16 @@ ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_repeat TEXT NOT NULL DEFAULT
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS folder_id BIGINT;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS done BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS quick_topics_count INTEGER NOT NULL DEFAULT 4;
+-- Авто-отбор по посещаемости отменён: колонка больше не используется
+ALTER TABLE topics DROP COLUMN IF EXISTS visits;
 
 CREATE INDEX IF NOT EXISTS idx_notes_user_topic ON notes(user_id, topic_id);
 CREATE INDEX IF NOT EXISTS idx_notes_user_folder ON notes(user_id, folder_id);
 CREATE INDEX IF NOT EXISTS idx_folders_user_topic ON folders(user_id, topic_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id);
+CREATE INDEX IF NOT EXISTS idx_quick_topics_user ON user_quick_topics(user_id);
 `
 
 // PostgresStore — реализация репозитория на PostgreSQL (pgxpool).
@@ -205,6 +217,14 @@ func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 	}
 	if res.RowsAffected() == 0 {
 		return errs.ErrTopicNotFound
+	}
+
+	// Убираем удалённый топик из выбранных для быстрых кнопок
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM user_quick_topics WHERE user_id = @user AND topic_id = @topic`,
+		pgx.NamedArgs{"user": userID, "topic": topicID},
+	); err != nil {
+		return fmt.Errorf("очистка выбранных топиков: %w", err)
 	}
 
 	return tx.Commit(ctx)
@@ -694,7 +714,7 @@ func (s *PostgresStore) DeleteAttachment(attID int64) error {
 
 // --- Settings ---
 
-const settingsColumns = `user_id, show_counts, breadcrumb_inline, breadcrumb_bottom, show_keyboard, timezone_offset, folders_collapsed`
+const settingsColumns = `user_id, show_counts, breadcrumb_inline, breadcrumb_bottom, show_keyboard, timezone_offset, folders_collapsed, quick_topics_count`
 
 // GetSettings возвращает настройки пользователя (ErrSettingsNotFound — записи нет).
 func (s *PostgresStore) GetSettings(userID int64) (model.UserSettings, error) {
@@ -712,34 +732,92 @@ func (s *PostgresStore) GetSettings(userID int64) (model.UserSettings, error) {
 	if err != nil {
 		return model.UserSettings{}, fmt.Errorf("чтение настроек: %w", err)
 	}
-	return entity.SettingsFromRecord(rec), nil
+
+	settings := entity.SettingsFromRecord(rec)
+	ids, err := s.listQuickTopicIDs(userID)
+	if err != nil {
+		return model.UserSettings{}, err
+	}
+	settings.QuickTopicIDs = ids
+	return settings, nil
+}
+
+// listQuickTopicIDs возвращает ID топиков, выбранных пользователем для быстрых кнопок.
+func (s *PostgresStore) listQuickTopicIDs(userID int64) ([]int64, error) {
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT topic_id FROM user_quick_topics WHERE user_id = @user_id ORDER BY topic_id`,
+		pgx.NamedArgs{"user_id": userID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("чтение выбранных топиков: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowToFunc[int64](func(row pgx.CollectableRow) (int64, error) {
+		var id int64
+		if err := row.Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("чтение выбранных топиков: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return ids, nil
 }
 
 // SaveSettings сохраняет (создаёт или обновляет) настройки пользователя.
 func (s *PostgresStore) SaveSettings(settings model.UserSettings) error {
+	ctx := context.Background()
 	rec := entity.SettingsToRecord(settings)
-	_, err := s.pool.Exec(context.Background(),
-		`INSERT INTO user_settings (user_id, show_counts, breadcrumb_inline, breadcrumb_bottom, show_keyboard, timezone_offset, folders_collapsed)
-		 VALUES (@user_id, @show_counts, @breadcrumb_inline, @breadcrumb_bottom, @show_keyboard, @timezone_offset, @folders_collapsed)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("начало транзакции: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO user_settings (user_id, show_counts, breadcrumb_inline, breadcrumb_bottom, show_keyboard, timezone_offset, folders_collapsed, quick_topics_count)
+		 VALUES (@user_id, @show_counts, @breadcrumb_inline, @breadcrumb_bottom, @show_keyboard, @timezone_offset, @folders_collapsed, @quick_topics_count)
 		 ON CONFLICT (user_id) DO UPDATE SET
 		     show_counts = EXCLUDED.show_counts,
 		     breadcrumb_inline = EXCLUDED.breadcrumb_inline,
 		     breadcrumb_bottom = EXCLUDED.breadcrumb_bottom,
 		     show_keyboard = EXCLUDED.show_keyboard,
 		     timezone_offset = EXCLUDED.timezone_offset,
-		     folders_collapsed = EXCLUDED.folders_collapsed`,
+		     folders_collapsed = EXCLUDED.folders_collapsed,
+		     quick_topics_count = EXCLUDED.quick_topics_count`,
 		pgx.NamedArgs{
-			"user_id":           rec.UserID,
-			"show_counts":       rec.ShowCounts,
-			"breadcrumb_inline": rec.BreadcrumbInline,
-			"breadcrumb_bottom": rec.BreadcrumbBottom,
-			"show_keyboard":     rec.ShowKeyboard,
-			"timezone_offset":   rec.TimezoneOffset,
-			"folders_collapsed": rec.FoldersCollapsed,
+			"user_id":            rec.UserID,
+			"show_counts":        rec.ShowCounts,
+			"breadcrumb_inline":  rec.BreadcrumbInline,
+			"breadcrumb_bottom":  rec.BreadcrumbBottom,
+			"show_keyboard":      rec.ShowKeyboard,
+			"timezone_offset":    rec.TimezoneOffset,
+			"folders_collapsed":  rec.FoldersCollapsed,
+			"quick_topics_count": rec.QuickTopicsCount,
 		},
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("сохранение настроек: %w", err)
 	}
-	return nil
+
+	// Выбранные топики для быстрых кнопок: перезаписываем целиком
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM user_quick_topics WHERE user_id = @user_id`,
+		pgx.NamedArgs{"user_id": rec.UserID},
+	); err != nil {
+		return fmt.Errorf("сохранение выбранных топиков: %w", err)
+	}
+	for _, id := range settings.QuickTopicIDs {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO user_quick_topics (user_id, topic_id) VALUES (@user_id, @topic_id)`,
+			pgx.NamedArgs{"user_id": rec.UserID, "topic_id": id},
+		); err != nil {
+			return fmt.Errorf("сохранение выбранных топиков: %w", err)
+		}
+	}
+
+	return tx.Commit(ctx)
 }

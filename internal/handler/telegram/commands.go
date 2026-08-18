@@ -19,6 +19,7 @@ func (h *Handler) cmdStart(msg *tgbotapi.Message) {
 
 	userID := msg.From.ID
 	h.clearAttachmentView(msg.Chat.ID, userID)
+	h.hideQuickTopics(msg.Chat.ID, userID)
 	// Создаём дефолтные топики и заметки для нового пользователя
 	if err := h.noteService.SeedDefaults(userID); err == nil {
 		// После сида ставим первый топик текущим
@@ -143,6 +144,7 @@ func (h *Handler) cmdList(msg *tgbotapi.Message, userID int64) {
 func (h *Handler) cmdTimers(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
 	h.clearAttachmentView(msg.Chat.ID, userID)
+	h.hideQuickTopics(msg.Chat.ID, userID)
 	chatID := msg.Chat.ID
 	msgID := h.states.Get(userID).LastListMsgID
 
@@ -432,6 +434,10 @@ func (h *Handler) doNewTopic(chatID int64, userID int64, name string) {
 		h.send(chatID, fmt.Sprintf("❌ %v", err))
 		return
 	}
+	// Сразу показываем обновлённый список топиков, иначе новый топик
+	// остаётся невидимым, а повторный ввод того же имени даёт
+	// «топик уже существует».
+	h.showTopics(chatID, h.states.Get(userID).LastListMsgID, userID)
 }
 
 func (h *Handler) doNewFolder(chatID int64, userID int64, name string) {
@@ -504,7 +510,9 @@ func (h *Handler) cmdSettings(msg *tgbotapi.Message, userID int64) {
 
 func (h *Handler) showSettings(chatID int64, msgID int, userID int64) {
 	session := h.states.Get(userID)
-	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.BreadcrumbBottom, session.ShowKeyboard, session.TimezoneOffset, session.FoldersCollapsed)
+	// Уходим со списка заметок — скрываем сообщение с быстрыми топиками
+	h.hideQuickTopics(chatID, userID)
+	text, markup := buildSettingsMessage(session.ShowCounts, session.BreadcrumbInline, session.BreadcrumbBottom, session.ShowKeyboard, session.TimezoneOffset, session.FoldersCollapsed, session.QuickTopicsCount)
 
 	if msgID != 0 {
 		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
@@ -535,6 +543,14 @@ func (h *Handler) callbackToggleSettings(chatID int64, msgID int, userID int64, 
 		session.ShowKeyboard = !session.ShowKeyboard
 	case "folderscollapse":
 		session.FoldersCollapsed = !session.FoldersCollapsed
+	case "quickminus":
+		if session.QuickTopicsCount > 0 {
+			session.QuickTopicsCount--
+		}
+	case "quickplus":
+		if session.QuickTopicsCount < 10 {
+			session.QuickTopicsCount++
+		}
 	case "tzminus":
 		if session.TimezoneOffset > -2 {
 			session.TimezoneOffset--
@@ -543,7 +559,61 @@ func (h *Handler) callbackToggleSettings(chatID int64, msgID int, userID int64, 
 		if session.TimezoneOffset < 9 {
 			session.TimezoneOffset++
 		}
+	case "back":
+		// Возврат из экрана выбора топиков быстрых кнопок
+		h.showSettings(chatID, msgID, userID)
+		return
 	}
 	h.persistSettings(userID)
 	h.showSettings(chatID, msgID, userID)
+}
+
+// showQuickPick показывает экран выбора топиков для быстрых кнопок.
+// Рядом с каждым топиком — отметка, если он уже выбран.
+func (h *Handler) showQuickPick(chatID int64, msgID int, userID int64) {
+	session := h.states.Get(userID)
+
+	allTopics, err := h.topicService.ListTopics(userID)
+	if err != nil {
+		h.send(chatID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+
+	text, markup := buildQuickPickMessage(allTopics, session.QuickTopicIDs, session.QuickTopicsCount)
+	if msgID != 0 {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
+		edit.ParseMode = tgbotapi.ModeMarkdown
+		if _, err := h.api.Send(edit); err == nil || isNotModified(err) {
+			return
+		}
+	}
+	msg := h.newMsg(chatID, userID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = markup
+	sent, err := h.api.Send(msg)
+	if err == nil {
+		h.states.Get(userID).LastListMsgID = sent.MessageID
+	}
+}
+
+// callbackQuickToggle отмечает/снимает топик в экране выбора.
+// data — ID топика. Если ID уже в списке — убираем его, иначе добавляем.
+func (h *Handler) callbackQuickToggle(chatID int64, msgID int, userID int64, topicID int64) {
+	session := h.states.Get(userID)
+
+	for i, id := range session.QuickTopicIDs {
+		if id == topicID {
+			session.QuickTopicIDs = append(session.QuickTopicIDs[:i], session.QuickTopicIDs[i+1:]...)
+			h.persistSettings(userID)
+			h.showQuickPick(chatID, msgID, userID)
+			return
+		}
+	}
+	if len(session.QuickTopicIDs) >= 10 {
+		h.send(chatID, "❌ Максимум 10 топиков")
+		return
+	}
+	session.QuickTopicIDs = append(session.QuickTopicIDs, topicID)
+	h.persistSettings(userID)
+	h.showQuickPick(chatID, msgID, userID)
 }

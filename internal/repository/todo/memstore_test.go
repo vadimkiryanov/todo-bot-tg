@@ -1,6 +1,7 @@
 package todo
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -744,7 +745,15 @@ func TestMemStore_SaveAndGetSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettings() error: %v", err)
 	}
-	if got != settings {
+	if got.UserID != settings.UserID ||
+		got.ShowCounts != settings.ShowCounts ||
+		got.BreadcrumbInline != settings.BreadcrumbInline ||
+		got.BreadcrumbBottom != settings.BreadcrumbBottom ||
+		got.ShowKeyboard != settings.ShowKeyboard ||
+		got.TimezoneOffset != settings.TimezoneOffset ||
+		got.FoldersCollapsed != settings.FoldersCollapsed ||
+		got.QuickTopicsCount != settings.QuickTopicsCount ||
+		!reflect.DeepEqual(got.QuickTopicIDs, settings.QuickTopicIDs) {
 		t.Errorf("settings = %+v, want %+v", got, settings)
 	}
 }
