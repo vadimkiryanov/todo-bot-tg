@@ -15,8 +15,6 @@ import (
 
 func (h *Handler) showTopics(chatID int64, msgID int, userID int64) {
 	currentID := h.states.Get(userID).CurrentTopicID
-	// Уходим со списка заметок — скрываем сообщение с быстрыми топиками
-	h.hideQuickTopics(chatID, userID)
 	topics, err := h.topicService.ListTopics(userID)
 	if err != nil {
 		h.send(chatID, fmt.Sprintf("❌ %v", err))
