@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -61,6 +62,12 @@ type AttachmentService interface {
 	DeleteAttachment(userID, attID int64) error
 }
 
+// SettingsService — интерфейс сервиса настроек (определён потребителем — handler'ом).
+type SettingsService interface {
+	GetSettings(userID int64) (model.UserSettings, error)
+	SaveSettings(settings model.UserSettings) error
+}
+
 // Handler — обработчик обновлений Telegram.
 type Handler struct {
 	api               *tgbotapi.BotAPI
@@ -68,12 +75,13 @@ type Handler struct {
 	topicService      TopicService
 	folderService     FolderService
 	attachmentService AttachmentService
+	settingsService   SettingsService
 	states            *StateManager
 	selfUsername      string // @-имя бота для обрезки SwitchInlineQuery
 }
 
 // NewHandler создаёт новый Handler.
-func NewHandler(token string, noteService NoteService, topicService TopicService, folderService FolderService, attachmentService AttachmentService) (*Handler, error) {
+func NewHandler(token string, noteService NoteService, topicService TopicService, folderService FolderService, attachmentService AttachmentService, settingsService SettingsService) (*Handler, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка подключения к Telegram API: %w", err)
@@ -85,6 +93,7 @@ func NewHandler(token string, noteService NoteService, topicService TopicService
 		topicService:      topicService,
 		folderService:     folderService,
 		attachmentService: attachmentService,
+		settingsService:   settingsService,
 		states:            NewStateManager(),
 		selfUsername:      "@" + api.Self.UserName,
 	}
@@ -104,12 +113,14 @@ func (h *Handler) Run() error {
 
 	for update := range updates {
 		if update.CallbackQuery != nil {
+			h.ensureSettings(update.CallbackQuery.From.ID)
 			h.handleCallback(update.CallbackQuery)
 			continue
 		}
 		if update.Message == nil {
 			continue
 		}
+		h.ensureSettings(update.Message.From.ID)
 		if update.Message.IsCommand() {
 			h.handleCommand(update.Message)
 		} else {
@@ -132,6 +143,49 @@ func (h *Handler) SendReminder(note model.Note) error {
 	msg.ReplyMarkup = buildReminderNotificationMarkup(note.ID)
 	_, err := h.api.Send(msg)
 	return err
+}
+
+// --- Settings ---
+
+// ensureSettings загружает настройки пользователя из хранилища в сессию.
+// Выполняется один раз за жизнь процесса (флаг SettingsLoaded в сессии),
+// чтобы переживать перезапуск бота: после рестарта сессии пусты, а настройки
+// уже сохранены в БД.
+func (h *Handler) ensureSettings(userID int64) {
+	session := h.states.Get(userID)
+	if session.SettingsLoaded {
+		return
+	}
+	session.SettingsLoaded = true
+
+	settings, err := h.settingsService.GetSettings(userID)
+	if err != nil {
+		slog.Warn("загрузка настроек", "user_id", userID, "error", err)
+		return
+	}
+	session.ShowCounts = settings.ShowCounts
+	session.BreadcrumbInline = settings.BreadcrumbInline
+	session.BreadcrumbBottom = settings.BreadcrumbBottom
+	session.ShowKeyboard = settings.ShowKeyboard
+	session.TimezoneOffset = settings.TimezoneOffset
+	session.FoldersCollapsed = settings.FoldersCollapsed
+}
+
+// persistSettings сохраняет настройки из сессии в хранилище.
+func (h *Handler) persistSettings(userID int64) {
+	session := h.states.Get(userID)
+	settings := model.UserSettings{
+		UserID:           userID,
+		ShowCounts:       session.ShowCounts,
+		BreadcrumbInline: session.BreadcrumbInline,
+		BreadcrumbBottom: session.BreadcrumbBottom,
+		ShowKeyboard:     session.ShowKeyboard,
+		TimezoneOffset:   session.TimezoneOffset,
+		FoldersCollapsed: session.FoldersCollapsed,
+	}
+	if err := h.settingsService.SaveSettings(settings); err != nil {
+		slog.Warn("сохранение настроек", "user_id", userID, "error", err)
+	}
 }
 
 // --- Commands ---

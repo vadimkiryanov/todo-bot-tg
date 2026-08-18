@@ -218,3 +218,58 @@ func TestAttachmentToRecord_EmptyOptional(t *testing.T) {
 		t.Errorf("FileSize = %d, want 0", result.FileSize)
 	}
 }
+
+func TestSettingsToRecord_RoundTrip(t *testing.T) {
+	original := model.UserSettings{
+		UserID:           1,
+		ShowCounts:       true,
+		BreadcrumbInline: true,
+		BreadcrumbBottom: true,
+		ShowKeyboard:     true,
+		TimezoneOffset:   4,
+		FoldersCollapsed: true,
+	}
+
+	record := SettingsToRecord(original)
+	result := SettingsFromRecord(record)
+
+	if result.UserID != original.UserID {
+		t.Errorf("UserID = %d, want %d", result.UserID, original.UserID)
+	}
+	if result.ShowCounts != original.ShowCounts {
+		t.Errorf("ShowCounts = %v, want %v", result.ShowCounts, original.ShowCounts)
+	}
+	if result.BreadcrumbInline != original.BreadcrumbInline {
+		t.Errorf("BreadcrumbInline = %v, want %v", result.BreadcrumbInline, original.BreadcrumbInline)
+	}
+	if result.BreadcrumbBottom != original.BreadcrumbBottom {
+		t.Errorf("BreadcrumbBottom = %v, want %v", result.BreadcrumbBottom, original.BreadcrumbBottom)
+	}
+	if result.ShowKeyboard != original.ShowKeyboard {
+		t.Errorf("ShowKeyboard = %v, want %v", result.ShowKeyboard, original.ShowKeyboard)
+	}
+	if result.TimezoneOffset != original.TimezoneOffset {
+		t.Errorf("TimezoneOffset = %d, want %d", result.TimezoneOffset, original.TimezoneOffset)
+	}
+	if result.FoldersCollapsed != original.FoldersCollapsed {
+		t.Errorf("FoldersCollapsed = %v, want %v", result.FoldersCollapsed, original.FoldersCollapsed)
+	}
+}
+
+func TestSettingsToRecord_Defaults(t *testing.T) {
+	original := model.NewUserSettings(42)
+
+	record := SettingsToRecord(original)
+	result := SettingsFromRecord(record)
+
+	if result.UserID != 42 {
+		t.Errorf("UserID = %d, want 42", result.UserID)
+	}
+	if result.ShowCounts || result.BreadcrumbInline || result.BreadcrumbBottom ||
+		result.ShowKeyboard || result.FoldersCollapsed {
+		t.Error("default settings must be zero values")
+	}
+	if result.TimezoneOffset != 0 {
+		t.Errorf("TimezoneOffset = %d, want 0", result.TimezoneOffset)
+	}
+}

@@ -115,3 +115,29 @@ func AttachmentFromRecord(r AttachmentRecord) model.Attachment {
 		CreatedAt: r.CreatedAt,
 	}
 }
+
+// SettingsToRecord конвертирует доменную модель настроек в persistence-record.
+func SettingsToRecord(s model.UserSettings) SettingsRecord {
+	return SettingsRecord{
+		UserID:           s.UserID,
+		ShowCounts:       s.ShowCounts,
+		BreadcrumbInline: s.BreadcrumbInline,
+		BreadcrumbBottom: s.BreadcrumbBottom,
+		ShowKeyboard:     s.ShowKeyboard,
+		TimezoneOffset:   s.TimezoneOffset,
+		FoldersCollapsed: s.FoldersCollapsed,
+	}
+}
+
+// SettingsFromRecord конвертирует persistence-record в доменную модель настроек.
+func SettingsFromRecord(r SettingsRecord) model.UserSettings {
+	return model.UserSettings{
+		UserID:           r.UserID,
+		ShowCounts:       r.ShowCounts,
+		BreadcrumbInline: r.BreadcrumbInline,
+		BreadcrumbBottom: r.BreadcrumbBottom,
+		ShowKeyboard:     r.ShowKeyboard,
+		TimezoneOffset:   r.TimezoneOffset,
+		FoldersCollapsed: r.FoldersCollapsed,
+	}
+}

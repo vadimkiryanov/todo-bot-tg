@@ -18,7 +18,7 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
-	return NewService(store, store, store, store, fileStore)
+	return NewService(store, store, store, store, store, fileStore)
 }
 
 // --- Topics ---
@@ -883,5 +883,86 @@ func TestService_DeleteTopic_RemovesFiles(t *testing.T) {
 
 	if _, statErr := os.Stat(svc.fileStore.AbsPath(att.FilePath)); statErr == nil {
 		t.Error("file still on disk after topic delete")
+	}
+}
+
+// --- Settings ---
+
+func TestService_GetSettings_Defaults(t *testing.T) {
+	svc := newTestService(t)
+
+	settings, err := svc.GetSettings(1)
+	if err != nil {
+		t.Fatalf("GetSettings() error: %v", err)
+	}
+	if settings.UserID != 1 {
+		t.Errorf("UserID = %d, want 1", settings.UserID)
+	}
+	if settings.ShowCounts || settings.BreadcrumbInline || settings.BreadcrumbBottom ||
+		settings.ShowKeyboard || settings.FoldersCollapsed {
+		t.Error("default settings must be zero values")
+	}
+	if settings.TimezoneOffset != 0 {
+		t.Errorf("TimezoneOffset = %d, want 0", settings.TimezoneOffset)
+	}
+}
+
+func TestService_SaveAndGetSettings(t *testing.T) {
+	svc := newTestService(t)
+
+	settings := model.UserSettings{
+		UserID:           7,
+		ShowCounts:       true,
+		BreadcrumbInline: true,
+		BreadcrumbBottom: true,
+		ShowKeyboard:     true,
+		TimezoneOffset:   4,
+		FoldersCollapsed: true,
+	}
+	if err := svc.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings() error: %v", err)
+	}
+
+	got, err := svc.GetSettings(7)
+	if err != nil {
+		t.Fatalf("GetSettings() error: %v", err)
+	}
+	if got != settings {
+		t.Errorf("settings = %+v, want %+v", got, settings)
+	}
+}
+
+func TestService_Settings_IsolatedPerUser(t *testing.T) {
+	svc := newTestService(t)
+
+	if err := svc.SaveSettings(model.UserSettings{UserID: 1, ShowCounts: true}); err != nil {
+		t.Fatalf("SaveSettings() error: %v", err)
+	}
+
+	// Другой пользователь должен получить дефолты, а не чужие настройки
+	settings, err := svc.GetSettings(2)
+	if err != nil {
+		t.Fatalf("GetSettings() error: %v", err)
+	}
+	if settings.ShowCounts {
+		t.Error("settings leaked between users")
+	}
+}
+
+func TestService_SaveSettings_Overwrite(t *testing.T) {
+	svc := newTestService(t)
+
+	_ = svc.SaveSettings(model.UserSettings{UserID: 1, ShowCounts: true, TimezoneOffset: 5})
+	_ = svc.SaveSettings(model.UserSettings{UserID: 1, ShowCounts: false, TimezoneOffset: 2})
+
+	got, err := svc.GetSettings(1)
+	if err != nil {
+		t.Fatalf("GetSettings() error: %v", err)
+	}
+	if got.ShowCounts {
+		t.Error("ShowCounts = true, want false after overwrite")
+	}
+	if got.TimezoneOffset != 2 {
+		t.Errorf("TimezoneOffset = %d, want 2", got.TimezoneOffset)
 	}
 }

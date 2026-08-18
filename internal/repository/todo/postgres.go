@@ -57,6 +57,16 @@ CREATE TABLE IF NOT EXISTS attachments (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id BIGINT PRIMARY KEY,
+    show_counts BOOLEAN NOT NULL DEFAULT FALSE,
+    breadcrumb_inline BOOLEAN NOT NULL DEFAULT FALSE,
+    breadcrumb_bottom BOOLEAN NOT NULL DEFAULT FALSE,
+    show_keyboard BOOLEAN NOT NULL DEFAULT FALSE,
+    timezone_offset INTEGER NOT NULL DEFAULT 0,
+    folders_collapsed BOOLEAN NOT NULL DEFAULT FALSE
+);
+
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_at TIMESTAMPTZ;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_repeat TEXT NOT NULL DEFAULT 'once';
@@ -678,6 +688,58 @@ func (s *PostgresStore) DeleteAttachment(attID int64) error {
 	}
 	if res.RowsAffected() == 0 {
 		return errs.ErrAttachmentNotFound
+	}
+	return nil
+}
+
+// --- Settings ---
+
+const settingsColumns = `user_id, show_counts, breadcrumb_inline, breadcrumb_bottom, show_keyboard, timezone_offset, folders_collapsed`
+
+// GetSettings возвращает настройки пользователя (ErrSettingsNotFound — записи нет).
+func (s *PostgresStore) GetSettings(userID int64) (model.UserSettings, error) {
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+settingsColumns+` FROM user_settings WHERE user_id = @user_id`,
+		pgx.NamedArgs{"user_id": userID},
+	)
+	if err != nil {
+		return model.UserSettings{}, fmt.Errorf("чтение настроек: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.SettingsRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.UserSettings{}, errs.ErrSettingsNotFound
+	}
+	if err != nil {
+		return model.UserSettings{}, fmt.Errorf("чтение настроек: %w", err)
+	}
+	return entity.SettingsFromRecord(rec), nil
+}
+
+// SaveSettings сохраняет (создаёт или обновляет) настройки пользователя.
+func (s *PostgresStore) SaveSettings(settings model.UserSettings) error {
+	rec := entity.SettingsToRecord(settings)
+	_, err := s.pool.Exec(context.Background(),
+		`INSERT INTO user_settings (user_id, show_counts, breadcrumb_inline, breadcrumb_bottom, show_keyboard, timezone_offset, folders_collapsed)
+		 VALUES (@user_id, @show_counts, @breadcrumb_inline, @breadcrumb_bottom, @show_keyboard, @timezone_offset, @folders_collapsed)
+		 ON CONFLICT (user_id) DO UPDATE SET
+		     show_counts = EXCLUDED.show_counts,
+		     breadcrumb_inline = EXCLUDED.breadcrumb_inline,
+		     breadcrumb_bottom = EXCLUDED.breadcrumb_bottom,
+		     show_keyboard = EXCLUDED.show_keyboard,
+		     timezone_offset = EXCLUDED.timezone_offset,
+		     folders_collapsed = EXCLUDED.folders_collapsed`,
+		pgx.NamedArgs{
+			"user_id":           rec.UserID,
+			"show_counts":       rec.ShowCounts,
+			"breadcrumb_inline": rec.BreadcrumbInline,
+			"breadcrumb_bottom": rec.BreadcrumbBottom,
+			"show_keyboard":     rec.ShowKeyboard,
+			"timezone_offset":   rec.TimezoneOffset,
+			"folders_collapsed": rec.FoldersCollapsed,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("сохранение настроек: %w", err)
 	}
 	return nil
 }

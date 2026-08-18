@@ -17,6 +17,7 @@ type MemStore struct {
 	notes        map[int64]entity.NoteRecord
 	folders      map[int64]entity.FolderRecord
 	attachments  map[int64]entity.AttachmentRecord
+	settings     map[int64]entity.SettingsRecord
 	nextTopicID  int64
 	nextNoteID   int64
 	nextFolderID int64
@@ -34,6 +35,7 @@ func NewMemStore() *MemStore {
 		notes:        make(map[int64]entity.NoteRecord),
 		folders:      make(map[int64]entity.FolderRecord),
 		attachments:  make(map[int64]entity.AttachmentRecord),
+		settings:     make(map[int64]entity.SettingsRecord),
 		userTopics:   make(map[int64][]int64),
 		userNotes:    make(map[int64][]int64),
 		userFolders:  make(map[int64][]int64),
@@ -503,5 +505,28 @@ func (s *MemStore) DeleteAttachment(attID int64) error {
 			break
 		}
 	}
+	return nil
+}
+
+// --- Settings ---
+
+// GetSettings возвращает настройки пользователя (ErrSettingsNotFound — записи нет).
+func (s *MemStore) GetSettings(userID int64) (model.UserSettings, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rec, ok := s.settings[userID]
+	if !ok {
+		return model.UserSettings{}, errors.ErrSettingsNotFound
+	}
+	return entity.SettingsFromRecord(rec), nil
+}
+
+// SaveSettings сохраняет (создаёт или обновляет) настройки пользователя.
+func (s *MemStore) SaveSettings(settings model.UserSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.settings[settings.UserID] = entity.SettingsToRecord(settings)
 	return nil
 }

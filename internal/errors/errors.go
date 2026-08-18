@@ -43,3 +43,8 @@ var (
 	ErrEmptyFile             = errors.New("файл пуст")
 	ErrFileTooLarge          = errors.New("файл слишком большой (лимит 20 МБ)")
 )
+
+// Settings
+var (
+	ErrSettingsNotFound = errors.New("настройки не найдены")
+)

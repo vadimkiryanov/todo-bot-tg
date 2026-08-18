@@ -544,5 +544,6 @@ func (h *Handler) callbackToggleSettings(chatID int64, msgID int, userID int64, 
 			session.TimezoneOffset++
 		}
 	}
+	h.persistSettings(userID)
 	h.showSettings(chatID, msgID, userID)
 }

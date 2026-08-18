@@ -713,3 +713,65 @@ func TestMemStore_DeleteTopic_CascadesAttachments(t *testing.T) {
 		t.Errorf("attachments not cascaded: len = %d, want 0", len(atts))
 	}
 }
+
+// --- Settings ---
+
+func TestMemStore_GetSettings_NotFound(t *testing.T) {
+	s := newTestStore()
+	_, err := s.GetSettings(1)
+	if err != errors.ErrSettingsNotFound {
+		t.Errorf("error = %v, want %v", err, errors.ErrSettingsNotFound)
+	}
+}
+
+func TestMemStore_SaveAndGetSettings(t *testing.T) {
+	s := newTestStore()
+	settings := model.UserSettings{
+		UserID:           1,
+		ShowCounts:       true,
+		BreadcrumbInline: true,
+		BreadcrumbBottom: true,
+		ShowKeyboard:     true,
+		TimezoneOffset:   4,
+		FoldersCollapsed: true,
+	}
+
+	if err := s.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings() error: %v", err)
+	}
+
+	got, err := s.GetSettings(1)
+	if err != nil {
+		t.Fatalf("GetSettings() error: %v", err)
+	}
+	if got != settings {
+		t.Errorf("settings = %+v, want %+v", got, settings)
+	}
+}
+
+func TestMemStore_SaveSettings_Overwrite(t *testing.T) {
+	s := newTestStore()
+	_ = s.SaveSettings(model.UserSettings{UserID: 1, ShowCounts: true, TimezoneOffset: 5})
+	_ = s.SaveSettings(model.UserSettings{UserID: 1, ShowCounts: false, TimezoneOffset: 2})
+
+	got, err := s.GetSettings(1)
+	if err != nil {
+		t.Fatalf("GetSettings() error: %v", err)
+	}
+	if got.ShowCounts {
+		t.Error("ShowCounts = true, want false after overwrite")
+	}
+	if got.TimezoneOffset != 2 {
+		t.Errorf("TimezoneOffset = %d, want 2", got.TimezoneOffset)
+	}
+}
+
+func TestMemStore_Settings_IsolatedPerUser(t *testing.T) {
+	s := newTestStore()
+	_ = s.SaveSettings(model.UserSettings{UserID: 1, ShowCounts: true})
+
+	_, err := s.GetSettings(2)
+	if err != errors.ErrSettingsNotFound {
+		t.Errorf("error = %v, want %v", err, errors.ErrSettingsNotFound)
+	}
+}

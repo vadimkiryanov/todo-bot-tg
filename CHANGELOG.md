@@ -94,13 +94,21 @@
 
 ---
 
+## Этап 8: Персистентные настройки (2026-08-18)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| 52 | — | **Настройки в БД ⚙️**: настройки пользователя (`ShowCounts`, `BreadcrumbInline`, `BreadcrumbBottom`, `ShowKeyboard`, `TimezoneOffset`, `FoldersCollapsed`) больше не живут только в памяти процесса — таблица `user_settings` (UPSERT по `user_id`), модель `model.UserSettings`, `SettingsRepository` (PG + MemStore), методы `Service.GetSettings`/`SaveSettings`. Handler загружает настройки из БД в сессию однократно при первом обращении пользователя (`ensureSettings`, флаг `SettingsLoaded`) и сохраняет при каждом переключении в `/settings` (`persistSettings`) — настройки переживают перезапуск и передеплой бота; у пользователей без записи — значения по умолчанию |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
 |------|-------|---------------------|
-| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go` | Note (Done, Pinned, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация) |
-| **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, закрепление, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment` |
-| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением |
+| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go` | Note (Done, Pinned, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки) |
+| **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, закрепление, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
+| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings` |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
 | **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌 |
 | **Воркер** | `worker/reminder/reminder.go` | Фоновый опрос просроченных напоминаний, порт `NotificationSender` (не зависит от Telegram API) |
@@ -115,7 +123,7 @@ cmd/bot/main.go          — точка входа, ручной DI
 config/config.go         — загрузка .env
 internal/
   errors/errors.go       — sentinel-ошибки
-  model/                 — Note, Folder, Topic, Attachment (агрегаты с бизнес-логикой)
+  model/                 — Note, Folder, Topic, Attachment, UserSettings (агрегаты с бизнес-логикой)
   service/todo/          — сервис-оркестратор (интерфейсы репозиториев здесь)
   repository/todo/       — MemStore + PostgresStore + Entity Records
   storage/fs/            — файловое хранилище вложений

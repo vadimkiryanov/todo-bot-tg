@@ -48,3 +48,14 @@ type AttachmentRecord struct {
 	FileSize  int64     `db:"file_size"`
 	CreatedAt time.Time `db:"created_at"`
 }
+
+// SettingsRecord — persistence-модель для настроек пользователя (только базовые типы).
+type SettingsRecord struct {
+	UserID           int64 `db:"user_id"`
+	ShowCounts       bool  `db:"show_counts"`
+	BreadcrumbInline bool  `db:"breadcrumb_inline"`
+	BreadcrumbBottom bool  `db:"breadcrumb_bottom"`
+	ShowKeyboard     bool  `db:"show_keyboard"`
+	TimezoneOffset   int   `db:"timezone_offset"`
+	FoldersCollapsed bool  `db:"folders_collapsed"`
+}

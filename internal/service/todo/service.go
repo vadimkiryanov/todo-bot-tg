@@ -1,6 +1,7 @@
 package todo
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -8,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"todo-bot-tg/internal/errors"
+	errs "todo-bot-tg/internal/errors"
 	"todo-bot-tg/internal/model"
 )
 
@@ -53,6 +54,12 @@ type AttachmentRepository interface {
 	DeleteAttachment(attID int64) error
 }
 
+// SettingsRepository — интерфейс хранилища настроек пользователя (определён потребителем — сервисом).
+type SettingsRepository interface {
+	GetSettings(userID int64) (model.UserSettings, error)
+	SaveSettings(settings model.UserSettings) error
+}
+
 // FileStore — порт файлового хранилища (внешняя инфраструктура, ACL).
 type FileStore interface {
 	Save(userID, noteID int64, ext string, data []byte) (string, error)
@@ -62,23 +69,25 @@ type FileStore interface {
 
 // Service — сервисный слой, оркеструет бизнес-операции.
 type Service struct {
-	locks      *userLocks // сериализация операций одного пользователя
-	noteRepo   NoteRepository
-	topicRepo  TopicRepository
-	folderRepo FolderRepository
-	attRepo    AttachmentRepository
-	fileStore  FileStore
+	locks        *userLocks // сериализация операций одного пользователя
+	noteRepo     NoteRepository
+	topicRepo    TopicRepository
+	folderRepo   FolderRepository
+	attRepo      AttachmentRepository
+	settingsRepo SettingsRepository
+	fileStore    FileStore
 }
 
 // NewService создаёт новый сервис.
-func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo FolderRepository, attRepo AttachmentRepository, fileStore FileStore) *Service {
+func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo FolderRepository, attRepo AttachmentRepository, settingsRepo SettingsRepository, fileStore FileStore) *Service {
 	return &Service{
-		locks:      newUserLocks(),
-		noteRepo:   noteRepo,
-		topicRepo:  topicRepo,
-		folderRepo: folderRepo,
-		attRepo:    attRepo,
-		fileStore:  fileStore,
+		locks:        newUserLocks(),
+		noteRepo:     noteRepo,
+		topicRepo:    topicRepo,
+		folderRepo:   folderRepo,
+		attRepo:      attRepo,
+		settingsRepo: settingsRepo,
+		fileStore:    fileStore,
 	}
 }
 
@@ -526,7 +535,7 @@ func (s *Service) AddAttachment(userID, noteID int64, attType model.AttachmentTy
 		return model.Attachment{}, err
 	}
 	if len(data) == 0 {
-		return model.Attachment{}, errors.ErrEmptyFile
+		return model.Attachment{}, errs.ErrEmptyFile
 	}
 
 	// Уникализируем отображаемое имя: если файл с таким именем уже есть у заметки,
@@ -573,7 +582,7 @@ func (s *Service) GetAttachment(userID, attID int64) (model.Attachment, error) {
 		return model.Attachment{}, err
 	}
 	if att.UserID != userID {
-		return model.Attachment{}, errors.ErrAttachmentNotFound
+		return model.Attachment{}, errs.ErrAttachmentNotFound
 	}
 	return att, nil
 }
@@ -588,12 +597,34 @@ func (s *Service) DeleteAttachment(userID, attID int64) error {
 		return err
 	}
 	if att.UserID != userID {
-		return errors.ErrAttachmentNotFound
+		return errs.ErrAttachmentNotFound
 	}
 	if err := s.fileStore.Delete(att.FilePath); err != nil {
 		return err
 	}
 	return s.attRepo.DeleteAttachment(attID)
+}
+
+// --- Settings ---
+
+// GetSettings возвращает настройки пользователя.
+// Если записи в хранилище ещё нет — возвращает значения по умолчанию.
+func (s *Service) GetSettings(userID int64) (model.UserSettings, error) {
+	settings, err := s.settingsRepo.GetSettings(userID)
+	if errors.Is(err, errs.ErrSettingsNotFound) {
+		return model.NewUserSettings(userID), nil
+	}
+	if err != nil {
+		return model.UserSettings{}, err
+	}
+	return settings, nil
+}
+
+// SaveSettings сохраняет настройки пользователя.
+func (s *Service) SaveSettings(settings model.UserSettings) error {
+	unlock := s.locks.Lock(settings.UserID)
+	defer unlock()
+	return s.settingsRepo.SaveSettings(settings)
 }
 
 // deleteNoteFiles удаляет файлы всех вложений заметки (вызывается под локом пользователя).
