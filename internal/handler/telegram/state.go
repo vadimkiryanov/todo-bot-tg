@@ -1,5 +1,7 @@
 package telegram
 
+import "todo-bot-tg/internal/model"
+
 // State — состояние диалога с пользователем.
 type State int
 
@@ -19,17 +21,18 @@ const (
 
 // UserSession хранит состояние и контекст пользователя.
 type UserSession struct {
-	State              State
-	CurrentTopicID     int64  // 0 — без топика
-	CurrentFolderID    *int64 // nil — корень топика (не в папке)
-	EditNoteID         int64  // ID заметки для редактирования в StateWaitingEditText
-	LastViewedNoteID   int64  // ID последней просмотренной заметки (для SwitchInlineQuery)
-	LastListMsgID      int    // ID последнего сообщения со списком
-	QuickTopicsMsgID   int    // ID отдельного сообщения с быстрыми топиками (0 — не показано)
-	PendingNoteText    string // текст заметки, ожидающий выбора приоритета
-	PendingNoteTopicID int64  // топик для заметки, ожидающей приоритет
-	PromptMsgID        int    // ID сообщения-подсказки для удаления
-	PendingCmdMsgID    int    // ID сообщения-команды (для удаления после finish)
+	State               State
+	CurrentTopicID      int64              // 0 — без топика
+	CurrentFolderID     *int64             // nil — корень топика (не в папке)
+	EditNoteID          int64              // ID заметки для редактирования в StateWaitingEditText
+	LastViewedNoteID    int64              // ID последней просмотренной заметки (для SwitchInlineQuery)
+	LastListMsgID       int                // ID последнего сообщения со списком
+	QuickTopicsMsgID    int                // ID отдельного сообщения с быстрыми топиками (0 — не показано)
+	PendingNoteText     string             // текст заметки, ожидающий выбора приоритета
+	PendingNoteEntities []model.NoteEntity // форматирование текста, ожидающего приоритет
+	PendingNoteTopicID  int64              // топик для заметки, ожидающей приоритет
+	PromptMsgID         int                // ID сообщения-подсказки для удаления
+	PendingCmdMsgID     int                // ID сообщения-команды (для удаления после finish)
 
 	// Режим перемещения
 	MoveNoteID          int64  // ID заметки, которую перемещаем
@@ -37,15 +40,15 @@ type UserSession struct {
 	MoveCurrentFolderID *int64 // текущая папка в навигаторе перемещения (nil = корень)
 
 	// Настройки
-	ShowCounts       bool // показывать количество заметок и папок рядом с названиями
-	BreadcrumbInline bool // хлебные крошки inline-кнопками вместо текста
-	BreadcrumbBottom bool // крошки внизу (только при BreadcrumbInline=true)
-	ShowKeyboard     bool // показывать быструю клавиатуру
-	TimezoneOffset   int  // смещение часового пояса от Москвы (0 = МСК, UTC+3)
-	FoldersCollapsed bool   // схлопывать папки уровня в одну кнопку
-	QuickTopicsCount int    // сколько быстрых топиков показывать кнопками
+	ShowCounts       bool    // показывать количество заметок и папок рядом с названиями
+	BreadcrumbInline bool    // хлебные крошки inline-кнопками вместо текста
+	BreadcrumbBottom bool    // крошки внизу (только при BreadcrumbInline=true)
+	ShowKeyboard     bool    // показывать быструю клавиатуру
+	TimezoneOffset   int     // смещение часового пояса от Москвы (0 = МСК, UTC+3)
+	FoldersCollapsed bool    // схлопывать папки уровня в одну кнопку
+	QuickTopicsCount int     // сколько быстрых топиков показывать кнопками
 	QuickTopicIDs    []int64 // ID топиков, выбранных для быстрых кнопок (ручной выбор)
-	SettingsLoaded   bool   // настройки уже загружены из хранилища (однократно за процесс)
+	SettingsLoaded   bool    // настройки уже загружены из хранилища (однократно за процесс)
 
 	// Состояние схлопывания папок (в рамках текущего топика).
 	// Ключ уровня: 0 — корень топика, иначе ID папки-родителя.
@@ -99,5 +102,6 @@ func (sm *StateManager) Reset(userID int64) {
 	s.State = StateIdle
 	s.EditNoteID = 0
 	s.PendingNoteText = ""
+	s.PendingNoteEntities = nil
 	s.AttachmentNoteID = 0
 }

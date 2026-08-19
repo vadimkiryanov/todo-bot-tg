@@ -497,6 +497,9 @@ func buildTimersMessage(notes []model.Note, timezoneOffset int) (string, tgbotap
 
 // buildViewNoteMessage строит текст и разметку для просмотра заметки.
 // expanded=false — компактный вид (4 основных + ···), expanded=true — все кнопки + ▲.
+// Если у заметки есть сущности форматирования — текст рендерится в HTML
+// (отправляется с ParseMode=HTML), иначе — экранированный legacy Markdown,
+// как раньше (обратная совместимость со старыми заметками).
 func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (string, tgbotapi.InlineKeyboardMarkup) {
 	prefix := ""
 	if note.Done {
@@ -504,6 +507,8 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 	} else if emoji := note.Priority.Emoji(); emoji != "" {
 		prefix = emoji + " "
 	}
+
+	hasEntities := len(note.Entities) > 0
 
 	doneLine := ""
 	if note.Done {
@@ -515,9 +520,17 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 		pinnedLine = "\n📌 Закреплена"
 	}
 
-	displayText := tgbotapi.EscapeText(tgbotapi.ModeMarkdown, note.Text)
-	if note.Done {
-		displayText = strikethrough(displayText)
+	var displayText string
+	if hasEntities {
+		displayText = entitiesToHTML(note.Text, note.Entities)
+		if note.Done {
+			displayText = "<s>" + displayText + "</s>"
+		}
+	} else {
+		displayText = tgbotapi.EscapeText(tgbotapi.ModeMarkdown, note.Text)
+		if note.Done {
+			displayText = strikethrough(displayText)
+		}
 	}
 
 	reminderLine := ""
@@ -529,7 +542,11 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 		}
 	}
 
-	text := fmt.Sprintf("%s*#%d*\n%s%s%s%s", prefix, note.ID, displayText, doneLine, pinnedLine, reminderLine)
+	idPart := fmt.Sprintf("*#%d*", note.ID)
+	if hasEntities {
+		idPart = fmt.Sprintf("<b>#%d</b>", note.ID)
+	}
+	text := fmt.Sprintf("%s%s\n%s%s%s%s", prefix, idPart, displayText, doneLine, pinnedLine, reminderLine)
 	query := fmt.Sprintf("\n\n%s", note.Text)
 
 	editBtn := tgbotapi.InlineKeyboardButton{

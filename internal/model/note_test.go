@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewNote_Success(t *testing.T) {
-	note, err := NewNote(1, 2, nil, "Купить хлеб")
+	note, err := NewNote(1, 2, nil, "Купить хлеб", nil)
 	if err != nil {
 		t.Fatalf("NewNote() unexpected error: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestNewNote_Success(t *testing.T) {
 }
 
 func TestNewNote_EmptyText(t *testing.T) {
-	_, err := NewNote(1, 0, nil, "")
+	_, err := NewNote(1, 0, nil, "", nil)
 	if err != errors.ErrEmptyText {
 		t.Errorf("error = %v, want %v", err, errors.ErrEmptyText)
 	}
@@ -44,12 +44,25 @@ func TestNewNote_EmptyText(t *testing.T) {
 
 func TestNewNote_WithFolder(t *testing.T) {
 	folderID := int64(42)
-	note, err := NewNote(1, 2, &folderID, "Текст")
+	note, err := NewNote(1, 2, &folderID, "Текст", nil)
 	if err != nil {
 		t.Fatalf("NewNote() unexpected error: %v", err)
 	}
 	if note.FolderID == nil || *note.FolderID != 42 {
 		t.Errorf("FolderID = %v, want 42", note.FolderID)
+	}
+}
+
+func TestNewNote_WithEntities(t *testing.T) {
+	entities := []NoteEntity{
+		{Type: "bold", Offset: 0, Length: 6},
+	}
+	note, err := NewNote(1, 2, nil, "Жирный текст", entities)
+	if err != nil {
+		t.Fatalf("NewNote() unexpected error: %v", err)
+	}
+	if len(note.Entities) != 1 || note.Entities[0].Type != "bold" {
+		t.Errorf("Entities = %+v, want bold", note.Entities)
 	}
 }
 
@@ -122,7 +135,7 @@ func TestNote_Unarchive(t *testing.T) {
 
 func TestNote_EditText_Success(t *testing.T) {
 	n := &Note{Text: "Старый текст"}
-	err := n.EditText("Новый текст")
+	err := n.EditText("Новый текст", nil)
 	if err != nil {
 		t.Fatalf("EditText() unexpected error: %v", err)
 	}
@@ -131,9 +144,35 @@ func TestNote_EditText_Success(t *testing.T) {
 	}
 }
 
+func TestNote_EditText_WithEntities(t *testing.T) {
+	n := &Note{Text: "Старый текст"}
+	entities := []NoteEntity{{Type: "italic", Offset: 0, Length: 6}}
+	err := n.EditText("Новый текст", entities)
+	if err != nil {
+		t.Fatalf("EditText() unexpected error: %v", err)
+	}
+	if n.Text != "Новый текст" {
+		t.Errorf("Text = %q, want %q", n.Text, "Новый текст")
+	}
+	if len(n.Entities) != 1 || n.Entities[0].Type != "italic" {
+		t.Errorf("Entities = %+v, want italic", n.Entities)
+	}
+}
+
+func TestNote_EditText_ClearsEntities(t *testing.T) {
+	n := &Note{Text: "Старый", Entities: []NoteEntity{{Type: "bold", Offset: 0, Length: 6}}}
+	err := n.EditText("Новый", nil)
+	if err != nil {
+		t.Fatalf("EditText() unexpected error: %v", err)
+	}
+	if n.Entities != nil {
+		t.Errorf("Entities = %+v, want nil", n.Entities)
+	}
+}
+
 func TestNote_EditText_Empty(t *testing.T) {
 	n := &Note{Text: "Старый текст"}
-	err := n.EditText("")
+	err := n.EditText("", nil)
 	if err != errors.ErrEmptyText {
 		t.Errorf("error = %v, want %v", err, errors.ErrEmptyText)
 	}
@@ -172,7 +211,7 @@ func TestNote_MarkUndone(t *testing.T) {
 }
 
 func TestNewNote_DoneDefaultFalse(t *testing.T) {
-	note, _ := NewNote(1, 2, nil, "Test")
+	note, _ := NewNote(1, 2, nil, "Test", nil)
 	if note.Done {
 		t.Error("New notes should have Done = false by default")
 	}
@@ -195,7 +234,7 @@ func TestNote_Unpin(t *testing.T) {
 }
 
 func TestNewNote_PinnedDefaultFalse(t *testing.T) {
-	note, _ := NewNote(1, 2, nil, "Test")
+	note, _ := NewNote(1, 2, nil, "Test", nil)
 	if note.Pinned {
 		t.Error("New notes should have Pinned = false by default")
 	}

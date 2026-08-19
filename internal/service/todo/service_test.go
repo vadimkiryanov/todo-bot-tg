@@ -75,7 +75,7 @@ func TestService_GetTopic(t *testing.T) {
 func TestService_DeleteTopic(t *testing.T) {
 	svc := newTestService(t)
 	topic, _ := svc.CreateTopic(1, "Test")
-	_, _ = svc.AddNote(1, topic.ID, nil, "Note", 0)
+	_, _ = svc.AddNote(1, topic.ID, nil, "Note", nil, 0)
 
 	err := svc.DeleteTopic(1, topic.ID)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestService_DeleteTopic(t *testing.T) {
 
 func TestService_AddNote(t *testing.T) {
 	svc := newTestService(t)
-	note, err := svc.AddNote(1, 0, nil, "Купить хлеб", model.PriorityHigh)
+	note, err := svc.AddNote(1, 0, nil, "Купить хлеб", nil, model.PriorityHigh)
 	if err != nil {
 		t.Fatalf("AddNote() error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestService_AddNote(t *testing.T) {
 
 func TestService_AddNote_EmptyText(t *testing.T) {
 	svc := newTestService(t)
-	_, err := svc.AddNote(1, 0, nil, "", 0)
+	_, err := svc.AddNote(1, 0, nil, "", nil, 0)
 	if err != errors.ErrEmptyText {
 		t.Errorf("error = %v, want %v", err, errors.ErrEmptyText)
 	}
@@ -115,10 +115,10 @@ func TestService_AddNote_EmptyText(t *testing.T) {
 func TestService_ListNotes_SortByPriority(t *testing.T) {
 	svc := newTestService(t)
 
-	n1, _ := svc.AddNote(1, 0, nil, "Low", model.PriorityLow)       // должен быть последним
-	n2, _ := svc.AddNote(1, 0, nil, "High", model.PriorityHigh)     // должен быть первым
-	n3, _ := svc.AddNote(1, 0, nil, "None", model.PriorityNone)     // после Medium
-	n4, _ := svc.AddNote(1, 0, nil, "Medium", model.PriorityMedium) // после High
+	n1, _ := svc.AddNote(1, 0, nil, "Low", nil, model.PriorityLow)       // должен быть последним
+	n2, _ := svc.AddNote(1, 0, nil, "High", nil, model.PriorityHigh)     // должен быть первым
+	n3, _ := svc.AddNote(1, 0, nil, "None", nil, model.PriorityNone)     // после Medium
+	n4, _ := svc.AddNote(1, 0, nil, "Medium", nil, model.PriorityMedium) // после High
 
 	notes, err := svc.ListNotes(1, 0, nil)
 	if err != nil {
@@ -151,10 +151,10 @@ func TestService_ListNotes_SortByPriority(t *testing.T) {
 func TestService_ListNotes_DoneGoesToEnd(t *testing.T) {
 	svc := newTestService(t)
 
-	n1, _ := svc.AddNote(1, 0, nil, "Active High", model.PriorityHigh)
-	n2, _ := svc.AddNote(1, 0, nil, "Active Low", model.PriorityLow)
-	n3, _ := svc.AddNote(1, 0, nil, "Done High", model.PriorityHigh)
-	n4, _ := svc.AddNote(1, 0, nil, "Done None", model.PriorityNone)
+	n1, _ := svc.AddNote(1, 0, nil, "Active High", nil, model.PriorityHigh)
+	n2, _ := svc.AddNote(1, 0, nil, "Active Low", nil, model.PriorityLow)
+	n3, _ := svc.AddNote(1, 0, nil, "Done High", nil, model.PriorityHigh)
+	n4, _ := svc.AddNote(1, 0, nil, "Done None", nil, model.PriorityNone)
 
 	// Помечаем n3 и n4 как выполненные
 	_ = svc.MarkDone(1, n3.ID)
@@ -186,9 +186,9 @@ func TestService_ListNotes_DoneGoesToEnd(t *testing.T) {
 
 func TestService_EditNote(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Before", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Before", nil, 0)
 
-	err := svc.EditNote(1, note.ID, "After")
+	err := svc.EditNote(1, note.ID, "After", nil)
 	if err != nil {
 		t.Fatalf("EditNote() error: %v", err)
 	}
@@ -201,17 +201,50 @@ func TestService_EditNote(t *testing.T) {
 
 func TestService_EditNote_EmptyText(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Before", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Before", nil, 0)
 
-	err := svc.EditNote(1, note.ID, "")
+	err := svc.EditNote(1, note.ID, "", nil)
 	if err != errors.ErrEmptyText {
 		t.Errorf("error = %v, want %v", err, errors.ErrEmptyText)
 	}
 }
 
+func TestService_EditNote_KeepsEntitiesWhenTextUnchanged(t *testing.T) {
+	svc := newTestService(t)
+	entities := []model.NoteEntity{{Type: "bold", Offset: 0, Length: 6}}
+	note, _ := svc.AddNote(1, 0, nil, "Жирный текст", entities, 0)
+
+	// Как после кнопки ✏️: текст тот же, entities не переданы
+	err := svc.EditNote(1, note.ID, "Жирный текст", nil)
+	if err != nil {
+		t.Fatalf("EditNote() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if len(got.Entities) != 1 || got.Entities[0].Type != "bold" {
+		t.Errorf("Entities = %+v, want форматирование сохранено", got.Entities)
+	}
+}
+
+func TestService_EditNote_ReplacesEntitiesOnTextChange(t *testing.T) {
+	svc := newTestService(t)
+	entities := []model.NoteEntity{{Type: "bold", Offset: 0, Length: 6}}
+	note, _ := svc.AddNote(1, 0, nil, "Жирный текст", entities, 0)
+
+	err := svc.EditNote(1, note.ID, "Новый текст", nil)
+	if err != nil {
+		t.Fatalf("EditNote() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if len(got.Entities) != 0 {
+		t.Errorf("Entities = %+v, want пустые (текст изменился)", got.Entities)
+	}
+}
+
 func TestService_DeleteNote(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 
 	err := svc.DeleteNote(1, note.ID)
 	if err != nil {
@@ -226,7 +259,7 @@ func TestService_DeleteNote(t *testing.T) {
 
 func TestService_ArchiveNote(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 
 	err := svc.ArchiveNote(1, note.ID)
 	if err != nil {
@@ -241,7 +274,7 @@ func TestService_ArchiveNote(t *testing.T) {
 
 func TestService_UnarchiveNote(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 	_ = svc.ArchiveNote(1, note.ID)
 
 	err := svc.UnarchiveNote(1, note.ID)
@@ -257,7 +290,7 @@ func TestService_UnarchiveNote(t *testing.T) {
 
 func TestService_MarkDone(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 
 	err := svc.MarkDone(1, note.ID)
 	if err != nil {
@@ -272,7 +305,7 @@ func TestService_MarkDone(t *testing.T) {
 
 func TestService_MarkUndone(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 	_ = svc.MarkDone(1, note.ID)
 
 	err := svc.MarkUndone(1, note.ID)
@@ -288,7 +321,7 @@ func TestService_MarkUndone(t *testing.T) {
 
 func TestService_PinNote(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 
 	err := svc.PinNote(1, note.ID)
 	if err != nil {
@@ -303,7 +336,7 @@ func TestService_PinNote(t *testing.T) {
 
 func TestService_UnpinNote(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 	_ = svc.PinNote(1, note.ID)
 
 	err := svc.UnpinNote(1, note.ID)
@@ -321,8 +354,8 @@ func TestService_ListNotes_PinnedFirst(t *testing.T) {
 	svc := newTestService(t)
 
 	// High-приоритетная, но не закреплённая — должна идти после закреплённого Low
-	n1, _ := svc.AddNote(1, 0, nil, "High unpinned", model.PriorityHigh)
-	n2, _ := svc.AddNote(1, 0, nil, "Low pinned", model.PriorityLow)
+	n1, _ := svc.AddNote(1, 0, nil, "High unpinned", nil, model.PriorityHigh)
+	n2, _ := svc.AddNote(1, 0, nil, "Low pinned", nil, model.PriorityLow)
 	_ = svc.PinNote(1, n2.ID)
 
 	notes, err := svc.ListNotes(1, 0, nil)
@@ -345,8 +378,8 @@ func TestService_ListNotes_PinnedFirst(t *testing.T) {
 func TestService_ListNotes_PinnedDoneStaysFirst(t *testing.T) {
 	svc := newTestService(t)
 
-	n1, _ := svc.AddNote(1, 0, nil, "Active", model.PriorityNone)
-	n2, _ := svc.AddNote(1, 0, nil, "Done pinned", model.PriorityNone)
+	n1, _ := svc.AddNote(1, 0, nil, "Active", nil, model.PriorityNone)
+	n2, _ := svc.AddNote(1, 0, nil, "Done pinned", nil, model.PriorityNone)
 	_ = svc.PinNote(1, n2.ID)
 	_ = svc.MarkDone(1, n2.ID)
 
@@ -369,7 +402,7 @@ func TestService_ListNotes_PinnedDoneStaysFirst(t *testing.T) {
 
 func TestService_SetPriority(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", model.PriorityNone)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, model.PriorityNone)
 
 	err := svc.SetPriority(1, note.ID, model.PriorityHigh)
 	if err != nil {
@@ -384,7 +417,7 @@ func TestService_SetPriority(t *testing.T) {
 
 func TestService_SetReminder(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 
 	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
 	err := svc.SetReminder(1, note.ID, at, model.ReminderRepeatOnce)
@@ -400,7 +433,7 @@ func TestService_SetReminder(t *testing.T) {
 
 func TestService_ClearReminder(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 	_ = svc.SetReminder(1, note.ID, time.Now(), model.ReminderRepeatOnce)
 
 	err := svc.ClearReminder(1, note.ID)
@@ -417,8 +450,8 @@ func TestService_ClearReminder(t *testing.T) {
 func TestService_ProcessPendingReminders(t *testing.T) {
 	svc := newTestService(t)
 	past := time.Now().Add(-1 * time.Hour)
-	_, _ = svc.AddNote(1, 0, nil, "Past", 0)
-	note2, _ := svc.AddNote(1, 1, nil, "Past 2", 0)
+	_, _ = svc.AddNote(1, 0, nil, "Past", nil, 0)
+	note2, _ := svc.AddNote(1, 1, nil, "Past 2", nil, 0)
 	_ = svc.SetReminder(1, note2.ID, past, model.ReminderRepeatOnce)
 
 	notes, err := svc.ProcessPendingReminders()
@@ -440,9 +473,9 @@ func TestService_ListTimers(t *testing.T) {
 	svc := newTestService(t)
 
 	// Заметки пользователя 1 в разных топиках
-	n1, _ := svc.AddNote(1, 1, nil, "Ранний таймер", 0)
-	n2, _ := svc.AddNote(1, 2, nil, "Поздний таймер", 0)
-	_, _ = svc.AddNote(1, 1, nil, "Без таймера", 0)
+	n1, _ := svc.AddNote(1, 1, nil, "Ранний таймер", nil, 0)
+	n2, _ := svc.AddNote(1, 2, nil, "Поздний таймер", nil, 0)
+	_, _ = svc.AddNote(1, 1, nil, "Без таймера", nil, 0)
 
 	early := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
 	late := time.Date(2026, 8, 6, 18, 0, 0, 0, time.UTC)
@@ -472,7 +505,7 @@ func TestService_ListTimers(t *testing.T) {
 func TestService_ListTimers_OtherUser(t *testing.T) {
 	svc := newTestService(t)
 
-	note, _ := svc.AddNote(2, 1, nil, "Чужой таймер", 0)
+	note, _ := svc.AddNote(2, 1, nil, "Чужой таймер", nil, 0)
 	_ = svc.SetReminder(2, note.ID, time.Now(), model.ReminderRepeatOnce)
 
 	notes, err := svc.ListTimers(1)
@@ -486,9 +519,9 @@ func TestService_ListTimers_OtherUser(t *testing.T) {
 
 func TestService_CountNotes(t *testing.T) {
 	svc := newTestService(t)
-	_, _ = svc.AddNote(1, 1, nil, "A", 0)
-	_, _ = svc.AddNote(1, 1, nil, "B", 0)
-	_, _ = svc.AddNote(1, 2, nil, "C", 0)
+	_, _ = svc.AddNote(1, 1, nil, "A", nil, 0)
+	_, _ = svc.AddNote(1, 1, nil, "B", nil, 0)
+	_, _ = svc.AddNote(1, 2, nil, "C", nil, 0)
 
 	count, err := svc.CountNotes(1, 1, nil)
 	if err != nil {
@@ -501,7 +534,7 @@ func TestService_CountNotes(t *testing.T) {
 
 func TestService_ListArchived(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 	_ = svc.ArchiveNote(1, note.ID)
 
 	list, err := svc.ListArchived(1)
@@ -622,7 +655,7 @@ func TestService_GetFolderChain(t *testing.T) {
 
 func TestService_MoveNote(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 1, nil, "Test", 0)
+	note, _ := svc.AddNote(1, 1, nil, "Test", nil, 0)
 	folder, _ := svc.CreateFolder(1, 2, nil, "Target")
 
 	err := svc.MoveNote(1, note.ID, 2, &folder.ID)
@@ -643,7 +676,7 @@ func TestService_MoveNote(t *testing.T) {
 
 func TestService_AddAttachment(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "С заметкой", 0)
+	note, _ := svc.AddNote(1, 0, nil, "С заметкой", nil, 0)
 
 	att, err := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "file_id_1", "photo.jpg", "image/jpeg", 1024, []byte("data"))
 	if err != nil {
@@ -681,7 +714,7 @@ func TestService_AddAttachment_NoteNotFound(t *testing.T) {
 
 func TestService_AddAttachment_InvalidType(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	_, err := svc.AddAttachment(1, note.ID, "gif", "fid", "a.gif", "image/gif", 1, []byte("x"))
 	if err != errors.ErrInvalidAttachmentType {
 		t.Errorf("error = %v, want %v", err, errors.ErrInvalidAttachmentType)
@@ -690,7 +723,7 @@ func TestService_AddAttachment_InvalidType(t *testing.T) {
 
 func TestService_AddAttachment_EmptyData(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	_, err := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "fid", "a.txt", "text/plain", 0, nil)
 	if err != errors.ErrEmptyFile {
 		t.Errorf("error = %v, want %v", err, errors.ErrEmptyFile)
@@ -699,7 +732,7 @@ func TestService_AddAttachment_EmptyData(t *testing.T) {
 
 func TestService_AddAttachment_DuplicateFileName(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 
 	first, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "photo.jpg", "image/jpeg", 100, []byte("a"))
 	second, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f2", "photo.jpg", "image/jpeg", 100, []byte("b"))
@@ -718,7 +751,7 @@ func TestService_AddAttachment_DuplicateFileName(t *testing.T) {
 
 func TestService_AddAttachment_DuplicateFileName_NoExt(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 
 	first, _ := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f1", "notes", "application/octet-stream", 10, []byte("a"))
 	second, _ := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f2", "notes", "application/octet-stream", 10, []byte("b"))
@@ -733,8 +766,8 @@ func TestService_AddAttachment_DuplicateFileName_NoExt(t *testing.T) {
 
 func TestService_AddAttachment_SameNameDifferentNote(t *testing.T) {
 	svc := newTestService(t)
-	note1, _ := svc.AddNote(1, 0, nil, "N1", 0)
-	note2, _ := svc.AddNote(1, 0, nil, "N2", 0)
+	note1, _ := svc.AddNote(1, 0, nil, "N1", nil, 0)
+	note2, _ := svc.AddNote(1, 0, nil, "N2", nil, 0)
 
 	a1, _ := svc.AddAttachment(1, note1.ID, model.AttachmentDocument, "f1", "same.pdf", "application/pdf", 10, []byte("a"))
 	a2, _ := svc.AddAttachment(1, note2.ID, model.AttachmentDocument, "f2", "same.pdf", "application/pdf", 10, []byte("b"))
@@ -763,7 +796,7 @@ func TestUniqueFileName(t *testing.T) {
 
 func TestService_ListAttachments(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	_, _ = svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f1", "a.pdf", "application/pdf", 100, []byte("pdf"))
 	_, _ = svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f2", "b.png", "image/png", 200, []byte("png"))
 
@@ -778,7 +811,7 @@ func TestService_ListAttachments(t *testing.T) {
 
 func TestService_ListAttachments_OtherUser(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	_, _ = svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
 
 	_, err := svc.ListAttachments(2, note.ID)
@@ -789,7 +822,7 @@ func TestService_ListAttachments_OtherUser(t *testing.T) {
 
 func TestService_GetAttachment(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	created, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
 
 	got, err := svc.GetAttachment(1, created.ID)
@@ -803,7 +836,7 @@ func TestService_GetAttachment(t *testing.T) {
 
 func TestService_GetAttachment_OtherUser(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	created, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
 
 	_, err := svc.GetAttachment(2, created.ID)
@@ -814,7 +847,7 @@ func TestService_GetAttachment_OtherUser(t *testing.T) {
 
 func TestService_DeleteAttachment(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	created, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
 
 	// Файл существует до удаления
@@ -839,7 +872,7 @@ func TestService_DeleteAttachment(t *testing.T) {
 
 func TestService_DeleteAttachment_OtherUser(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	created, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f1", "a.jpg", "image/jpeg", 1, []byte("x"))
 
 	err := svc.DeleteAttachment(2, created.ID)
@@ -854,7 +887,7 @@ func TestService_DeleteAttachment_OtherUser(t *testing.T) {
 
 func TestService_DeleteNote_RemovesFiles(t *testing.T) {
 	svc := newTestService(t)
-	note, _ := svc.AddNote(1, 0, nil, "N", 0)
+	note, _ := svc.AddNote(1, 0, nil, "N", nil, 0)
 	att, _ := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f1", "a.pdf", "application/pdf", 100, []byte("pdf"))
 	att2, _ := svc.AddAttachment(1, note.ID, model.AttachmentPhoto, "f2", "b.jpg", "image/jpeg", 200, []byte("jpg"))
 
@@ -874,7 +907,7 @@ func TestService_DeleteNote_RemovesFiles(t *testing.T) {
 func TestService_DeleteTopic_RemovesFiles(t *testing.T) {
 	svc := newTestService(t)
 	topic, _ := svc.CreateTopic(1, "T")
-	note, _ := svc.AddNote(1, topic.ID, nil, "N", 0)
+	note, _ := svc.AddNote(1, topic.ID, nil, "N", nil, 0)
 	att, _ := svc.AddAttachment(1, note.ID, model.AttachmentDocument, "f1", "a.pdf", "application/pdf", 100, []byte("pdf"))
 
 	err := svc.DeleteTopic(1, topic.ID)

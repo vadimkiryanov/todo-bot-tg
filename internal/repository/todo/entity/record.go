@@ -10,6 +10,7 @@ type NoteRecord struct {
 	TopicID        int64      `db:"topic_id"`
 	FolderID       *int64     `db:"folder_id"`
 	Text           string     `db:"text"`
+	Entities       string     `db:"entities"` // JSON-массив сущностей форматирования
 	Priority       int        `db:"priority"`
 	ReminderAt     *time.Time `db:"reminder_at"`
 	ReminderRepeat string     `db:"reminder_repeat"`

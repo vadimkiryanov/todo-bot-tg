@@ -63,7 +63,7 @@ const (
 	ActionAttGet         CallbackAction = "attget"
 	ActionAttDel         CallbackAction = "attdel"
 	ActionAttConfDel     CallbackAction = "attconfdel"
-	ActionQuickPick      CallbackAction = "quickpick"  // экран выбора топиков для быстрых кнопок
+	ActionQuickPick      CallbackAction = "quickpick"   // экран выбора топиков для быстрых кнопок
 	ActionQuickToggle    CallbackAction = "quicktoggle" // отметить/снять топик в экране выбора
 )
 
@@ -281,7 +281,7 @@ func (h *Handler) callbackViewNote(chatID int64, msgID int, userID int64, noteID
 
 	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
+	edit.ParseMode = noteParseMode(note)
 	h.api.Send(edit)
 }
 
@@ -296,7 +296,7 @@ func (h *Handler) callbackExpandNote(chatID int64, msgID int, userID int64, note
 	tzOffset := h.states.Get(userID).TimezoneOffset
 	text, markup := buildViewNoteMessage(note, true, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
+	edit.ParseMode = noteParseMode(note)
 	h.api.Send(edit)
 }
 
@@ -311,7 +311,7 @@ func (h *Handler) callbackCollapseNote(chatID int64, msgID int, userID int64, no
 	tzOffset := h.states.Get(userID).TimezoneOffset
 	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
+	edit.ParseMode = noteParseMode(note)
 	h.api.Send(edit)
 }
 
@@ -338,13 +338,14 @@ func (h *Handler) callbackArchiveNote(chatID, userID, noteID int64) {
 func (h *Handler) callbackSetPriority(chatID int64, msgID int, userID int64, priority int) {
 	session := h.states.Get(userID)
 	text := session.PendingNoteText
+	entities := session.PendingNoteEntities
 	topicID := session.PendingNoteTopicID
 	folderID := session.CurrentFolderID
 	lastMsgID := session.LastListMsgID
 
 	h.states.Reset(userID)
 
-	_, err := h.noteService.AddNote(userID, topicID, folderID, text, model.Priority(priority))
+	_, err := h.noteService.AddNote(userID, topicID, folderID, text, entities, model.Priority(priority))
 	if err != nil {
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
@@ -380,7 +381,7 @@ func (h *Handler) callbackChangePriority(chatID int64, msgID int, userID int64, 
 	tzOffset := session.TimezoneOffset
 	text, markup := buildViewNoteMessage(note, true, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
+	edit.ParseMode = noteParseMode(note)
 	h.api.Send(edit)
 
 	// Обновляем список в фоне
@@ -409,7 +410,7 @@ func (h *Handler) mutateNote(chatID int64, msgID int, userID int64, noteID int64
 	tzOffset := session.TimezoneOffset
 	text, markup := buildViewNoteMessage(note, expanded, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
+	edit.ParseMode = noteParseMode(note)
 	h.api.Send(edit)
 
 	// Обновляем список в фоне

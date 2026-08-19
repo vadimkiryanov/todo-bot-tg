@@ -135,12 +135,12 @@ func (s *Service) DeleteTopic(userID, topicID int64) error {
 
 // --- Notes ---
 
-// AddNote добавляет новую заметку с указанным приоритетом.
-func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, priority model.Priority) (model.Note, error) {
+// AddNote добавляет новую заметку с указанным приоритетом и форматированием.
+func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority) (model.Note, error) {
 	unlock := s.locks.Lock(userID)
 	defer unlock()
 
-	note, err := model.NewNote(userID, topicID, folderID, text)
+	note, err := model.NewNote(userID, topicID, folderID, text, entities)
 	if err != nil {
 		return model.Note{}, err
 	}
@@ -181,8 +181,11 @@ func (s *Service) GetNote(userID, noteID int64) (model.Note, error) {
 	return s.noteRepo.GetNote(userID, noteID)
 }
 
-// EditNote обновляет текст заметки.
-func (s *Service) EditNote(userID, noteID int64, text string) error {
+// EditNote обновляет текст заметки и его форматирование.
+// Если новый текст совпадает со старым, а форматирование не было передано
+// (кнопка ✏️ подставляет в поле ввода plain-текст — entities Telegram не
+// передаёт), — форматирование сохраняется как было.
+func (s *Service) EditNote(userID, noteID int64, text string, entities []model.NoteEntity) error {
 	unlock := s.locks.Lock(userID)
 	defer unlock()
 
@@ -191,7 +194,11 @@ func (s *Service) EditNote(userID, noteID int64, text string) error {
 		return err
 	}
 
-	if err := note.EditText(text); err != nil {
+	if len(entities) == 0 && text == note.Text {
+		entities = note.Entities
+	}
+
+	if err := note.EditText(text, entities); err != nil {
 		return err
 	}
 
@@ -466,7 +473,7 @@ func (s *Service) SeedDefaults(userID int64) error {
 		{work.ID, "Созвон с командой в 15:00"},
 	}
 	for _, d := range defaults {
-		note, err := model.NewNote(userID, d.topicID, nil, d.text)
+		note, err := model.NewNote(userID, d.topicID, nil, d.text, nil)
 		if err != nil {
 			return err
 		}

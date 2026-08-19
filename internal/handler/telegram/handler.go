@@ -13,10 +13,10 @@ import (
 
 // NoteService — интерфейс сервиса заметок (определён потребителем — handler'ом).
 type NoteService interface {
-	AddNote(userID, topicID int64, folderID *int64, text string, priority model.Priority) (model.Note, error)
+	AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority) (model.Note, error)
 	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
-	EditNote(userID, noteID int64, text string) error
+	EditNote(userID, noteID int64, text string, entities []model.NoteEntity) error
 	DeleteNote(userID, noteID int64) error
 	ArchiveNote(userID, noteID int64) error
 	UnarchiveNote(userID, noteID int64) error
@@ -137,9 +137,13 @@ func (h *Handler) Stop() {
 
 // SendReminder отправляет пользователю сообщение-напоминание.
 // Реализует порт reminder.NotificationSender: воркер напоминаний не знает о Telegram.
+// Если у заметки есть форматирование — текст отправляется с ним (ParseMode=HTML).
 func (h *Handler) SendReminder(note model.Note) error {
-	text := fmt.Sprintf("⏰ Напоминание:\n\n%s", note.Text)
-	msg := tgbotapi.NewMessage(note.UserID, text)
+	msg := tgbotapi.NewMessage(note.UserID, fmt.Sprintf("⏰ Напоминание:\n\n%s", note.Text))
+	if len(note.Entities) > 0 {
+		msg.ParseMode = tgbotapi.ModeHTML
+		msg.Text = fmt.Sprintf("⏰ Напоминание:\n\n%s", entitiesToHTML(note.Text, note.Entities))
+	}
 	msg.ReplyMarkup = buildReminderNotificationMarkup(note.ID)
 	_, err := h.api.Send(msg)
 	return err
@@ -250,8 +254,6 @@ func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 
 func (h *Handler) handleMessage(msg *tgbotapi.Message) {
 	userID := msg.From.ID
-	text := strings.TrimSpace(msg.Text)
-
 	s := h.states.Get(userID)
 
 	// Медиа-сообщение — вложение к заметке
@@ -260,19 +262,22 @@ func (h *Handler) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
+	// Текст и сущности форматирования (смещения — относительно обрезанного текста)
+	text, entities := trimNoteText(msg.Text, extractNoteEntities(msg.Entities))
+
 	switch s.State {
 	case StateWaitingAddText:
-		h.finishAdd(msg, userID, text)
+		h.finishAdd(msg, userID, text, entities)
 	case StateWaitingPriority:
 		// Пользователь ввёл новый текст вместо выбора приоритета — начинаем заново
 		h.states.Reset(userID)
-		h.doAdd(msg.Chat.ID, userID, text, msg.MessageID)
+		h.doAdd(msg.Chat.ID, userID, text, entities, msg.MessageID)
 	case StateWaitingDeleteID:
 		h.finishDelete(msg, userID, text)
 	case StateWaitingEditArgs:
-		h.finishEdit(msg, userID, text)
+		h.finishEdit(msg, userID, text, entities)
 	case StateWaitingEditText:
-		h.finishEditText(msg, userID, text)
+		h.finishEditText(msg, userID, text, entities)
 	case StateWaitingArchiveID:
 		h.finishArchive(msg, userID, text)
 	case StateWaitingNewTopic:
@@ -288,12 +293,15 @@ func (h *Handler) handleMessage(msg *tgbotapi.Message) {
 		h.states.Reset(userID)
 		h.send(msg.Chat.ID, "❌ Ожидался файл. Прикрепление отменено.")
 	default:
-		// Обрезаем @bot_username из SwitchInlineQuery
-		if idx := strings.Index(text, "\n"); idx != -1 {
-			firstLine := text[:idx]
-			if strings.TrimSpace(firstLine) == h.selfUsername {
-				text = strings.TrimSpace(text[idx+1:])
-				h.handleCommandText(msg, userID, text)
+		// Обрезаем @bot_username из SwitchInlineQuery (первая строка сообщения)
+		if idx := strings.Index(msg.Text, "\n"); idx != -1 {
+			if strings.TrimSpace(msg.Text[:idx]) == h.selfUsername {
+				shift := utf16Len(msg.Text[:idx+1]) // позиция после первой строки
+				rest, ents := trimNoteText(
+					msg.Text[idx+1:],
+					shiftNoteEntities(extractNoteEntities(msg.Entities), shift, utf16Len(msg.Text[idx+1:])),
+				)
+				h.handleCommandText(msg, userID, rest, ents)
 				return
 			}
 		}
@@ -305,13 +313,13 @@ func (h *Handler) handleMessage(msg *tgbotapi.Message) {
 		case text == "📂 Топики":
 			h.cmdTopics(msg, userID)
 		default:
-			h.doAdd(msg.Chat.ID, userID, text, msg.MessageID)
+			h.doAdd(msg.Chat.ID, userID, text, entities, msg.MessageID)
 		}
 	}
 }
 
 // handleCommandText парсит текст после обрезки @bot_username.
-func (h *Handler) handleCommandText(msg *tgbotapi.Message, userID int64, text string) {
+func (h *Handler) handleCommandText(msg *tgbotapi.Message, userID int64, text string, entities []model.NoteEntity) {
 	if strings.HasPrefix(text, "/") {
 		oldText := msg.Text
 		msg.Text = text
@@ -322,9 +330,17 @@ func (h *Handler) handleCommandText(msg *tgbotapi.Message, userID int64, text st
 
 	noteID := h.states.Get(userID).LastViewedNoteID
 	if noteID != 0 {
-		h.doEdit(msg.Chat.ID, userID, noteID, text, msg.MessageID)
+		// Кнопка ✏️ подставляет в поле ввода plain-текст без entities —
+		// восстанавливаем форматирование из сохранённой заметки, если текст
+		// не изменился (или менялся только по краям).
+		if len(entities) == 0 {
+			if note, err := h.noteService.GetNote(userID, noteID); err == nil {
+				entities = reviveNoteEntities(note.Text, text, note.Entities)
+			}
+		}
+		h.doEdit(msg.Chat.ID, userID, noteID, text, entities, msg.MessageID)
 		return
 	}
 
-	h.doAdd(msg.Chat.ID, userID, text, msg.MessageID)
+	h.doAdd(msg.Chat.ID, userID, text, entities, msg.MessageID)
 }

@@ -80,13 +80,60 @@ func TestNoteToRecord_NilFields(t *testing.T) {
 	}
 }
 
+func TestNoteToRecord_EntitiesRoundTrip(t *testing.T) {
+	original := model.Note{
+		ID:     7,
+		UserID: 1,
+		Text:   "Жирный и ссылка",
+		Entities: []model.NoteEntity{
+			{Type: "bold", Offset: 0, Length: 6},
+			{Type: "text_link", Offset: 11, Length: 5, URL: "https://example.com"},
+		},
+	}
+
+	record := NoteToRecord(original)
+	if record.Entities == "" {
+		t.Fatal("NoteToRecord() вернул пустые entities")
+	}
+	result := NoteFromRecord(record)
+
+	if len(result.Entities) != 2 {
+		t.Fatalf("Entities = %d, want 2", len(result.Entities))
+	}
+	if result.Entities[0] != original.Entities[0] {
+		t.Errorf("Entities[0] = %+v, want %+v", result.Entities[0], original.Entities[0])
+	}
+	if result.Entities[1].URL != "https://example.com" {
+		t.Errorf("Entities[1].URL = %q, want %q", result.Entities[1].URL, "https://example.com")
+	}
+}
+
+func TestNoteToRecord_NoEntities(t *testing.T) {
+	original := model.Note{ID: 1, UserID: 1, Text: "Без форматирования"}
+	record := NoteToRecord(original)
+	if record.Entities != "" {
+		t.Errorf("Entities = %q, want empty", record.Entities)
+	}
+	result := NoteFromRecord(record)
+	if len(result.Entities) != 0 {
+		t.Errorf("Entities = %+v, want nil", result.Entities)
+	}
+}
+
+func TestNoteFromRecord_BrokenEntitiesJSON(t *testing.T) {
+	record := NoteRecord{ID: 1, UserID: 1, Text: "x", Entities: "{broken"}
+	result := NoteFromRecord(record)
+	if len(result.Entities) != 0 {
+		t.Errorf("Entities = %+v, want nil (битый JSON)", result.Entities)
+	}
+}
+
 func TestTopicToRecord_RoundTrip(t *testing.T) {
 	original := model.Topic{
 		ID:     10,
 		UserID: 5,
 		Name:   "🏠 Личное",
 	}
-
 	record := TopicToRecord(original)
 	result := TopicFromRecord(record)
 

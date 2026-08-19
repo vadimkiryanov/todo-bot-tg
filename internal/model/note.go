@@ -6,6 +6,17 @@ import (
 	"todo-bot-tg/internal/errors"
 )
 
+// NoteEntity — сущность форматирования фрагмента текста заметки.
+// Соответствует MessageEntity из Telegram: поля хранятся как есть,
+// чтобы при отображении можно было восстановить форматирование.
+type NoteEntity struct {
+	Type     string `json:"type"`               // bold, italic, code, pre, text_link, ...
+	Offset   int    `json:"offset"`             // смещение начала фрагмента (в UTF-16 единицах, как у Telegram)
+	Length   int    `json:"length"`             // длина фрагмента (в UTF-16 единицах)
+	URL      string `json:"url,omitempty"`      // text_link: адрес ссылки
+	Language string `json:"language,omitempty"` // pre: язык кода
+}
+
 // Note — агрегат, представляющий заметку пользователя.
 type Note struct {
 	ID             int64
@@ -13,6 +24,7 @@ type Note struct {
 	TopicID        int64  // 0 — без топика
 	FolderID       *int64 // nil — в корне топика (не в папке)
 	Text           string
+	Entities       []NoteEntity   // форматирование текста (nil — без форматирования)
 	Priority       Priority       // PriorityNone / Low / Medium / High
 	ReminderAt     *time.Time     // nil — без напоминания
 	ReminderRepeat ReminderRepeat // once / daily
@@ -23,7 +35,7 @@ type Note struct {
 }
 
 // NewNote создаёт новую заметку с валидацией (по умолчанию без приоритета).
-func NewNote(userID, topicID int64, folderID *int64, text string) (*Note, error) {
+func NewNote(userID, topicID int64, folderID *int64, text string, entities []NoteEntity) (*Note, error) {
 	if text == "" {
 		return nil, errors.ErrEmptyText
 	}
@@ -32,6 +44,7 @@ func NewNote(userID, topicID int64, folderID *int64, text string) (*Note, error)
 		TopicID:   topicID,
 		FolderID:  folderID,
 		Text:      text,
+		Entities:  entities,
 		Priority:  PriorityNone,
 		CreatedAt: time.Now(),
 	}, nil
@@ -92,11 +105,12 @@ func (n *Note) Unpin() {
 	n.Pinned = false
 }
 
-// EditText обновляет текст заметки.
-func (n *Note) EditText(text string) error {
+// EditText обновляет текст заметки и его форматирование.
+func (n *Note) EditText(text string, entities []NoteEntity) error {
 	if text == "" {
 		return errors.ErrEmptyText
 	}
 	n.Text = text
+	n.Entities = entities
 	return nil
 }

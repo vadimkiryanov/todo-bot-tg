@@ -104,7 +104,7 @@ func (h *Handler) callbackReminderRepeat(chatID int64, msgID int, userID int64, 
 	note, _ := h.noteService.GetNote(userID, noteID)
 	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
+	edit.ParseMode = noteParseMode(note)
 	h.api.Send(edit)
 
 	// Обновляем список
@@ -137,7 +137,7 @@ func (h *Handler) callbackClearReminder(chatID int64, msgID int, userID int64, n
 	tzOffset := h.states.Get(userID).TimezoneOffset
 	text, markup := buildViewNoteMessage(note, false, tzOffset)
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
-	edit.ParseMode = tgbotapi.ModeMarkdown
+	edit.ParseMode = noteParseMode(note)
 	h.api.Send(edit)
 
 	lastMsgID := h.states.Get(userID).LastListMsgID

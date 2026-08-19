@@ -116,15 +116,24 @@
 
 ---
 
+## Этап 10: Форматирование заметок (2026-08-20)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| 60 | — | **Форматирование заметок ✨**: при создании и редактировании сохраняются Telegram entities — жирный, курсив, подчёркнутый, зачёркнутый, спойлер, код, блок кода с языком и ссылки (`text_link`). Доменная модель: `model.NoteEntity` + поле `Note.Entities` (offset/length в UTF-16, как у Telegram); хранение — JSON-строка в новой колонке `notes.entities` (миграция `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, паттерн встроен в `schema`); конвертеры `NoteToRecord`/`NoteFromRecord` (битый JSON игнорируется). Автоматические сущности (mention, hashtag, url, bot_command) не сохраняются — Telegram воспроизводит их из текста сам. Рендер просмотра: заметки с форматированием отправляются с `ParseMode=HTML` (теги расставляются по границам сущностей, спецсимволы текста экранируются, корректная вложенность), старые заметки без форматирования — как раньше, legacy Markdown с экранированием. Форматирование работает во всех путях создания/редактирования: сообщение/инлайн-замена (`SwitchInlineQueryCurrentChat`), `/add` и `/edit` с аргументами, интерактивный ввод; также передаётся в напоминания (`SendReminder`). Превью в списках и кнопках — без форматирования (plain text), как и раньше |
+| 61 | — | **fix: форматирование не теряется при редактировании через ✏️** — кнопка ✏️ (`switch_inline_query_current_chat`) подставляет в поле ввода plain-текст: Bot API не позволяет передать entities в подставляемой строке (это ограничение платформы). Теперь форматирование восстанавливается при отправке: если текст не изменился — сущности сохраняются как были (fallback в `Service.EditNote`); если менялся по краям (общий префикс/суффикс) — `reviveNoteEntities` переносит сущности на неизменённые фрагменты со сдвигом, при правках в середине отбрасывает только пересекающие правку сущности; вручную применённое в поле ввода форматирование (msg entities) имеет приоритет |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
 |------|-------|---------------------|
-| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go` | Note (Done, Pinned, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки, QuickTopicsCount, QuickTopicIDs) |
-| **Сервис** | `service/todo/service.go` | CRUD, приоритеты, архивация, выполненные, закрепление, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
-| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами, `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`) |
+| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go` | Note (Entities — форматирование, Done, Pinned, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки, QuickTopicsCount, QuickTopicIDs) |
+| **Сервис** | `service/todo/service.go` | CRUD (с entities), приоритеты, архивация, выполненные, закрепление, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
+| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами (entities — JSON), `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`) |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
-| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌 |
+| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML) |
 | **Воркер** | `worker/reminder/reminder.go` | Фоновый опрос просроченных напоминаний, порт `NotificationSender` (не зависит от Telegram API) |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs) |
 

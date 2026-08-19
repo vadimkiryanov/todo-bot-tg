@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"todo-bot-tg/internal/model"
 )
 
 // ============================================================
@@ -130,7 +132,12 @@ func (h *Handler) cmdAdd(msg *tgbotapi.Message, userID int64, args string) {
 		h.sendPrompt(msg.Chat.ID, userID, "📝 Введите текст заметки:")
 		return
 	}
-	h.doAdd(msg.Chat.ID, userID, text, msg.MessageID)
+	entities := extractNoteEntities(msg.Entities)
+	if off := commandArgOffset(msg); off >= 0 {
+		entities = shiftNoteEntities(entities, off, utf16Len(args))
+	}
+	text, entities = trimNoteText(args, entities)
+	h.doAdd(msg.Chat.ID, userID, text, entities, msg.MessageID)
 }
 
 func (h *Handler) cmdList(msg *tgbotapi.Message, userID int64) {
@@ -192,7 +199,12 @@ func (h *Handler) cmdEdit(msg *tgbotapi.Message, userID int64, args string) {
 		h.send(msg.Chat.ID, "❌ ID должен быть числом")
 		return
 	}
-	h.doEdit(msg.Chat.ID, userID, id, parts[1], msg.MessageID)
+	entities := extractNoteEntities(msg.Entities)
+	if off := commandArgOffset(msg); off >= 0 {
+		entities = shiftNoteEntities(entities, off+utf16Len(parts[0])+1, utf16Len(parts[1]))
+	}
+	text, entities := trimNoteText(parts[1], entities)
+	h.doEdit(msg.Chat.ID, userID, id, text, entities, msg.MessageID)
 }
 
 func (h *Handler) cmdDelete(msg *tgbotapi.Message, userID int64, args string) {
@@ -271,7 +283,7 @@ func (h *Handler) cmdBackup(msg *tgbotapi.Message) {
 // Interactive state completions
 // ============================================================
 
-func (h *Handler) finishAdd(msg *tgbotapi.Message, userID int64, text string) {
+func (h *Handler) finishAdd(msg *tgbotapi.Message, userID int64, text string, entities []model.NoteEntity) {
 	if text == "" {
 		h.states.Reset(userID)
 		h.send(msg.Chat.ID, "❌ Текст заметки не может быть пустым.")
@@ -280,7 +292,7 @@ func (h *Handler) finishAdd(msg *tgbotapi.Message, userID int64, text string) {
 	h.clearPrompt(msg.Chat.ID, userID)
 	h.clearCmd(msg.Chat.ID, userID)
 	h.deleteUserMsg(msg)
-	h.doAdd(msg.Chat.ID, userID, text, msg.MessageID)
+	h.doAdd(msg.Chat.ID, userID, text, entities, msg.MessageID)
 }
 
 func (h *Handler) finishDelete(msg *tgbotapi.Message, userID int64, text string) {
@@ -296,7 +308,7 @@ func (h *Handler) finishDelete(msg *tgbotapi.Message, userID int64, text string)
 	h.doDelete(msg.Chat.ID, userID, id)
 }
 
-func (h *Handler) finishEdit(msg *tgbotapi.Message, userID int64, text string) {
+func (h *Handler) finishEdit(msg *tgbotapi.Message, userID int64, text string, entities []model.NoteEntity) {
 	h.clearPrompt(msg.Chat.ID, userID)
 	h.clearCmd(msg.Chat.ID, userID)
 	h.deleteUserMsg(msg)
@@ -311,10 +323,13 @@ func (h *Handler) finishEdit(msg *tgbotapi.Message, userID int64, text string) {
 		h.send(msg.Chat.ID, "❌ ID должен быть числом")
 		return
 	}
-	h.doEdit(msg.Chat.ID, userID, id, parts[1], msg.MessageID)
+	// entities уже приведены к обрезанному text в handleMessage;
+	// сдвигаем их к началу parts[1] (после "<id> ").
+	ents := shiftNoteEntities(entities, utf16Len(parts[0])+1, utf16Len(parts[1]))
+	h.doEdit(msg.Chat.ID, userID, id, parts[1], ents, msg.MessageID)
 }
 
-func (h *Handler) finishEditText(msg *tgbotapi.Message, userID int64, text string) {
+func (h *Handler) finishEditText(msg *tgbotapi.Message, userID int64, text string, entities []model.NoteEntity) {
 	h.clearPrompt(msg.Chat.ID, userID)
 	h.deleteUserMsg(msg)
 	session := h.states.Get(userID)
@@ -324,7 +339,7 @@ func (h *Handler) finishEditText(msg *tgbotapi.Message, userID int64, text strin
 		h.send(msg.Chat.ID, "❌ Текст не может быть пустым.")
 		return
 	}
-	h.doEdit(msg.Chat.ID, userID, noteID, text, msg.MessageID)
+	h.doEdit(msg.Chat.ID, userID, noteID, text, entities, msg.MessageID)
 }
 
 func (h *Handler) finishArchive(msg *tgbotapi.Message, userID int64, text string) {
@@ -373,7 +388,7 @@ func (h *Handler) finishNewFolder(msg *tgbotapi.Message, userID int64, text stri
 // Action implementations
 // ============================================================
 
-func (h *Handler) doAdd(chatID int64, userID int64, text string, userMsgID int) {
+func (h *Handler) doAdd(chatID int64, userID int64, text string, entities []model.NoteEntity, userMsgID int) {
 	if text == "" {
 		h.send(chatID, "❌ Текст заметки не может быть пустым.")
 		return
@@ -382,6 +397,7 @@ func (h *Handler) doAdd(chatID int64, userID int64, text string, userMsgID int) 
 	session := h.states.Get(userID)
 	session.State = StateWaitingPriority
 	session.PendingNoteText = text
+	session.PendingNoteEntities = entities
 	session.PendingNoteTopicID = session.CurrentTopicID
 
 	if userMsgID != 0 {
@@ -396,8 +412,8 @@ func (h *Handler) doAdd(chatID int64, userID int64, text string, userMsgID int) 
 	h.api.Send(msg)
 }
 
-func (h *Handler) doEdit(chatID int64, userID int64, noteID int64, text string, userMsgID int) {
-	if err := h.noteService.EditNote(userID, noteID, text); err != nil {
+func (h *Handler) doEdit(chatID int64, userID int64, noteID int64, text string, entities []model.NoteEntity, userMsgID int) {
+	if err := h.noteService.EditNote(userID, noteID, text, entities); err != nil {
 		h.send(chatID, fmt.Sprintf("❌ %v", err))
 		return
 	}

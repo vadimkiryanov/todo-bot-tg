@@ -1,8 +1,13 @@
 package entity
 
-import "todo-bot-tg/internal/model"
+import (
+	"encoding/json"
+
+	"todo-bot-tg/internal/model"
+)
 
 // NoteToRecord конвертирует доменную модель в persistence-record.
+// Сущности форматирования сериализуются в JSON (пустой список — пустая строка).
 func NoteToRecord(n model.Note) NoteRecord {
 	return NoteRecord{
 		ID:             n.ID,
@@ -10,6 +15,7 @@ func NoteToRecord(n model.Note) NoteRecord {
 		TopicID:        n.TopicID,
 		FolderID:       n.FolderID,
 		Text:           n.Text,
+		Entities:       marshalNoteEntities(n.Entities),
 		Priority:       int(n.Priority),
 		ReminderAt:     n.ReminderAt,
 		ReminderRepeat: string(n.ReminderRepeat),
@@ -20,9 +26,23 @@ func NoteToRecord(n model.Note) NoteRecord {
 	}
 }
 
+// marshalNoteEntities сериализует сущности форматирования в JSON.
+// Ошибка сериализации невозможна для наших типов — возвращаем пустую строку.
+func marshalNoteEntities(entities []model.NoteEntity) string {
+	if len(entities) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(entities)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
 // NoteFromRecord конвертирует persistence-record в доменную модель.
 // Невалидное значение ReminderRepeat из хранилища заменяется дефолтом
 // (ReminderRepeatOnce), а не проглатывается молча.
+// Битый JSON сущностей игнорируется (заметка остаётся без форматирования).
 func NoteFromRecord(r NoteRecord) model.Note {
 	repeat := model.ReminderRepeatOnce
 	if parsed, err := model.NewReminderRepeat(r.ReminderRepeat); err == nil {
@@ -34,6 +54,7 @@ func NoteFromRecord(r NoteRecord) model.Note {
 		TopicID:        r.TopicID,
 		FolderID:       r.FolderID,
 		Text:           r.Text,
+		Entities:       unmarshalNoteEntities(r.Entities),
 		Priority:       model.Priority(r.Priority),
 		ReminderAt:     r.ReminderAt,
 		ReminderRepeat: repeat,
@@ -42,6 +63,19 @@ func NoteFromRecord(r NoteRecord) model.Note {
 		Done:           r.Done,
 		Pinned:         r.Pinned,
 	}
+}
+
+// unmarshalNoteEntities разбирает JSON-представление сущностей форматирования.
+// Пустая строка или битый JSON дают nil (без форматирования).
+func unmarshalNoteEntities(data string) []model.NoteEntity {
+	if data == "" {
+		return nil
+	}
+	var entities []model.NoteEntity
+	if err := json.Unmarshal([]byte(data), &entities); err != nil {
+		return nil
+	}
+	return entities
 }
 
 // TopicToRecord конвертирует доменную модель в persistence-record.
