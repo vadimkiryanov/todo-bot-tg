@@ -324,6 +324,21 @@ func (s *MemStore) GetPendingReminders() ([]model.Note, error) {
 	return result, nil
 }
 
+// GetExpiredPins возвращает заметки с истёкшим сроком закрепления.
+func (s *MemStore) GetExpiredPins() ([]model.Note, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now().UTC()
+	var result []model.Note
+	for _, n := range s.notes {
+		if n.Pinned && n.PinnedUntil != nil && !n.PinnedUntil.After(now) {
+			result = append(result, entity.NoteFromRecord(n))
+		}
+	}
+	return result, nil
+}
+
 // HasAnyData возвращает true, если у пользователя уже есть данные.
 func (s *MemStore) HasAnyData(userID int64) bool {
 	s.mu.RLock()

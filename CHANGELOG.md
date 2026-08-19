@@ -125,16 +125,24 @@
 
 ---
 
+## Этап 11: Закрепление на время (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| 62 | — | **Закрепление на время 📌⏱**: 📌 в просмотре заметки открывает меню — «📌 Постоянно» / «⏱ На время» / (для закреплённых) «❌ Открепить». «На время» → 1 час / 12 часов / «📅 Своё время» (переиспользованы календарь и пикеры напоминаний с префиксом callback'ов `pin*` — `buildCalendar`/`buildHourPicker`/`buildMinuteRangePicker`/`buildMinuteExactPicker` получили параметр `prefix`). Новое поле `Note.PinnedUntil` (колонка `pinned_until TIMESTAMPTZ` в PostgreSQL, миграция `ADD COLUMN IF NOT EXISTS`), мутаторы `Pin`/`PinUntil`/`Unpin`, предикат `IsPinned()` — истёкшее закрепление считается откреплённым даже до обработки воркером. Просмотр заметки и меню показывают «📌 Закреплена до ДД.ММ.ГГГГ ЧЧ:ММ» (локальное время пользователя). Фоновый воркер `internal/worker/pin` (по образцу reminder, каждые 30 сек) вызывает `Service.ProcessExpiredPins` — каждая просроченная заметка повторно читается под локом пользователя (не затирает продление срока). Сортировка списка и маркер 📌 используют `IsPinned()` |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
 |------|-------|---------------------|
-| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go` | Note (Entities — форматирование, Done, Pinned, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки, QuickTopicsCount, QuickTopicIDs) |
-| **Сервис** | `service/todo/service.go` | CRUD (с entities), приоритеты, архивация, выполненные, закрепление, напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
-| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами (entities — JSON), `GetPendingReminders`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`) |
+| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go` | Note (Entities — форматирование, Done, Pinned/PinnedUntil, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки, QuickTopicsCount, QuickTopicIDs) |
+| **Сервис** | `service/todo/service.go` | CRUD (с entities), приоритеты, архивация, выполненные, закрепление (Pin/PinUntil/Unpin, `ProcessExpiredPins`), напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
+| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами (entities — JSON), `GetPendingReminders`, `GetExpiredPins`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`) |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
 | **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML) |
-| **Воркер** | `worker/reminder/reminder.go` | Фоновый опрос просроченных напоминаний, порт `NotificationSender` (не зависит от Telegram API) |
+| **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs) |
 
 ---

@@ -21,7 +21,7 @@ func (h *Handler) callbackReminderCalendar(chatID int64, msgID int, userID int64
 		return
 	}
 	tzOffset := h.states.Get(userID).TimezoneOffset
-	text, markup := buildCalendar(noteID, year, time.Month(month), tzOffset)
+	text, markup := buildCalendar(noteID, year, time.Month(month), tzOffset, "rem")
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
@@ -32,7 +32,7 @@ func (h *Handler) callbackReminderDay(chatID int64, msgID int, userID int64, par
 		return
 	}
 	tzOffset := h.states.Get(userID).TimezoneOffset
-	text, markup := buildHourPicker(noteID, year, time.Month(month), day, tzOffset)
+	text, markup := buildHourPicker(noteID, year, time.Month(month), day, tzOffset, "rem")
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
@@ -43,7 +43,7 @@ func (h *Handler) callbackReminderHour(chatID int64, msgID int, userID int64, pa
 		return
 	}
 	tzOffset := h.states.Get(userID).TimezoneOffset
-	text, markup := buildMinuteRangePicker(noteID, year, time.Month(month), day, hour, tzOffset)
+	text, markup := buildMinuteRangePicker(noteID, year, time.Month(month), day, hour, tzOffset, "rem")
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }
@@ -54,7 +54,7 @@ func (h *Handler) callbackReminderMinuteRange(chatID int64, msgID int, userID in
 		return
 	}
 	tzOffset := h.states.Get(userID).TimezoneOffset
-	text, markup := buildMinuteExactPicker(noteID, year, time.Month(month), day, hour, startMin, tzOffset)
+	text, markup := buildMinuteExactPicker(noteID, year, time.Month(month), day, hour, startMin, tzOffset, "rem")
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, markup)
 	h.api.Send(edit)
 }

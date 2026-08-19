@@ -211,8 +211,20 @@ func TestBuildViewNoteMessage_Pinned(t *testing.T) {
 	if pinBtn.Text != "📌" {
 		t.Errorf("pin button text = %q, want %q", pinBtn.Text, "📌")
 	}
-	if pinBtn.CallbackData == nil || *pinBtn.CallbackData != "unpin:1" {
-		t.Errorf("pin button callback = %v, want 'unpin:1'", pinBtn.CallbackData)
+	// 📌 всегда открывает меню закрепления
+	if pinBtn.CallbackData == nil || *pinBtn.CallbackData != "pin:1" {
+		t.Errorf("pin button callback = %v, want 'pin:1' (меню закрепления)", pinBtn.CallbackData)
+	}
+}
+
+func TestBuildViewNoteMessage_PinnedUntil(t *testing.T) {
+	until := time.Date(2099, 1, 2, 12, 4, 0, 0, time.UTC)
+	note := model.Note{ID: 1, Text: "Test", Pinned: true, PinnedUntil: &until}
+	text, _ := buildViewNoteMessage(note, false, 0)
+
+	// Срок закрепления показывается в локальном времени пользователя (tz=0 → МСК, UTC+3)
+	if !strings.Contains(text, "📌 Закреплена до 02.01.2099 15:04") {
+		t.Errorf("text does not contain pinned-until line: %q", text)
 	}
 }
 
@@ -226,7 +238,73 @@ func TestBuildViewNoteMessage_NotPinned(t *testing.T) {
 		t.Errorf("pin button text = %q, want %q", pinBtn.Text, "📌")
 	}
 	if pinBtn.CallbackData == nil || *pinBtn.CallbackData != "pin:2" {
-		t.Errorf("pin button callback = %v, want 'pin:2'", pinBtn.CallbackData)
+		t.Errorf("pin button callback = %v, want 'pin:2' (меню закрепления)", pinBtn.CallbackData)
+	}
+}
+
+func TestBuildPinMenu_NotPinned(t *testing.T) {
+	note := model.Note{ID: 7, Text: "Test"}
+	text, markup := buildPinMenu(note, 0)
+
+	if !strings.Contains(text, "📌 Закрепление") {
+		t.Errorf("text does not contain title: %q", text)
+	}
+	// Постоянно + На время, затем Назад. Без «Открепить» (не закреплена).
+	if len(markup.InlineKeyboard) != 2 {
+		t.Fatalf("keyboard rows = %d, want 2", len(markup.InlineKeyboard))
+	}
+	row0 := markup.InlineKeyboard[0]
+	if row0[0].CallbackData == nil || *row0[0].CallbackData != "pinforever:7" {
+		t.Errorf("btn[0][0] callback = %v, want 'pinforever:7'", row0[0].CallbackData)
+	}
+	if row0[1].CallbackData == nil || *row0[1].CallbackData != "pintime:7" {
+		t.Errorf("btn[0][1] callback = %v, want 'pintime:7'", row0[1].CallbackData)
+	}
+	lastRow := markup.InlineKeyboard[len(markup.InlineKeyboard)-1]
+	if lastRow[0].CallbackData == nil || *lastRow[0].CallbackData != "view:7" {
+		t.Errorf("back callback = %v, want 'view:7'", lastRow[0].CallbackData)
+	}
+}
+
+func TestBuildPinMenu_Pinned(t *testing.T) {
+	note := model.Note{ID: 7, Text: "Test", Pinned: true}
+	_, markup := buildPinMenu(note, 0)
+
+	// Постоянно + На время, Открепить, Назад → 3 строки
+	if len(markup.InlineKeyboard) != 3 {
+		t.Fatalf("keyboard rows = %d, want 3", len(markup.InlineKeyboard))
+	}
+	unpinRow := markup.InlineKeyboard[1]
+	if unpinRow[0].CallbackData == nil || *unpinRow[0].CallbackData != "unpin:7" {
+		t.Errorf("unpin callback = %v, want 'unpin:7'", unpinRow[0].CallbackData)
+	}
+}
+
+func TestBuildPinTimeMenu(t *testing.T) {
+	note := model.Note{ID: 5, Text: "Test"}
+	text, markup := buildPinTimeMenu(note, 0)
+
+	if !strings.Contains(text, "На сколько") {
+		t.Errorf("text does not contain prompt: %q", text)
+	}
+	// 1 час / 12 часов, Своё время, Назад → 3 строки
+	if len(markup.InlineKeyboard) != 3 {
+		t.Fatalf("keyboard rows = %d, want 3", len(markup.InlineKeyboard))
+	}
+	row0 := markup.InlineKeyboard[0]
+	if row0[0].CallbackData == nil || *row0[0].CallbackData != "pinhours:5:1" {
+		t.Errorf("btn[0][0] callback = %v, want 'pinhours:5:1'", row0[0].CallbackData)
+	}
+	if row0[1].CallbackData == nil || *row0[1].CallbackData != "pinhours:5:12" {
+		t.Errorf("btn[0][1] callback = %v, want 'pinhours:5:12'", row0[1].CallbackData)
+	}
+	customRow := markup.InlineKeyboard[1]
+	if customRow[0].CallbackData == nil || !strings.HasPrefix(*customRow[0].CallbackData, "pincal:5:") {
+		t.Errorf("custom callback = %v, want prefix 'pincal:5:'", customRow[0].CallbackData)
+	}
+	lastRow := markup.InlineKeyboard[2]
+	if lastRow[0].CallbackData == nil || *lastRow[0].CallbackData != "pin:5" {
+		t.Errorf("back callback = %v, want 'pin:5'", lastRow[0].CallbackData)
 	}
 }
 
@@ -805,7 +883,7 @@ func TestBuildCalendar(t *testing.T) {
 	now = func() time.Time { return time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC) }
 	defer func() { now = time.Now }()
 
-	text, markup := buildCalendar(1, 2026, 8, 0)
+	text, markup := buildCalendar(1, 2026, 8, 0, "rem")
 	if !strings.Contains(text, "Выбери дату") {
 		t.Errorf("text does not contain prompt: %q", text)
 	}
@@ -818,7 +896,7 @@ func TestBuildCalendar(t *testing.T) {
 // --- buildHourPicker ---
 
 func TestBuildHourPicker(t *testing.T) {
-	text, markup := buildHourPicker(1, 2026, 8, 6, 0)
+	text, markup := buildHourPicker(1, 2026, 8, 6, 0, "rem")
 	if !strings.Contains(text, "Выбери час") {
 		t.Errorf("text does not contain prompt: %q", text)
 	}
@@ -831,7 +909,7 @@ func TestBuildHourPicker(t *testing.T) {
 // --- buildMinuteRangePicker / buildMinuteExactPicker ---
 
 func TestBuildMinuteRangePicker(t *testing.T) {
-	text, markup := buildMinuteRangePicker(1, 2026, 8, 6, 15, 0)
+	text, markup := buildMinuteRangePicker(1, 2026, 8, 6, 15, 0, "rem")
 	if !strings.Contains(text, "Выбери минуты") {
 		t.Errorf("text does not contain prompt: %q", text)
 	}
@@ -842,7 +920,7 @@ func TestBuildMinuteRangePicker(t *testing.T) {
 }
 
 func TestBuildMinuteExactPicker(t *testing.T) {
-	text, markup := buildMinuteExactPicker(1, 2026, 8, 6, 15, 0, 0)
+	text, markup := buildMinuteExactPicker(1, 2026, 8, 6, 15, 0, 0, "rem")
 	if !strings.Contains(text, "Выбери минуты") {
 		t.Errorf("text does not contain prompt: %q", text)
 	}

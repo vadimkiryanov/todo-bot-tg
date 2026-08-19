@@ -26,6 +26,7 @@ type NoteRepository interface {
 	CountArchived(userID int64) (int, error)
 	HasAnyData(userID int64) bool
 	GetPendingReminders() ([]model.Note, error)
+	GetExpiredPins() ([]model.Note, error)
 	MoveNote(userID, noteID int64, topicID int64, folderID *int64) error
 }
 
@@ -161,9 +162,9 @@ func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Not
 	}
 
 	sort.Slice(notes, func(i, j int) bool {
-		// Закреплённые — в начало
-		if notes[i].Pinned != notes[j].Pinned {
-			return notes[i].Pinned
+		// Закреплённые — в начало (истёкшее закрепление = откреплено)
+		if notes[i].IsPinned() != notes[j].IsPinned() {
+			return notes[i].IsPinned()
 		}
 		// Выполненные — в конец
 		if notes[i].Done != notes[j].Done {
@@ -275,7 +276,7 @@ func (s *Service) MarkUndone(userID, noteID int64) error {
 	return s.noteRepo.UpdateNote(note)
 }
 
-// PinNote закрепляет заметку (всегда вверху списка).
+// PinNote закрепляет заметку постоянно (всегда вверху списка).
 func (s *Service) PinNote(userID, noteID int64) error {
 	unlock := s.locks.Lock(userID)
 	defer unlock()
@@ -286,6 +287,20 @@ func (s *Service) PinNote(userID, noteID int64) error {
 	}
 
 	note.Pin()
+	return s.noteRepo.UpdateNote(note)
+}
+
+// PinNoteUntil закрепляет заметку до указанного времени (после — открепляется сама).
+func (s *Service) PinNoteUntil(userID, noteID int64, at time.Time) error {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+
+	note.PinUntil(at)
 	return s.noteRepo.UpdateNote(note)
 }
 
@@ -301,6 +316,41 @@ func (s *Service) UnpinNote(userID, noteID int64) error {
 
 	note.Unpin()
 	return s.noteRepo.UpdateNote(note)
+}
+
+// ProcessExpiredPins открепляет заметки с истёкшим сроком закрепления.
+// Каждая заметка повторно читается под локом пользователя, чтобы не затирать
+// правки, сделанные между выборкой и записью (например, продление срока).
+func (s *Service) ProcessExpiredPins() error {
+	notes, err := s.noteRepo.GetExpiredPins()
+	if err != nil {
+		return err
+	}
+
+	for _, n := range notes {
+		unlock := s.locks.Lock(n.UserID)
+		current, err := s.noteRepo.GetNote(n.UserID, n.ID)
+		if err != nil {
+			// Заметка удалена между выборкой и локом — пропускаем.
+			slog.Warn("закрепление: заметка недоступна", "note_id", n.ID, "error", err)
+			unlock()
+			continue
+		}
+		if current.PinnedUntil == nil || current.PinnedUntil.After(time.Now().UTC()) {
+			unlock()
+			continue // уже откреплено или срок продлён пользователем
+		}
+
+		current.Unpin()
+		if err := s.noteRepo.UpdateNote(current); err != nil {
+			slog.Error("открепление заметки", "note_id", current.ID, "error", err)
+			unlock()
+			return err
+		}
+		unlock()
+	}
+
+	return nil
 }
 
 // SetPriority меняет приоритет заметки.

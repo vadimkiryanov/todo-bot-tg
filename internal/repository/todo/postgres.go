@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS notes (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     archived BOOLEAN NOT NULL DEFAULT FALSE,
     done BOOLEAN NOT NULL DEFAULT FALSE,
-    pinned BOOLEAN NOT NULL DEFAULT FALSE
+    pinned BOOLEAN NOT NULL DEFAULT FALSE,
+    pinned_until TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS folders (
@@ -82,6 +83,7 @@ ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_repeat TEXT NOT NULL DEFAULT
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS folder_id BIGINT;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS done BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned_until TIMESTAMPTZ;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS entities TEXT NOT NULL DEFAULT '';
 ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS quick_topics_count INTEGER NOT NULL DEFAULT 4;
 -- Авто-отбор по посещаемости отменён: колонка больше не используется
@@ -234,13 +236,13 @@ func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 
 // --- Notes ---
 
-const noteColumns = `id, user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, archived, done, pinned`
+const noteColumns = `id, user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, archived, done, pinned, pinned_until`
 
 func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 	rec := entity.NoteToRecord(note)
 	rows, err := s.pool.Query(context.Background(),
-		`INSERT INTO notes (user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, done, pinned)
-		 VALUES (@user, @topic, @folder, @text, @entities, @priority, @reminder_at, @reminder_repeat, @created_at, @done, @pinned)
+		`INSERT INTO notes (user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, done, pinned, pinned_until)
+		 VALUES (@user, @topic, @folder, @text, @entities, @priority, @reminder_at, @reminder_repeat, @created_at, @done, @pinned, @pinned_until)
 		 RETURNING `+noteColumns,
 		pgx.NamedArgs{
 			"user":            rec.UserID,
@@ -254,6 +256,7 @@ func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 			"created_at":      rec.CreatedAt,
 			"done":            rec.Done,
 			"pinned":          rec.Pinned,
+			"pinned_until":    rec.PinnedUntil,
 		},
 	)
 	if err != nil {
@@ -317,7 +320,7 @@ func (s *PostgresStore) UpdateNote(note model.Note) error {
 	rec := entity.NoteToRecord(note)
 	res, err := s.pool.Exec(context.Background(),
 		`UPDATE notes SET text = @text, entities = @entities, priority = @priority, reminder_at = @reminder_at,
-		 reminder_repeat = @reminder_repeat, archived = @archived, done = @done, pinned = @pinned
+		 reminder_repeat = @reminder_repeat, archived = @archived, done = @done, pinned = @pinned, pinned_until = @pinned_until
 		 WHERE id = @id AND user_id = @user`,
 		pgx.NamedArgs{
 			"text":            rec.Text,
@@ -328,6 +331,7 @@ func (s *PostgresStore) UpdateNote(note model.Note) error {
 			"archived":        rec.Archived,
 			"done":            rec.Done,
 			"pinned":          rec.Pinned,
+			"pinned_until":    rec.PinnedUntil,
 			"id":              rec.ID,
 			"user":            rec.UserID,
 		},
@@ -459,6 +463,26 @@ func (s *PostgresStore) GetPendingReminders() ([]model.Note, error) {
 	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.NoteRecord])
 	if err != nil {
 		return nil, fmt.Errorf("чтение напоминаний: %w", err)
+	}
+	result := make([]model.Note, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.NoteFromRecord(r))
+	}
+	return result, nil
+}
+
+// GetExpiredPins возвращает заметки с истёкшим сроком закрепления.
+func (s *PostgresStore) GetExpiredPins() ([]model.Note, error) {
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+noteColumns+` FROM notes
+		 WHERE pinned = TRUE AND pinned_until IS NOT NULL AND pinned_until <= NOW()`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("поиск истёкших закреплений: %w", err)
+	}
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.NoteRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение истёкших закреплений: %w", err)
 	}
 	result := make([]model.Note, 0, len(recs))
 	for _, r := range recs {

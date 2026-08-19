@@ -201,7 +201,7 @@ func (h *Handler) showListPage(chatID int64, msgID int, userID int64, page int) 
 	// Закреплённые заметки идут выше папок: pinned → папки → остальные заметки
 	var pinnedNotes, restNotes []model.Note
 	for _, n := range notes {
-		if n.Pinned {
+		if n.IsPinned() {
 			pinnedNotes = append(pinnedNotes, n)
 		} else {
 			restNotes = append(restNotes, n)

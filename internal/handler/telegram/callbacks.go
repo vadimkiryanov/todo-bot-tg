@@ -38,7 +38,15 @@ const (
 	ActionChPrio         CallbackAction = "chprio"
 	ActionDone           CallbackAction = "done"
 	ActionUndone         CallbackAction = "undone"
-	ActionPin            CallbackAction = "pin"
+	ActionPin            CallbackAction = "pin"          // меню закрепления (постоянно / на время)
+	ActionPinForever     CallbackAction = "pinforever"   // закрепить постоянно
+	ActionPinTime        CallbackAction = "pintime"      // выбор длительности закрепления
+	ActionPinHours       CallbackAction = "pinhours"     // закрепить на N часов
+	ActionPinCal         CallbackAction = "pincal"       // календарь выбора даты окончания закрепления
+	ActionPinDay         CallbackAction = "pinday"
+	ActionPinHour        CallbackAction = "pinhour"
+	ActionPinMRange      CallbackAction = "pinmrange"
+	ActionPinMin         CallbackAction = "pinmin" // финальный шаг: закрепить до выбранного времени
 	ActionUnpin          CallbackAction = "unpin"
 	ActionRemCal         CallbackAction = "remcal"
 	ActionRemDay         CallbackAction = "remday"
@@ -140,7 +148,9 @@ var callbackHandlers = map[CallbackAction]callbackHandler{
 	ActionChPrio:      withNoteID((*Handler).callbackChangePriority),
 	ActionDone:        withNoteID((*Handler).callbackMarkDone),
 	ActionUndone:      withNoteID((*Handler).callbackMarkUndone),
-	ActionPin:         withNoteID((*Handler).callbackPinNote),
+	ActionPin:         withNoteID((*Handler).callbackPinMenu),
+	ActionPinForever:  withNoteID((*Handler).callbackPinForever),
+	ActionPinTime:     withNoteID((*Handler).callbackPinTime),
 	ActionUnpin:       withNoteID((*Handler).callbackUnpinNote),
 	ActionRemClear:    withNoteID((*Handler).callbackClearReminder),
 	ActionRemMenu:     withNoteID((*Handler).callbackReminderMenu),
@@ -170,6 +180,27 @@ var callbackHandlers = map[CallbackAction]callbackHandler{
 	ActionRemMin:         (*Handler).callbackReminderMinute,
 	ActionRemMRange:      (*Handler).callbackReminderMinuteRange,
 	ActionRemRepeat:      (*Handler).callbackReminderRepeat,
+
+	// Пикер времени окончания закрепления (своё время)
+	ActionPinCal:    (*Handler).callbackPinCalendar,
+	ActionPinDay:    (*Handler).callbackPinDay,
+	ActionPinHour:   (*Handler).callbackPinHour,
+	ActionPinMRange: (*Handler).callbackPinMinuteRange,
+	ActionPinMin:    (*Handler).callbackPinMinute,
+
+	// pinhours имеет составной аргумент "id:hours" → arg="id:hours"
+	ActionPinHours: func(h *Handler, chatID int64, msgID int, userID int64, arg string) {
+		parts := strings.SplitN(arg, ":", 2)
+		if len(parts) != 2 {
+			return
+		}
+		noteID, err1 := strconv.ParseInt(parts[0], 10, 64)
+		hours, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil {
+			return
+		}
+		h.callbackPinForHours(chatID, msgID, userID, noteID, hours)
+	},
 
 	// Выбор топиков для быстрых кнопок
 	ActionQuickPick:   noArg((*Handler).showQuickPick),
@@ -429,12 +460,6 @@ func (h *Handler) callbackMarkDone(chatID int64, msgID int, userID int64, noteID
 func (h *Handler) callbackMarkUndone(chatID int64, msgID int, userID int64, noteID int64) {
 	h.mutateNote(chatID, msgID, userID, noteID, func() error {
 		return h.noteService.MarkUndone(userID, noteID)
-	})
-}
-
-func (h *Handler) callbackPinNote(chatID int64, msgID int, userID int64, noteID int64) {
-	h.mutateNote(chatID, msgID, userID, noteID, func() error {
-		return h.noteService.PinNote(userID, noteID)
 	})
 }
 

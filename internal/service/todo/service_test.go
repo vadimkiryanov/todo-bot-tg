@@ -350,6 +350,108 @@ func TestService_UnpinNote(t *testing.T) {
 	}
 }
 
+func TestService_PinNoteUntil(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
+
+	at := time.Now().UTC().Add(24 * time.Hour)
+	err := svc.PinNoteUntil(1, note.ID, at)
+	if err != nil {
+		t.Fatalf("PinNoteUntil() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if !got.Pinned {
+		t.Error("PinNoteUntil() did not set Pinned to true")
+	}
+	if got.PinnedUntil == nil || !got.PinnedUntil.Equal(at) {
+		t.Errorf("PinnedUntil = %v, want %v", got.PinnedUntil, at)
+	}
+	if !got.IsPinned() {
+		t.Error("note with future PinnedUntil should be pinned")
+	}
+}
+
+func TestService_ProcessExpiredPins(t *testing.T) {
+	svc := newTestService(t)
+
+	// Просроченное закрепление — должно открепиться
+	expired, _ := svc.AddNote(1, 0, nil, "Expired", nil, 0)
+	_ = svc.PinNoteUntil(1, expired.ID, time.Now().UTC().Add(-time.Minute))
+
+	// Постоянное закрепление — не трогаем
+	forever, _ := svc.AddNote(1, 0, nil, "Forever", nil, 0)
+	_ = svc.PinNote(1, forever.ID)
+
+	// Будущее закрепление — не трогаем
+	future, _ := svc.AddNote(1, 0, nil, "Future", nil, 0)
+	_ = svc.PinNoteUntil(1, future.ID, time.Now().UTC().Add(time.Hour))
+
+	if err := svc.ProcessExpiredPins(); err != nil {
+		t.Fatalf("ProcessExpiredPins() error: %v", err)
+	}
+
+	expiredGot, _ := svc.GetNote(1, expired.ID)
+	if expiredGot.Pinned || expiredGot.PinnedUntil != nil {
+		t.Error("ProcessExpiredPins() did not unpin the expired note")
+	}
+
+	foreverGot, _ := svc.GetNote(1, forever.ID)
+	if !foreverGot.Pinned {
+		t.Error("ProcessExpiredPins() must not unpin a permanently pinned note")
+	}
+
+	futureGot, _ := svc.GetNote(1, future.ID)
+	if !futureGot.IsPinned() {
+		t.Error("ProcessExpiredPins() must not unpin a note with future PinnedUntil")
+	}
+}
+
+func TestService_ProcessExpiredPins_OtherUserIsolated(t *testing.T) {
+	svc := newTestService(t)
+
+	// Просроченная у пользователя 1 и у пользователя 2 — обе должны открепиться
+	expired1, _ := svc.AddNote(1, 0, nil, "U1", nil, 0)
+	_ = svc.PinNoteUntil(1, expired1.ID, time.Now().UTC().Add(-time.Minute))
+	expired2, _ := svc.AddNote(2, 0, nil, "U2", nil, 0)
+	_ = svc.PinNoteUntil(2, expired2.ID, time.Now().UTC().Add(-time.Minute))
+
+	if err := svc.ProcessExpiredPins(); err != nil {
+		t.Fatalf("ProcessExpiredPins() error: %v", err)
+	}
+
+	got1, _ := svc.GetNote(1, expired1.ID)
+	got2, _ := svc.GetNote(2, expired2.ID)
+	if got1.Pinned || got2.Pinned {
+		t.Error("ProcessExpiredPins() must unpin expired notes of all users")
+	}
+}
+
+func TestService_ListNotes_ExpiredPinNotFirst(t *testing.T) {
+	svc := newTestService(t)
+
+	// Закрепление истекло — заметка считается откреплённой и не должна идти первой,
+	// несмотря на то что поле Pinned всё ещё true (воркер ещё не отработал)
+	n1, _ := svc.AddNote(1, 0, nil, "Expired pin", nil, model.PriorityNone)
+	_ = svc.PinNoteUntil(1, n1.ID, time.Now().UTC().Add(-time.Minute))
+	n2, _ := svc.AddNote(1, 0, nil, "Active high", nil, model.PriorityHigh)
+
+	notes, err := svc.ListNotes(1, 0, nil)
+	if err != nil {
+		t.Fatalf("ListNotes() error: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("len = %d, want 2", len(notes))
+	}
+	// Активная заметка (High) идёт первой: истёкший pin не даёт приоритета
+	if notes[0].ID != n2.ID {
+		t.Errorf("notes[0] = %d, want active note %d (expired pin must not be first)", notes[0].ID, n2.ID)
+	}
+	if notes[1].ID != n1.ID {
+		t.Errorf("notes[1] = %d, want expired-pin note %d", notes[1].ID, n1.ID)
+	}
+}
+
 func TestService_ListNotes_PinnedFirst(t *testing.T) {
 	svc := newTestService(t)
 

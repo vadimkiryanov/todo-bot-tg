@@ -30,8 +30,9 @@ type Note struct {
 	ReminderRepeat ReminderRepeat // once / daily
 	CreatedAt      time.Time
 	Archived       bool
-	Done           bool // заметка выполнена (галочка)
-	Pinned         bool // заметка закреплена (всегда вверху списка)
+	Done           bool       // заметка выполнена (галочка)
+	Pinned         bool       // заметка закреплена (всегда вверху списка)
+	PinnedUntil    *time.Time // nil — закреплена постоянно; иначе — время окончания закрепления
 }
 
 // NewNote создаёт новую заметку с валидацией (по умолчанию без приоритета).
@@ -95,14 +96,29 @@ func (n *Note) MarkUndone() {
 	n.Done = false
 }
 
-// Pin закрепляет заметку (она всегда отображается первой в списке).
+// Pin закрепляет заметку постоянно (она всегда отображается первой в списке).
 func (n *Note) Pin() {
 	n.Pinned = true
+	n.PinnedUntil = nil
+}
+
+// PinUntil закрепляет заметку до указанного времени (после — открепляется сама).
+func (n *Note) PinUntil(at time.Time) {
+	n.Pinned = true
+	n.PinnedUntil = &at
 }
 
 // Unpin открепляет заметку.
 func (n *Note) Unpin() {
 	n.Pinned = false
+	n.PinnedUntil = nil
+}
+
+// IsPinned возвращает true, если заметка закреплена в данный момент:
+// истёкшее по времени закрепление считается откреплённым даже до
+// обработки воркером (PinnedUntil в прошлом).
+func (n *Note) IsPinned() bool {
+	return n.Pinned && (n.PinnedUntil == nil || n.PinnedUntil.After(time.Now().UTC()))
 }
 
 // EditText обновляет текст заметки и его форматирование.

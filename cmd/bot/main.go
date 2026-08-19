@@ -12,6 +12,7 @@ import (
 	repo "todo-bot-tg/internal/repository/todo"
 	"todo-bot-tg/internal/service/todo"
 	"todo-bot-tg/internal/storage/fs"
+	"todo-bot-tg/internal/worker/pin"
 	"todo-bot-tg/internal/worker/reminder"
 )
 
@@ -68,10 +69,15 @@ func main() {
 		log.Fatalf("Ошибка создания бота: %v", err)
 	}
 
-	// 5. Фоновый воркер напоминаний
+	// 5. Фоновые воркеры
 	reminderWorker := reminder.NewWorker(svc, h)
 	reminderWorker.Start()
 	defer reminderWorker.Stop()
+
+	// Воркер открепления просроченных закреплений
+	pinWorker := pin.NewWorker(svc)
+	pinWorker.Start()
+	defer pinWorker.Stop()
 
 	log.Println("Бот запущен...")
 

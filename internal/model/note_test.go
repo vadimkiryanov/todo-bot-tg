@@ -223,13 +223,56 @@ func TestNote_Pin(t *testing.T) {
 	if !n.Pinned {
 		t.Error("Pin() did not set Pinned to true")
 	}
+	if n.PinnedUntil != nil {
+		t.Error("Pin() should reset PinnedUntil to nil (постоянное закрепление)")
+	}
+}
+
+func TestNote_PinUntil(t *testing.T) {
+	at := time.Now().UTC().Add(time.Hour)
+	n := &Note{}
+	n.PinUntil(at)
+
+	if !n.Pinned {
+		t.Error("PinUntil() did not set Pinned to true")
+	}
+	if n.PinnedUntil == nil || !n.PinnedUntil.Equal(at) {
+		t.Errorf("PinnedUntil = %v, want %v", n.PinnedUntil, at)
+	}
+}
+
+func TestNote_IsPinned(t *testing.T) {
+	future := time.Now().UTC().Add(time.Hour)
+	past := time.Now().UTC().Add(-time.Hour)
+
+	cases := []struct {
+		name string
+		note Note
+		want bool
+	}{
+		{"не закреплена", Note{Pinned: false}, false},
+		{"закреплена постоянно", Note{Pinned: true}, true},
+		{"закреплена до будущего", Note{Pinned: true, PinnedUntil: &future}, true},
+		{"срок истёк — считается откреплённой", Note{Pinned: true, PinnedUntil: &past}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.note.IsPinned(); got != tc.want {
+				t.Errorf("IsPinned() = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestNote_Unpin(t *testing.T) {
-	n := &Note{Pinned: true}
+	future := time.Now().UTC().Add(time.Hour)
+	n := &Note{Pinned: true, PinnedUntil: &future}
 	n.Unpin()
 	if n.Pinned {
 		t.Error("Unpin() did not set Pinned to false")
+	}
+	if n.PinnedUntil != nil {
+		t.Error("Unpin() should reset PinnedUntil to nil")
 	}
 }
 
