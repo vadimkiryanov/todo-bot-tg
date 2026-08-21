@@ -133,6 +133,30 @@
 
 ---
 
+## Этап 12: Планы веб-приложения (2026-08-21)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **Планы веб-приложения 📱**: переработаны планы фронтенда и бэкенда под самостоятельное веб-приложение (не зависящее от Telegram-бота): `docs/WEB_PLAN.md` — фронтенд (Vite + Svelte 5 + Tailwind v4 + PWA, аутентификация по логину/паролю, независимые от бота аккаунты, MVP — топики и заметки, дизайн как в Telegram-чате: табы топиков сверху, список заметок, поле ввода снизу); `docs/BACKEND_API_PLAN.md` — изменения бэкенда (таблица `users` + одноразовая миграция данных бота с бэкапом, REST API `/api/v1`: auth по логину/паролю с bcrypt и cookie-сессиями, CRUD топиков и заметок, в перспективе отдельный сервис `cmd/api`); `web/AGENTS.md` — правила для ИИ-агента фронтенда. Реализация не начата |
+
+---
+
+## Этап 13: Веб-приложение, скелет (2026-08-21)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **Web, Этап 0 — скелет** (по `docs/WEB_PLAN.md`): пересоздан `web/` с нуля (старый скелет под Telegram Login удалён). Vite 8 + Svelte 5 (runes) + TypeScript strict (5.9) + Tailwind v4 (`@tailwindcss/vite`) + `vite-plugin-pwa` (manifest, SW `generateSW`, stale-while-revalidate для GET `/api/*`, autoUpdate). Файлы: `package.json` (скрипты dev/build/preview/check/test/gen:icons), `vite.config.ts` (прокси `/api` → :8080 для dev, vitest `passWithNoTests`), `tsconfig.json`/`tsconfig.node.json` (strict, `verbatimModuleSyntax`), `svelte.config.js` (vitePreprocess), `index.html` (viewport-fit=cover, theme-color, apple-touch-icon). `src/app.css` — дизайн-токены `@theme` в стиле Telegram (background `#e7ebee`, surface белый, accent `#3390ec`); `src/App.svelte` — каркас экрана чата (верхняя панель / список / нижнее поле ввода, safe-area-inset); компоненты-каркасы `Modal.svelte` (оверлей, $bindable open, Escape) и `EmptyState.svelte` (эмодзи + текст). PWA-иконки генерируются `scripts/gen-icons.mjs` (sharp: SVG-галочка → `public/icons/icon-{180,192,512}.png`). `.gitignore`: добавлены `web/dist`, `web/.env.local`. Проверки: `svelte-check` 0 ошибок / 0 warnings, `vite build` зелёный (SW + manifest в dist), `vitest` запускается, dev-сервер отдаёт HTTP 200 |
+
+---
+
+## Этап 14: Web, этапы 1–3 — аутентификация, топики, заметки (2026-08-21)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **Web, Этапы 1–3** (по `docs/WEB_PLAN.md`): **Этап 1 — аутентификация**: `api/client.ts` (единый fetch, `credentials: 'same-origin'`, `ApiError` со статусом, текст из `{"error": ...}`, обработчик 401 → сброс сессии), `api/auth.ts` (register/login/logout/me), `types/api.ts` (User/Topic/Note/Priority — зеркало DTO бэкенда), `LoginView` (переключатель «Вход / Регистрация», валидация username 3–32 `[a-z0-9_]`, password ≥8, ошибки сервера), `stores/session.svelte.ts` (loading/guest/authed, восстановление через `GET /me`). **Этап 2 — топики**: `api/topics.ts`, `stores/topics.svelte.ts` (загрузка, авто-выбор активного из localStorage), `TopicTabs` (горизонтальный скролл, активный подсвечен, «＋» — модалка создания, долгий тап — переименовать/удалить с подтверждением). **Этап 3 — заметки**: `api/notes.ts` + полный CRUD в `mock.ts` (in-memory, localStorage, серверная сортировка pinned → priority → done в конце), `stores/notes.svelte.ts` (оптимистичные мутации ✅/приоритет с откатом при ошибке, после мутации — тихая перезагрузка серверной сортировки), `NoteCard` (превью первой строки, слева 📌/🔴/🟡/🔵, done — зачёркнуто), `InputBar` (Enter = отправить, Shift+Enter = перевод строки, авто-рост, очистка после отправки), `NoteOverlay` (полный текст + ✅ 🔴🟡🔵 ✏️ 🗑; тап по активному приоритету снимает его; удаление с подтверждением), интеграция в `ChatView` (список + EmptyState «📝» + поле ввода, загрузка заметок при смене топика). Исправлены импорты `.svelte.ts`-модулей с явным расширением `.svelte` (как в `App.svelte`) — иначе не резолвятся svelte-check/Vite. Тесты: `notes.test.ts` (5 кейсов: создание, серверная сортировка после ✅/🔴, откаты мутаций и удаления). Проверки: `svelte-check` 0 ошибок / 0 warnings, `vitest` 5/5, `vite build` зелёный (PWA + SW), dev-сервер HTTP 200 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
