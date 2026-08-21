@@ -52,6 +52,8 @@
   >
     <button
       type="button"
+      role="tab"
+      aria-selected={mode === 'login'}
       class="h-9 flex-1 rounded-full transition-colors {mode === 'login' ? 'bg-surface shadow' : 'text-muted'}"
       onclick={() => switchMode('login')}
     >
@@ -59,6 +61,8 @@
     </button>
     <button
       type="button"
+      role="tab"
+      aria-selected={mode === 'register'}
       class="h-9 flex-1 rounded-full transition-colors {mode === 'register' ? 'bg-surface shadow' : 'text-muted'}"
       onclick={() => switchMode('register')}
     >
@@ -91,7 +95,7 @@
     {/if}
     <button
       type="submit"
-      class="h-11 rounded-xl bg-accent font-medium text-white disabled:opacity-50"
+      class="h-11 rounded-xl bg-accent-strong font-medium text-white disabled:opacity-50"
       disabled={pending}
     >
       {pending ? '…' : title}

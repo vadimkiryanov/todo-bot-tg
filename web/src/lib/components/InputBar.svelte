@@ -53,7 +53,7 @@
   <button
     type="button"
     aria-label="Отправить"
-    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-xl text-white transition-opacity disabled:opacity-40"
+    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-strong text-xl text-white transition-opacity disabled:opacity-40"
     disabled={sending || text.trim() === ''}
     onclick={send}
   >

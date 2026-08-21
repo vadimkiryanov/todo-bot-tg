@@ -143,7 +143,7 @@
         </button>
         <button
           type="submit"
-          class="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white disabled:opacity-50"
+          class="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
           disabled={busy}
         >
           Сохранить

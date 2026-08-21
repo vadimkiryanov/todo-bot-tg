@@ -110,7 +110,7 @@
     <button
       type="button"
       class="flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm transition-colors {topic.id === navigation.activeTopicID
-        ? 'bg-accent text-white'
+        ? 'bg-accent-strong text-white'
         : 'bg-background text-content'}"
       class:active={topic.id === navigation.activeTopicID}
       onpointerdown={() => handlePointerDown(topic.id)}
@@ -170,7 +170,7 @@
         </button>
         <button
           type="submit"
-          class="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white disabled:opacity-50"
+          class="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
           disabled={busy}
         >
           Создать
@@ -212,7 +212,7 @@
           </button>
           <button
             type="submit"
-            class="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white disabled:opacity-50"
+            class="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
             disabled={busy}
           >
             Сохранить

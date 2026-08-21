@@ -191,12 +191,12 @@ web/
 
 ### Этап 4. UX-полировка и PWA
 
-- [ ] SW: precache shell; GET-запросы API для списков — stale-while-revalidate
-- [ ] Экран «нет сети» вместо ошибок загрузки (`navigator.onLine` + события)
-- [ ] Учёт `safe-area-inset-bottom` для поля ввода; клавиатура на телефоне не перекрывает ввод
-- [ ] `viewport-fit=cover`, `user-scalable=no` в `index.html` (телефонный UX)
-- [ ] Тёмная тема: `@media (prefers-color-scheme: dark)` + токены (опционально, в конце)
-- [ ] Проверка Lighthouse (mobile): PWA installable, производительность ≥ 90
+- [x] SW: precache shell; GET-запросы API для списков — stale-while-revalidate
+- [x] Экран «нет сети» вместо ошибок загрузки (`navigator.onLine` + события, store `network.svelte.ts`)
+- [x] Учёт `safe-area-inset-bottom` для поля ввода; клавиатура на телефоне не перекрывает ввод
+- [x] `viewport-fit=cover` в `index.html` (телефонный UX); `user-scalable=no` убран — запрет зума проваливает accessibility
+- [x] Тёмная тема: `@media (prefers-color-scheme: dark)` + токены (background `#0f1115`, surface `#1b1e24`, content `#e8e8e8`, accent `#5ea6f0`)
+- [x] Проверка Lighthouse (mobile): performance 100, accessibility 100 (контраст кнопок через `--color-accent-strong`, `role="tab"` + `aria-selected`), best-practices 96 (502 на `/api` без бэкенда — ожидаемо)
 
 **Done:** приложение устанавливается на телефон, открывается оффлайн со свежим кэшем.
 

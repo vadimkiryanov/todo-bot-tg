@@ -157,6 +157,14 @@
 
 ---
 
+## Этап 15: Web, этап 4 — UX-полировка и PWA (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **Web, Этап 4** (по `docs/WEB_PLAN.md`): **Офлайн-индикатор** — store `network.svelte.ts` (`navigator.onLine` + события online/offline, cleanup на unmount), фиксированный баннер «📡 Нет сети» (bg-danger, z-50, safe-area-inset-top). **Состояния ошибок** — в `ChatView` при ошибке загрузки топиков/заметок показывается EmptyState «⚠️» с кнопкой «Повторить» (`loadTopics()` / `loadNotes(activeTopicID)`). **Тёмная тема** — `@media (prefers-color-scheme: dark)` переопределяет CSS-переменные (background `#0f1115`, surface `#1b1e24`, content `#e8e8e8`, muted `#8d9199`, border `#2a2e35`, accent `#5ea6f0`, danger `#ef5350`), в `index.html` — два `theme-color` с media (light `#3390ec` / dark `#0f1115`). **Фикс футера** — `#app { height: 100% }` в app.css: без него `h-full` в ChatView/LoginView обрывается и нижняя панель не прижимается к низу (проверено в headless Chrome mobile 375×667). **Accessibility (Lighthouse 73 → 100)**: кнопки с белым текстом переведены на новый токен `--color-accent-strong` (светлая `#1f6fc2` / тёмная `#236cce`, контраст 5.11:1 вместо 3.3:1 — LoginView submit, InputBar, активный таб TopicTabs, кнопки модалок), табы «Вход/Регистрация» получили `role="tab"` + `aria-selected`, из viewport убран `user-scalable=no` (запрет зума — провал accessibility), корневой элемент `#app` заменён на `<main>` (landmark). Итоговый Lighthouse (mobile): **performance 100, accessibility 100, best-practices 96** (502 на `/api` без бэкенда — ожидаемо). Проверки: `svelte-check` 0 ошибок / 0 warnings, `vitest` 5/5, `vite build` зелёный (PWA, precache 12 entries) |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
