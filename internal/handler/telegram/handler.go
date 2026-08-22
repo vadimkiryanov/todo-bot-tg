@@ -69,10 +69,11 @@ type SettingsService interface {
 	SaveSettings(settings model.UserSettings) error
 }
 
-// UserResolver — резолвит telegram_id → users.id, создавая запись
+// UserResolver — резолвит telegram_id ↔ users.id, создавая запись
 // пользователя при первом обращении (репозиторий users в repository/todo).
 type UserResolver interface {
 	FindOrCreateByTelegramID(telegramID int64) (int64, error)
+	GetTelegramID(userID int64) (int64, error)
 }
 
 // Handler — обработчик обновлений Telegram.
@@ -167,7 +168,14 @@ func (h *Handler) Stop() {
 // Реализует порт reminder.NotificationSender: воркер напоминаний не знает о Telegram.
 // Если у заметки есть форматирование — текст отправляется с ним (ParseMode=HTML).
 func (h *Handler) SendReminder(note model.Note) error {
-	msg := tgbotapi.NewMessage(note.UserID, fmt.Sprintf("⏰ Напоминание:\n\n%s", note.Text))
+	chatID := note.UserID
+	// Заметки хранят users.id, а не telegram_id (см. Run) — резолвим обратно.
+	// Для легаси-заметок (user_id == telegram_id) GetTelegramID вернёт ошибку —
+	// тогда отправляем в note.UserID как раньше.
+	if tgID, err := h.userResolver.GetTelegramID(note.UserID); err == nil && tgID != 0 {
+		chatID = tgID
+	}
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⏰ Напоминание:\n\n%s", note.Text))
 	if len(note.Entities) > 0 {
 		msg.ParseMode = tgbotapi.ModeHTML
 		msg.Text = fmt.Sprintf("⏰ Напоминание:\n\n%s", entitiesToHTML(note.Text, note.Entities))

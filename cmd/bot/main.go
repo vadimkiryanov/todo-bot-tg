@@ -30,6 +30,7 @@ type usersRepository interface {
 	FindByUsername(username string) (user.User, error)
 	GetByID(id int64) (user.User, error)
 	FindOrCreateByTelegramID(telegramID int64) (int64, error)
+	GetTelegramID(userID int64) (int64, error)
 }
 
 func main() {

@@ -60,6 +60,19 @@ func (s *MemStore) GetByID(id int64) (user.User, error) {
 	return entity.UserFromRecord(rec), nil
 }
 
+// GetTelegramID возвращает telegram_id пользователя по users.id.
+// Ошибка, если пользователь не найден или не привязан к Telegram.
+func (s *MemStore) GetTelegramID(userID int64) (int64, error) {
+	u, err := s.GetByID(userID)
+	if err != nil {
+		return 0, err
+	}
+	if u.TelegramID == nil {
+		return 0, errs.ErrUserNotFound
+	}
+	return *u.TelegramID, nil
+}
+
 // FindOrCreateByTelegramID находит пользователя по telegram_id
 // или создаёт его при первом обращении. Возвращает users.id.
 func (s *MemStore) FindOrCreateByTelegramID(telegramID int64) (int64, error) {
@@ -137,6 +150,19 @@ func (s *PostgresStore) GetByID(id int64) (user.User, error) {
 		return user.User{}, fmt.Errorf("поиск пользователя: %w", err)
 	}
 	return entity.UserFromRecord(rec), nil
+}
+
+// GetTelegramID возвращает telegram_id пользователя по users.id.
+// Ошибка, если пользователь не найден или не привязан к Telegram.
+func (s *PostgresStore) GetTelegramID(userID int64) (int64, error) {
+	u, err := s.GetByID(userID)
+	if err != nil {
+		return 0, err
+	}
+	if u.TelegramID == nil {
+		return 0, errs.ErrUserNotFound
+	}
+	return *u.TelegramID, nil
 }
 
 // FindOrCreateByTelegramID находит пользователя по telegram_id
