@@ -20,7 +20,7 @@ func newTestRouter(t *testing.T) http.Handler {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
 	svc := todo.NewService(store, store, store, store, store, fileStore)
-	return NewRouter(store, session.NewMemoryStore(), svc)
+	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL)
 }
 
 func TestRouter_Healthz(t *testing.T) {

@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"time"
 
 	"todo-bot-tg/internal/middleware"
 	"todo-bot-tg/internal/session"
@@ -10,9 +11,10 @@ import (
 // NewRouter собирает HTTP-маршруты API и оборачивает их middleware-цепочкой.
 // Порядок: Recover внутри Logging — паника логируется с реальным статусом 500.
 // Все маршруты, кроме /auth/* и /healthz, требуют валидную сессию (RequireAuth).
-func NewRouter(users UserRepository, sessions session.Store, svc TodoService) http.Handler {
+// sessionTTL — срок жизни сессии (cookie Max-Age и expires_at в хранилище).
+func NewRouter(users UserRepository, sessions session.Store, svc TodoService, sessionTTL time.Duration) http.Handler {
 	mux := http.NewServeMux()
-	auth := newAuthHandler(users, sessions)
+	auth := newAuthHandler(users, sessions, sessionTTL)
 	todo := newTodoHandler(svc)
 
 	mux.HandleFunc("GET /healthz", handleHealthz)

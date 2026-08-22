@@ -1,0 +1,16 @@
+# Секреты и локальные данные — не должны попадать в образ
+.env
+.env.*
+!/.env.example
+
+# Локальные артефакты
+.git
+bin
+data
+backup-*.sql
+*.pdf
+
+# Node (web)
+web/node_modules
+web/dist
+web/.env.local

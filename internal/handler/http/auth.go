@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	errs "todo-bot-tg/internal/errors"
 	"todo-bot-tg/internal/handler/http/dto"
@@ -28,12 +29,13 @@ type SessionStore interface {
 
 // authHandler — обработчики эндпоинтов авторизации (§6).
 type authHandler struct {
-	users    UserRepository
-	sessions SessionStore
+	users      UserRepository
+	sessions   SessionStore
+	sessionTTL time.Duration
 }
 
-func newAuthHandler(users UserRepository, sessions SessionStore) *authHandler {
-	return &authHandler{users: users, sessions: sessions}
+func newAuthHandler(users UserRepository, sessions SessionStore, sessionTTL time.Duration) *authHandler {
+	return &authHandler{users: users, sessions: sessions, sessionTTL: sessionTTL}
 }
 
 // register обрабатывает POST /api/v1/auth/register → 201 {user} + Set-Cookie.
@@ -131,7 +133,7 @@ func (h *authHandler) createSession(w http.ResponseWriter, userID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := h.sessions.Create(session.New(hash, userID, session.TTL)); err != nil {
+	if err := h.sessions.Create(session.New(hash, userID, h.sessionTTL)); err != nil {
 		return err
 	}
 
@@ -142,7 +144,7 @@ func (h *authHandler) createSession(w http.ResponseWriter, userID int64) error {
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(session.TTL.Seconds()),
+		MaxAge:   int(h.sessionTTL.Seconds()),
 	})
 	return nil
 }

@@ -189,6 +189,14 @@
 
 ---
 
+## Этап 16 (продолжение): Web API, этап 3 — отдельный сервис cmd/api и деплой (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **REST API, Этап 3** (по `docs/BACKEND_API_PLAN.md` §10): **отдельный сервис `cmd/api`** — новый бинарник `todoapi` (Docker target `api`), работает независимо от Telegram-бота: `config.LoadAPI()` (токен не нужен, но `SESSION_TTL` → `SessionTTL`, по умолчанию 720h, и `APP_BASE_URL`), ручной DI (PostgresStore или MemStore по `DATABASE_URL`, `todo.NewService`, `fs.NewStore`), `http.Server` (таймауты 10/10/60) + graceful shutdown 5s через errCh. `NewRouter` получил 4-й параметр `sessionTTL` (`authHandler.sessionTTL`, `createSession` использует TTL и в `session.New`, и в Max-Age cookie). **Docker**: переписан корневой `Dockerfile` — multi-stage на `golang:1.25-alpine` собирает оба бинарника, две целевые стадии `bot`/`api` (`alpine:3.20` + ca-certificates + postgresql-client + tzdata); `web/Dockerfile` — `node:22-alpine` (npm ci → vite build) → `caddy:2-alpine`; `web/Caddyfile` — статика `/srv`, `handle /api/*` → `reverse_proxy api:8080`, SPA fallback (`try_files` → `/index.html`), `encode zstd gzip`, сайт `{$APP_BASE_URL}` (по умолчанию `:80`, домен → авто-HTTPS Let's Encrypt). **docker-compose.yml** — 4 сервиса: `db` (postgres:16-alpine, healthcheck `pg_isready`), `api` (healthcheck `/healthz`, volume `files`, depends_on db healthy), `bot` (volume `files`, depends_on db healthy), `web` (порты 80/443, `APP_BASE_URL`, depends_on api healthy). **Makefile** — `build` собирает `bin/todobot` + `bin/todoapi`, цель `api` (`go run ./cmd/api/`). **.env.example** — `DATABASE_URL`, `SESSION_TTL=720h`, `APP_BASE_URL` (комментарий про авто-HTTPS). **README** — обновлены шапка, Стек, Docker Compose (4 сервиса), раздел «Веб-приложение и REST API», Переменные окружения, Makefile, Структура проекта (cmd/api, web/Dockerfile, web/Caddyfile), Деплой (APP_BASE_URL/HTTPS). Проверки: `gofmt` чистый, `go build ./...`, `go vet ./...`, `go test ./...` зелёные; `docker compose config` OK; Caddyfile валиден (`caddy validate` для `:80` и для домена); web-образ собран (npm ci + vite build + caddy); живой тест cmd/api in-memory (127.0.0.1:18081): healthz → `{"status":"ok"}`, register → 201 + cookie `Max-Age=3600` (SessionTTL применился), me → 200, POST /topics → 201, POST /notes → 201, GET /notes?topic_id=1 → 200 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -201,6 +209,8 @@
 | **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
 | **Веб-аккаунты** | `internal/user/`, `internal/session/` | Пользователи (username + bcrypt cost 12 / telegram_id), веб-сессии: токен 32 байта base64url, SHA-256 хеш в БД (`web_sessions`), TTL 30 дней; `MemoryStore` + `PostgresStore` |
 | **Веб-API (REST)** | `internal/handler/http/{service,topics,notes}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes`, `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
+| **REST-сервис (cmd/api)** | `cmd/api/main.go`, `config/config.go` (`LoadAPI`), `Dockerfile` (target `api`) | Отдельный бинарник `todoapi` без Telegram: ручной DI (PostgresStore/MemStore), `http.Server` + graceful shutdown; `SessionTTL` (cookie + сессия), `AppBaseURL` |
+| **Деплой** | `docker-compose.yml`, `web/Dockerfile`, `web/Caddyfile`, `.env.example`, `deploy.sh` | 4 сервиса (db/api/bot/web), healthchecks, volume `files`; Caddy: статика + прокси `/api` + авто-HTTPS Let's Encrypt по `APP_BASE_URL` |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test`, `topics_test`, `notes_test`, `dto/converter_test` |
 
 ---
@@ -208,8 +218,9 @@
 ## Актуальная архитектура
 
 ```
-cmd/bot/main.go          — точка входа, ручной DI
-config/config.go         — загрузка .env
+cmd/bot/main.go          — Telegram-бот: точка входа, ручной DI
+cmd/api/main.go          — REST API: отдельный сервис (todoapi), без Telegram
+config/config.go         — загрузка .env (Load — бот, LoadAPI — REST: SessionTTL, AppBaseURL)
 internal/
   errors/errors.go       — sentinel-ошибки
   model/                 — Note, Folder, Topic, Attachment, UserSettings (агрегаты с бизнес-логикой)
@@ -221,7 +232,11 @@ internal/
   httperr/               — единый формат ошибок {"error": "..."} и маппинг статусов
   middleware/            — Logging (slog) + Recover (panic → 500) + RequireAuth (cookie-сессии)
   user/                  — пользователи: валидация username/пароля, bcrypt cost 12
-  session/               — веб-сессии: токен 32 байта base64url, SHA-256 хеш в хранилище, TTL 30 дней
+  session/               — веб-сессии: токен 32 байта base64url, SHA-256 хеш в хранилище, TTL (SessionTTL)
+web/                     — веб-фронтенд: Vite + Svelte 5 + Tailwind v4 (PWA); Dockerfile (node → Caddy), Caddyfile (прокси /api + авто-HTTPS)
+Dockerfile               — multi-stage: bot + api (golang:1.25-alpine → alpine:3.20)
+docker-compose.yml       — 4 сервиса: db + api + bot + web
+deploy.sh                — установка Docker/git, docker compose up -d --build
 ```
 
 Проект следует принципам **чистой архитектуры**: Rich Domain Model, интерфейсы на стороне потребителя, ручной DI, никаких фреймворков.
