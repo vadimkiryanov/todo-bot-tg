@@ -70,6 +70,11 @@ services:
     environment:
       # Домен (например, todo.example.com) — авто-HTTPS; ":80" — просто HTTP
       - APP_BASE_URL=${APP_BASE_URL:-:80}
+    volumes:
+      # Кэш Caddy (сертификаты Let's Encrypt) — переживает пересборки,
+      # иначе каждый up -d --build запрашивает новый сертификат (rate limit!)
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       api:
         condition: service_healthy
@@ -77,3 +82,5 @@ services:
 volumes:
   pgdata:
   files:
+  caddy_data:
+  caddy_config:
