@@ -14,9 +14,19 @@ export interface Topic {
 
 export type Priority = 'none' | 'low' | 'medium' | 'high';
 
+/** Сущность форматирования фрагмента заметки (формат Telegram MessageEntity,
+ * offset/length в UTF-16 единицах). */
+export interface NoteEntity {
+  type: string;
+  offset: number;
+  length: number;
+  url?: string;
+}
+
 export interface Note {
   id: number;
   text: string;
+  entities: NoteEntity[];
   priority: Priority;
   done: boolean;
   pinned: boolean;

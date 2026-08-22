@@ -12,6 +12,7 @@
     togglePin,
   } from '../stores/notes.svelte';
   import type { Note, Priority } from '../types/api';
+  import { markdownFromEntities, renderNoteHtml } from '../utils/format';
 
   let { note, onClose }: { note: Note; onClose: () => void } = $props();
 
@@ -28,7 +29,8 @@
   let confirmDelete = $state(false);
 
   function startEdit(): void {
-    editText = note.text;
+    // В редакторе показываем разметку (**жирный** и т.п.), восстановленную из entities.
+    editText = markdownFromEntities(note.text, note.entities);
     editing = true;
     error = '';
   }
@@ -161,6 +163,9 @@
         autofocus
         class="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-[15px] leading-5 outline-none focus:border-accent"
       ></textarea>
+      <p class="text-xs text-muted">
+        **жирный**, *курсив*, `код`, [ссылка](https://…)
+      </p>
       {#if error}
         <p class="text-sm text-danger">{error}</p>
       {/if}
@@ -183,13 +188,13 @@
     </form>
   {:else}
     <div class="flex flex-col gap-4 px-1 py-2">
-      <p
-        class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[15px] leading-6 {note.done
+      <div
+        class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2 {note.done
           ? 'text-muted line-through'
           : 'text-content'}"
       >
-        {note.text}
-      </p>
+        {@html renderNoteHtml(note.text, note.entities)}
+      </div>
 
       {#if error}
         <p class="text-sm text-danger">{error}</p>

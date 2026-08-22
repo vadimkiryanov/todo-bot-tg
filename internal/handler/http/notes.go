@@ -46,6 +46,7 @@ func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 }
 
 // createNote обрабатывает POST /api/v1/notes {topic_id, text} → 201 Note.
+// Разметка **bold**/*italic*/`code`/[text](url) конвертируется в entities.
 func (h *todoHandler) createNote(w http.ResponseWriter, r *http.Request) {
 	var input dto.NoteCreateRequest
 	if err := decodeJSON(r, &input); err != nil {
@@ -57,7 +58,8 @@ func (h *todoHandler) createNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	n, err := h.svc.AddNote(middleware.UserID(r.Context()), input.TopicID, nil, input.Text, nil, model.PriorityNone)
+	text, entities := parseMarkdownEntities(input.Text)
+	n, err := h.svc.AddNote(middleware.UserID(r.Context()), input.TopicID, nil, text, entities, model.PriorityNone)
 	if err != nil {
 		httperr.Write(w, err)
 		return
@@ -88,7 +90,8 @@ func (h *todoHandler) patchNote(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 
 	if input.Text != nil {
-		if err := h.svc.EditNote(userID, noteID, *input.Text, nil); err != nil {
+		text, entities := parseMarkdownEntities(*input.Text)
+		if err := h.svc.EditNote(userID, noteID, text, entities); err != nil {
 			httperr.Write(w, err)
 			return
 		}

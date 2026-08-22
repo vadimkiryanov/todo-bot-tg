@@ -4,7 +4,8 @@
 // Данные живут в localStorage браузера; в node (тесты) — в MemoryStorage.
 
 import { ApiError } from './error';
-import type { Note, Priority, Topic, User } from '../types/api';
+import type { Note, NoteEntity, Priority, Topic, User } from '../types/api';
+import { parseMarkdown } from '../utils/format';
 
 const AUTH = '/api/v1/auth';
 const TOPICS = '/api/v1/topics';
@@ -68,6 +69,7 @@ interface NoteRecord {
   id: number;
   topic_id: number;
   text: string;
+  entities: NoteEntity[];
   priority: Priority;
   done: boolean;
   pinned: boolean;
@@ -165,6 +167,7 @@ function toNote(rec: NoteRecord): Note {
   return {
     id: rec.id,
     text: rec.text,
+    entities: rec.entities,
     priority: rec.priority,
     done: rec.done,
     pinned: rec.pinned,
@@ -404,10 +407,12 @@ function mockCreateNote(body: unknown): Note {
   if (!topicsOf(user.id).some((t) => t.id === topic_id)) {
     throw new ApiError(404, 'топик не найден');
   }
+  const parsed = parseMarkdown(text.trim());
   const note: NoteRecord = {
     id: seq(K_NOTE_SEQ(user.id)),
     topic_id,
-    text,
+    text: parsed.text,
+    entities: parsed.entities,
     priority: 'none',
     done: false,
     pinned: false,
@@ -432,7 +437,9 @@ function mockUpdateNote(noteId: number, body: unknown): Note {
     if (typeof patch.text !== 'string' || patch.text.trim() === '') {
       throw new ApiError(400, 'текст обязателен');
     }
-    note.text = patch.text;
+    const parsed = parseMarkdown(patch.text.trim());
+    note.text = parsed.text;
+    note.entities = parsed.entities;
   }
   if ('done' in patch) {
     if (typeof patch.done !== 'boolean') {

@@ -12,6 +12,7 @@
     unarchiveNote,
   } from '../lib/stores/notes.svelte';
   import type { Note } from '../lib/types/api';
+  import { renderNoteHtml } from '../lib/utils/format';
 
   let selectedId: number | null = $state(null);
   const selectedNote = $derived(
@@ -128,14 +129,14 @@
       </div>
     {:else}
       <div class="flex flex-col gap-4 px-1 py-2">
-        <p
-          class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[15px] leading-6 {selectedNote
+        <div
+          class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 {selectedNote
             .done
             ? 'text-muted line-through'
             : 'text-content'}"
         >
-          {selectedNote.text}
-        </p>
+          {@html renderNoteHtml(selectedNote.text, selectedNote.entities)}
+        </div>
         {#if error}
           <p class="text-sm text-danger">{error}</p>
         {/if}

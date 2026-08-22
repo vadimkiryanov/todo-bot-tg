@@ -28,9 +28,19 @@ func ToTopicResponse(t model.Topic, noteCount int) TopicResponse {
 
 // ToNoteResponse конвертирует заметку в DTO.
 func ToNoteResponse(n model.Note) NoteResponse {
+	entities := make([]NoteEntityResponse, 0, len(n.Entities))
+	for _, e := range n.Entities {
+		entities = append(entities, NoteEntityResponse{
+			Type:   e.Type,
+			Offset: e.Offset,
+			Length: e.Length,
+			URL:    e.URL,
+		})
+	}
 	return NoteResponse{
 		ID:        n.ID,
 		Text:      n.Text,
+		Entities:  entities,
 		Priority:  PriorityString(n.Priority),
 		Done:      n.Done,
 		Pinned:    n.IsPinned(),
