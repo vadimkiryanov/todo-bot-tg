@@ -13,20 +13,26 @@ import (
 
 // listNotes обрабатывает GET /api/v1/notes?topic_id=N → [Note].
 // topic_id опционален: без него возвращаются заметки без топика.
+// archived=true → архивные заметки пользователя (без фильтра по топику).
 func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 
-	var topicID int64
-	if q := r.URL.Query().Get("topic_id"); q != "" {
-		id, err := strconv.ParseInt(q, 10, 64)
-		if err != nil || id <= 0 {
-			httperr.Write(w, errs.ErrInvalidJSON)
-			return
+	var notes []model.Note
+	var err error
+	if r.URL.Query().Get("archived") == "true" {
+		notes, err = h.svc.ListArchived(userID)
+	} else {
+		var topicID int64
+		if q := r.URL.Query().Get("topic_id"); q != "" {
+			id, parseErr := strconv.ParseInt(q, 10, 64)
+			if parseErr != nil || id <= 0 {
+				httperr.Write(w, errs.ErrInvalidJSON)
+				return
+			}
+			topicID = id
 		}
-		topicID = id
+		notes, err = h.svc.ListNotes(userID, topicID, nil)
 	}
-
-	notes, err := h.svc.ListNotes(userID, topicID, nil)
 	if err != nil {
 		httperr.Write(w, err)
 		return
@@ -59,7 +65,7 @@ func (h *todoHandler) createNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, dto.ToNoteResponse(n))
 }
 
-// patchNote обрабатывает PATCH /api/v1/notes/{id} {text?, done?, priority?} → 200 Note.
+// patchNote обрабатывает PATCH /api/v1/notes/{id} {text?, done?, priority?, pinned?, archived?} → 200 Note.
 // Применяет только переданные поля, затем возвращает актуальную заметку
 // (фронт делает оптимистичные обновления).
 func (h *todoHandler) patchNote(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +80,7 @@ func (h *todoHandler) patchNote(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, errs.ErrInvalidJSON)
 		return
 	}
-	if input.Text == nil && input.Done == nil && input.Priority == nil {
+	if input.Text == nil && input.Done == nil && input.Priority == nil && input.Pinned == nil && input.Archived == nil {
 		httperr.Write(w, errs.ErrInvalidJSON)
 		return
 	}
@@ -106,6 +112,30 @@ func (h *todoHandler) patchNote(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.svc.SetPriority(userID, noteID, p); err != nil {
+			httperr.Write(w, err)
+			return
+		}
+	}
+	if input.Pinned != nil {
+		var err error
+		if *input.Pinned {
+			err = h.svc.PinNote(userID, noteID)
+		} else {
+			err = h.svc.UnpinNote(userID, noteID)
+		}
+		if err != nil {
+			httperr.Write(w, err)
+			return
+		}
+	}
+	if input.Archived != nil {
+		var err error
+		if *input.Archived {
+			err = h.svc.ArchiveNote(userID, noteID)
+		} else {
+			err = h.svc.UnarchiveNote(userID, noteID)
+		}
+		if err != nil {
 			httperr.Write(w, err)
 			return
 		}

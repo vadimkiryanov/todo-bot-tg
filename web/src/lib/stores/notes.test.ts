@@ -5,7 +5,19 @@ import { request } from '../api/client';
 import { resetMockStore, setMockDelay } from '../api/mock';
 import type { Priority, Topic } from '../types/api';
 import { setActiveTopic } from './navigation.svelte';
-import { createNote, loadNotes, notesStore, removeNote, setPriority, toggleDone } from './notes.svelte';
+import {
+  archivedStore,
+  archiveNote,
+  createNote,
+  loadArchived,
+  loadNotes,
+  notesStore,
+  removeNote,
+  setPriority,
+  toggleDone,
+  togglePin,
+  unarchiveNote,
+} from './notes.svelte';
 
 beforeEach(() => {
   resetMockStore();
@@ -82,5 +94,50 @@ describe('notes store', () => {
     await expect(removeNote(ghost)).rejects.toThrow();
 
     expect(notesStore.notes).toHaveLength(count);
+  });
+
+  it('закреплённая заметка поднимается наверх (серверная сортировка)', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('первая');
+    await createNote('вторая');
+
+    await togglePin(notesStore.notes[1]);
+
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['вторая', 'первая']);
+    expect(notesStore.notes[0].pinned).toBe(true);
+
+    // Открепление возвращает порядок.
+    await togglePin(notesStore.notes[0]);
+    expect(notesStore.notes[0].pinned).toBe(false);
+  });
+
+  it('архивированная заметка исчезает из топика и попадает в архив', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('первая');
+    await createNote('в архив');
+
+    await archiveNote(notesStore.notes[1]);
+
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['первая']);
+
+    await loadArchived();
+    expect(archivedStore.notes.map((n) => n.text)).toEqual(['в архив']);
+  });
+
+  it('возврат из архива убирает заметку из архива', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('в архив');
+    await archiveNote(notesStore.notes[0]);
+    await loadArchived();
+
+    const archived = archivedStore.notes[0];
+    await unarchiveNote(archived);
+
+    expect(archivedStore.notes).toHaveLength(0);
+    await loadNotes(topicId);
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['в архив']);
   });
 });

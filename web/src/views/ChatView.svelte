@@ -7,8 +7,8 @@
   import NoteCard from '../lib/components/NoteCard.svelte';
   import NoteOverlay from '../lib/components/NoteOverlay.svelte';
   import TopicTabs from '../lib/components/TopicTabs.svelte';
-  import { navigation, showLogin } from '../lib/stores/navigation.svelte';
-  import { loadNotes, notesStore } from '../lib/stores/notes.svelte';
+  import { navigation, showArchived, showLogin } from '../lib/stores/navigation.svelte';
+  import { loadArchived, loadNotes, notesStore } from '../lib/stores/notes.svelte';
   import { logout } from '../lib/stores/session.svelte';
   import { loadTopics, topicsStore } from '../lib/stores/topics.svelte';
 
@@ -69,8 +69,19 @@
     onpointerleave={cancelLongPress}
     onkeydown={headerKeydown}
   >
-    <div class="flex h-[52px] items-center gap-2">
+    <div class="relative flex h-[52px] w-full items-center justify-center">
       <span class="text-xl">📝</span>
+      <button
+        type="button"
+        aria-label="Архив"
+        class="absolute right-3 flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+        onclick={() => {
+          void loadArchived();
+          showArchived();
+        }}
+      >
+        🗄
+      </button>
     </div>
   </header>
 

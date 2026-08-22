@@ -3,7 +3,14 @@
   // ✅ — выполнить/вернуть, 🔴🟡🔵 — приоритет (тап по активному снимает),
   // ✏️ — редактирование, 🗑 — удаление с подтверждением.
   import Modal from './Modal.svelte';
-  import { removeNote, saveText, setPriority, toggleDone } from '../stores/notes.svelte';
+  import {
+    archiveNote,
+    removeNote,
+    saveText,
+    setPriority,
+    toggleDone,
+    togglePin,
+  } from '../stores/notes.svelte';
   import type { Note, Priority } from '../types/api';
 
   let { note, onClose }: { note: Note; onClose: () => void } = $props();
@@ -70,6 +77,30 @@
     } catch (e) {
       error = e instanceof Error ? e.message : 'ошибка';
     } finally {
+      busy = false;
+    }
+  }
+
+  async function doTogglePin(): Promise<void> {
+    busy = true;
+    error = '';
+    try {
+      await togglePin(note);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'ошибка';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function doArchive(): Promise<void> {
+    busy = true;
+    error = '';
+    try {
+      await archiveNote(note);
+      onClose();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'ошибка';
       busy = false;
     }
   }
@@ -164,55 +195,82 @@
         <p class="text-sm text-danger">{error}</p>
       {/if}
 
-      <div class="flex items-center justify-between gap-1">
-        <button
-          type="button"
-          aria-label={note.done ? 'Вернуть в работу' : 'Выполнить'}
-          class="flex h-11 w-11 items-center justify-center rounded-full text-lg {note.done
-            ? 'bg-border/60'
-            : 'bg-background'}"
-          disabled={busy}
-          onclick={doToggleDone}
-        >
-          ✅
-        </button>
-
-        {#each priorities as p (p.value)}
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between gap-1">
           <button
             type="button"
-            aria-label={`Приоритет ${p.value}`}
-            class="flex h-11 w-11 items-center justify-center rounded-full text-lg {note.priority === p.value
+            aria-label={note.done ? 'Вернуть в работу' : 'Выполнить'}
+            class="flex h-11 w-11 items-center justify-center rounded-full text-lg {note.done
               ? 'bg-border/60'
               : 'bg-background'}"
             disabled={busy}
-            onclick={() => doSetPriority(p.value)}
+            onclick={doToggleDone}
           >
-            {p.emoji}
+            ✅
           </button>
-        {/each}
 
-        <button
-          type="button"
-          aria-label="Редактировать"
-          class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg"
-          disabled={busy}
-          onclick={startEdit}
-        >
-          ✏️
-        </button>
+          {#each priorities as p (p.value)}
+            <button
+              type="button"
+              aria-label={`Приоритет ${p.value}`}
+              class="flex h-11 w-11 items-center justify-center rounded-full text-lg {note.priority ===
+              p.value
+                ? 'bg-border/60'
+                : 'bg-background'}"
+              disabled={busy}
+              onclick={() => doSetPriority(p.value)}
+            >
+              {p.emoji}
+            </button>
+          {/each}
+        </div>
 
-        <button
-          type="button"
-          aria-label="Удалить"
-          class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg"
-          disabled={busy}
-          onclick={() => {
-            confirmDelete = true;
-            error = '';
-          }}
-        >
-          🗑
-        </button>
+        <div class="flex items-center justify-between gap-1">
+          <button
+            type="button"
+            aria-label={note.pinned ? 'Открепить' : 'Закрепить'}
+            class="flex h-11 w-11 items-center justify-center rounded-full text-lg {note.pinned
+              ? 'bg-border/60'
+              : 'bg-background'}"
+            disabled={busy}
+            onclick={doTogglePin}
+          >
+            📌
+          </button>
+
+          <button
+            type="button"
+            aria-label="В архив"
+            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg"
+            disabled={busy}
+            onclick={doArchive}
+          >
+            🗄
+          </button>
+
+          <button
+            type="button"
+            aria-label="Редактировать"
+            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg"
+            disabled={busy}
+            onclick={startEdit}
+          >
+            ✏️
+          </button>
+
+          <button
+            type="button"
+            aria-label="Удалить"
+            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg"
+            disabled={busy}
+            onclick={() => {
+              confirmDelete = true;
+              error = '';
+            }}
+          >
+            🗑
+          </button>
+        </div>
       </div>
     </div>
   {/if}

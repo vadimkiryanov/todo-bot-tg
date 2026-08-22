@@ -4,7 +4,7 @@ import type { Topic } from '../types/api';
 const ACTIVE_KEY = 'todo.activeTopicID';
 
 export const navigation = $state<{
-  screen: 'login' | 'chat';
+  screen: 'login' | 'chat' | 'archived';
   activeTopicID: number | null;
 }>({
   screen: 'login',
@@ -17,6 +17,10 @@ export function showLogin(): void {
 
 export function showChat(): void {
   navigation.screen = 'chat';
+}
+
+export function showArchived(): void {
+  navigation.screen = 'archived';
 }
 
 export function setActiveTopic(id: number): void {

@@ -34,6 +34,7 @@ func ToNoteResponse(n model.Note) NoteResponse {
 		Priority:  PriorityString(n.Priority),
 		Done:      n.Done,
 		Pinned:    n.IsPinned(),
+		Archived:  n.Archived,
 		CreatedAt: n.CreatedAt.Format(time.RFC3339),
 	}
 }

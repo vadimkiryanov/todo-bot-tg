@@ -7,6 +7,7 @@
   import { setUnauthorizedHandler } from './lib/api/client';
   import LoginView from './views/LoginView.svelte';
   import ChatView from './views/ChatView.svelte';
+  import ArchivedView from './views/ArchivedView.svelte';
 
   // Любой 401 на запросах API → возврат на экран входа.
   setUnauthorizedHandler(() => {
@@ -39,6 +40,8 @@
   <div class="flex h-full items-center justify-center text-muted">…</div>
 {:else if session.state === 'guest' || navigation.screen === 'login'}
   <LoginView />
+{:else if navigation.screen === 'archived'}
+  <ArchivedView />
 {:else}
   <ChatView />
 {/if}

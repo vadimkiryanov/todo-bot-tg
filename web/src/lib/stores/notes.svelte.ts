@@ -1,8 +1,9 @@
-// Заметки: список активного топика + оптимистичные мутации (✅, приоритет) с откатом.
+// Заметки: список активного топика + архив + оптимистичные мутации с откатом.
 // Сортировку не дублируем: после мутаций тихо перезагружаем список — сортирует сервер.
 import {
   createNote as apiCreateNote,
   deleteNote as apiDeleteNote,
+  listArchivedNotes,
   listNotes,
   updateNote as apiUpdateNote,
   type NotePatch,
@@ -11,6 +12,17 @@ import type { Note, Priority } from '../types/api';
 import { navigation } from './navigation.svelte';
 
 export const notesStore = $state<{
+  notes: Note[];
+  loading: boolean;
+  error: string | null;
+}>({
+  notes: [],
+  loading: false,
+  error: null,
+});
+
+/** Архивные заметки (все топики). */
+export const archivedStore = $state<{
   notes: Note[];
   loading: boolean;
   error: string | null;
@@ -42,6 +54,24 @@ export async function loadNotes(topicId: number, silent = false): Promise<void> 
   }
 }
 
+/** Загрузка архива. silent — тихая перезагрузка. */
+export async function loadArchived(silent = false): Promise<void> {
+  if (!silent) {
+    archivedStore.loading = true;
+    archivedStore.notes = [];
+  }
+  archivedStore.error = null;
+  try {
+    archivedStore.notes = await listArchivedNotes();
+  } catch (e) {
+    archivedStore.error = e instanceof Error ? e.message : 'не удалось загрузить архив';
+  } finally {
+    if (!silent) {
+      archivedStore.loading = false;
+    }
+  }
+}
+
 /** Создание заметки в активном топике; после — серверная сортировка. */
 export async function createNote(text: string): Promise<void> {
   const topicId = navigation.activeTopicID;
@@ -60,6 +90,35 @@ export async function toggleDone(note: Note): Promise<void> {
 export async function setPriority(note: Note, priority: Priority): Promise<void> {
   if (note.priority === priority) return;
   await mutateNote(note, { priority });
+}
+
+/** Закрепить / открепить: оптимистично, откат при ошибке. */
+export async function togglePin(note: Note): Promise<void> {
+  await mutateNote(note, { pinned: !note.pinned });
+}
+
+/** В архив: убрать из активного списка, откат при ошибке. */
+export async function archiveNote(note: Note): Promise<void> {
+  const previous = notesStore.notes;
+  notesStore.notes = previous.filter((n) => n.id !== note.id);
+  try {
+    await apiUpdateNote(note.id, { archived: true });
+  } catch (e) {
+    notesStore.notes = previous;
+    throw e;
+  }
+}
+
+/** Вернуть из архива: убрать из архивного списка, откат при ошибке. */
+export async function unarchiveNote(note: Note): Promise<void> {
+  const previous = archivedStore.notes;
+  archivedStore.notes = previous.filter((n) => n.id !== note.id);
+  try {
+    await apiUpdateNote(note.id, { archived: false });
+  } catch (e) {
+    archivedStore.notes = previous;
+    throw e;
+  }
 }
 
 /** Сохранить текст (редактирование в оверлее). */
@@ -86,6 +145,18 @@ export async function removeNote(note: Note): Promise<void> {
     await apiDeleteNote(note.id);
   } catch (e) {
     notesStore.notes = previous;
+    throw e;
+  }
+}
+
+/** Удалить из архива: оптимистично, откат при ошибке. */
+export async function removeArchivedNote(note: Note): Promise<void> {
+  const previous = archivedStore.notes;
+  archivedStore.notes = previous.filter((n) => n.id !== note.id);
+  try {
+    await apiDeleteNote(note.id);
+  } catch (e) {
+    archivedStore.notes = previous;
     throw e;
   }
 }

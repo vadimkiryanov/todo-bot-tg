@@ -20,6 +20,7 @@ export interface Note {
   priority: Priority;
   done: boolean;
   pinned: boolean;
+  archived: boolean;
   created_at: string; // ISO 8601
 }
 

@@ -59,5 +59,8 @@ export default defineConfig({
     environment: 'node',
     passWithNoTests: true,
     include: ['src/**/*.test.ts'],
+    // Тесты работают с in-memory моком, а не с реальным API
+    // (независимо от VITE_USE_MOCK из .env).
+    env: { VITE_USE_MOCK: 'true' },
   },
 });

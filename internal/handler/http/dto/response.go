@@ -25,5 +25,6 @@ type NoteResponse struct {
 	Priority  string `json:"priority"`
 	Done      bool   `json:"done"`
 	Pinned    bool   `json:"pinned"`
+	Archived  bool   `json:"archived"`
 	CreatedAt string `json:"created_at"`
 }

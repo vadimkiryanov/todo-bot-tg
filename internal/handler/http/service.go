@@ -19,6 +19,11 @@ type TodoService interface {
 	MarkDone(userID, noteID int64) error
 	MarkUndone(userID, noteID int64) error
 	SetPriority(userID, noteID int64, priority model.Priority) error
+	PinNote(userID, noteID int64) error
+	UnpinNote(userID, noteID int64) error
+	ArchiveNote(userID, noteID int64) error
+	UnarchiveNote(userID, noteID int64) error
+	ListArchived(userID int64) ([]model.Note, error)
 	DeleteNote(userID, noteID int64) error
 
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)

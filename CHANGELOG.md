@@ -207,6 +207,14 @@
 
 ---
 
+## Этап 18: Веб — закрепление 📌 и архив 🗄 (2026-08-23)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(см. ниже)* | **feat**: веб, закрепление и архив — **REST**: `PATCH /api/v1/notes/{id}` принимает `{pinned?, archived?}` (интерфейс `TodoService` расширен: `PinNote`/`UnpinNote`/`ArchiveNote`/`UnarchiveNote`/`ListArchived`), `GET /api/v1/notes?archived=true` — архивные заметки всех топиков; `NoteResponse` + `archived`. **Фронт**: кнопки 📌 (закрепить/открепить) и 🗄 (в архив) в оверлее заметки (два ряда), экран архива `ArchivedView` (вход через кнопку 🗄 в шапке, возврат ↩️, удаление), стор `archivedStore` + мутации с оптимистичным откатом. **Тесты**: Go — E2E pin/archive + юнит PATCH (порядок полей text→done→priority→pin→archive); web — 3 новых теста стора (pin-сортировка, archive/loadArchived, unarchive). Плюс: `vite.config.ts` — vitest всегда использует in-memory мок (`test.env VITE_USE_MOCK=true`), иначе `.env` с `VITE_USE_MOCK=false` ломал тесты. Проверки: `gofmt` чистый (кроме pre-existing `settings.go`), `go build/vet/test` зелёные, `npm run build` + `svelte-check` 0 ошибок, `vitest` 8/8 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |

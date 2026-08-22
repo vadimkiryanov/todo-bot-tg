@@ -30,4 +30,6 @@ type NotePatchRequest struct {
 	Text     *string `json:"text"`
 	Done     *bool   `json:"done"`
 	Priority *string `json:"priority"`
+	Pinned   *bool   `json:"pinned"`
+	Archived *bool   `json:"archived"`
 }

@@ -71,6 +71,7 @@ interface NoteRecord {
   priority: Priority;
   done: boolean;
   pinned: boolean;
+  archived: boolean;
   created_at: string;
 }
 
@@ -167,6 +168,7 @@ function toNote(rec: NoteRecord): Note {
     priority: rec.priority,
     done: rec.done,
     pinned: rec.pinned,
+    archived: rec.archived,
     created_at: rec.created_at,
   };
 }
@@ -254,6 +256,9 @@ export async function mockRequest<T>(
 
   // --- notes ---
   if (base === NOTES && method === 'GET') {
+    if (search.get('archived') === 'true') {
+      return mockListArchived() as T;
+    }
     const topicId = Number(search.get('topic_id'));
     if (!Number.isInteger(topicId)) {
       throw new ApiError(400, 'topic_id обязателен');
@@ -375,7 +380,15 @@ function mockDeleteTopic(topicId: number): void {
 
 function mockListNotes(topicId: number): Note[] {
   const user = requireUser();
-  const notes = notesOf(user.id).filter((n) => n.topic_id === topicId);
+  const notes = notesOf(user.id).filter(
+    (n) => n.topic_id === topicId && !n.archived,
+  );
+  return sortNotes(notes).map(toNote);
+}
+
+function mockListArchived(): Note[] {
+  const user = requireUser();
+  const notes = notesOf(user.id).filter((n) => n.archived);
   return sortNotes(notes).map(toNote);
 }
 
@@ -398,6 +411,7 @@ function mockCreateNote(body: unknown): Note {
     priority: 'none',
     done: false,
     pinned: false,
+    archived: false,
     created_at: new Date().toISOString(),
   };
   const all = notesOf(user.id);
@@ -431,6 +445,18 @@ function mockUpdateNote(noteId: number, body: unknown): Note {
       throw new ApiError(400, 'некорректный priority');
     }
     note.priority = patch.priority as Priority;
+  }
+  if ('pinned' in patch) {
+    if (typeof patch.pinned !== 'boolean') {
+      throw new ApiError(400, 'pinned должен быть true/false');
+    }
+    note.pinned = patch.pinned;
+  }
+  if ('archived' in patch) {
+    if (typeof patch.archived !== 'boolean') {
+      throw new ApiError(400, 'archived должен быть true/false');
+    }
+    note.archived = patch.archived;
   }
   writeJSON(K_NOTES(user.id), all);
   return toNote(note);

@@ -106,6 +106,62 @@ func TestNotes_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+func TestNotes_PinAndArchive(t *testing.T) {
+	router := newTestRouter(t)
+	cookie := registerUser(t, router, "pin_user", "password123")
+	topic := createTopic(t, router, cookie, "Топик")
+	note := createNote(t, router, cookie, topic.ID, "Заметка")
+
+	// Pin → 200 с pinned:true
+	rec := doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/notes/%d", note.ID), `{"pinned":true}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	var updated dto.NoteResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.True(t, updated.Pinned)
+
+	// Unpin → 200 с pinned:false
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/notes/%d", note.ID), `{"pinned":false}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.False(t, updated.Pinned)
+
+	// Archive → 200 с archived:true; заметка исчезает из списка топика
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/notes/%d", note.ID), `{"archived":true}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.True(t, updated.Archived)
+
+	rec = doJSON(t, router, http.MethodGet,
+		fmt.Sprintf("/api/v1/notes?topic_id=%d", topic.ID), "", cookie)
+	var notes []dto.NoteResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Empty(t, notes)
+
+	// GET ?archived=true → 1 заметка
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes?archived=true", "", cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Len(t, notes, 1)
+	require.True(t, notes[0].Archived)
+
+	// Unarchive → снова в топике, архив пуст
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/notes/%d", note.ID), `{"archived":false}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doJSON(t, router, http.MethodGet,
+		fmt.Sprintf("/api/v1/notes?topic_id=%d", topic.ID), "", cookie)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Len(t, notes, 1)
+
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes?archived=true", "", cookie)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Empty(t, notes)
+}
+
 func TestNotes_Errors(t *testing.T) {
 	router := newTestRouter(t)
 	cookie := registerUser(t, router, "notes_errors", "password123")
@@ -206,6 +262,35 @@ func (s *stubTodoService) SetPriority(userID, noteID int64, priority model.Prior
 	return nil
 }
 
+func (s *stubTodoService) PinNote(userID, noteID int64) error {
+	s.calls = append(s.calls, "pin")
+	s.note.Pinned = true
+	return nil
+}
+
+func (s *stubTodoService) UnpinNote(userID, noteID int64) error {
+	s.calls = append(s.calls, "unpin")
+	s.note.Pinned = false
+	return nil
+}
+
+func (s *stubTodoService) ArchiveNote(userID, noteID int64) error {
+	s.calls = append(s.calls, "archive")
+	s.note.Archived = true
+	return nil
+}
+
+func (s *stubTodoService) UnarchiveNote(userID, noteID int64) error {
+	s.calls = append(s.calls, "unarchive")
+	s.note.Archived = false
+	return nil
+}
+
+func (s *stubTodoService) ListArchived(userID int64) ([]model.Note, error) {
+	s.calls = append(s.calls, "listarchived")
+	return nil, nil
+}
+
 func (s *stubTodoService) GetNote(userID, noteID int64) (model.Note, error) {
 	return s.note, s.getErr
 }
@@ -221,11 +306,11 @@ func TestNotes_Patch_AppliesOnlyProvidedFields(t *testing.T) {
 	router := newPatchRouter(stub)
 	cookie := registerUser(t, router, "patch_user", "password123")
 
-	// Все поля разом → порядок text → done → priority
+	// Все поля разом → порядок text → done → priority → pin → archive
 	rec := doJSON(t, router, http.MethodPatch, "/api/v1/notes/7",
-		`{"text":"новая","done":true,"priority":"high"}`, cookie)
+		`{"text":"новая","done":true,"priority":"high","pinned":true,"archived":true}`, cookie)
 	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
-	require.Equal(t, []string{"edit:новая", "done", "priority:high"}, stub.calls)
+	require.Equal(t, []string{"edit:новая", "done", "priority:high", "pin", "archive"}, stub.calls)
 
 	// Ответ — актуальная заметка
 	var note dto.NoteResponse
@@ -233,6 +318,8 @@ func TestNotes_Patch_AppliesOnlyProvidedFields(t *testing.T) {
 	require.Equal(t, "новая", note.Text)
 	require.True(t, note.Done)
 	require.Equal(t, "high", note.Priority)
+	require.True(t, note.Pinned)
+	require.True(t, note.Archived)
 
 	// done=false → undone, остальные поля не трогаются
 	stub.calls = nil
