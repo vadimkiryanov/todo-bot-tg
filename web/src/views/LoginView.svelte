@@ -28,34 +28,16 @@
     const widget = document.getElementById('telegram-login-widget');
     if (!widget) return;
 
-    // data-onauth: виджет зовёт эту функцию в главном окне, фронт сам
-    // отправляет данные на бэкенд — cookie ставится в first-party контексте
-    // (надёжнее, чем POST из iframe виджета, который браузеры блокируют).
-    (window as unknown as { __tgAuth: (data: Record<string, string>) => void }).__tgAuth = async (data) => {
-      tgError = '';
-      pending = true;
-      try {
-        const res = await fetch(tgAuthUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams(data).toString(),
-        });
-        if (!res.ok) throw new Error('tg auth failed');
-        showChat();
-      } catch {
-        tgError = 'Не удалось войти через Telegram. Попробуйте ещё раз.';
-      } finally {
-        pending = false;
-      }
-    };
-
+    // data-auth-url: виджет после входа переводит ОСНОВНОЕ окно на
+    // /api/v1/auth/tg?data… — сервер ставит cookie и редиректит на /.
+    // (data-onauth в этом конфиге замыкается на iframe виджета.)
     const script = document.createElement('script');
     script.async = true;
     script.src = 'https://telegram.org/js/telegram-widget.js?22';
     script.setAttribute('data-telegram-login', tgLogin!);
     script.setAttribute('data-size', 'large');
     script.setAttribute('data-radius', '8');
-    script.setAttribute('data-onauth', '__tgAuth');
+    script.setAttribute('data-auth-url', tgAuthUrl);
     widget.appendChild(script);
   });
 
