@@ -173,6 +173,14 @@
 
 ---
 
+## Этап 16 (продолжение): Web API, этап 1 — пользователи, авторизация, сессии (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **REST API, Этап 1** (по `docs/BACKEND_API_PLAN.md` §3, §6): **`internal/user`** — `User{ID, Username, PasswordHash, TelegramID *int64}`, `ValidateUsername` (3–32 `[a-z0-9_]`, нормализация lowercase), `ValidatePassword` (≥8), bcrypt cost 12 (`HashPassword`/`CheckPassword`; битый хеш → `ErrInvalidPasswordHash` (500), чтобы не раскрывать причину через `errors.Is`), `NewUserWithHash`. **`internal/session`** — `Session{TokenHash, UserID, CreatedAt, ExpiresAt}`, TTL 30 дней, `GenerateToken` (32 байта base64url) + SHA-256 хеш в хранилище, `Store` (Create/Get/Delete), `MemoryStore` + `PostgresStore` (таблица `web_sessions`). **`internal/middleware/auth.go`** — `RequireAuth` (cookie `session` → `Get(HashToken)`, userID в контексте, 401 в едином формате), `UserID(ctx)`. **`internal/handler/http`** — DTO (`RegisterRequest`/`LoginRequest`/`UserEnvelope`/`ToUserResponse`), `auth.go` (register → 201 + Set-Cookie, login → 200, logout → 204 идемпотентный, me → 200; 409 `ErrUsernameTaken`, 401 одинаково для неверного логина и пароля), роуты `/api/v1/auth/*` + `GET /api/v1/me` (за RequireAuth). **repository** — `users.go` (CreateUser/FindByUsername/GetByID/FindOrCreateByTelegramID, mem+pg), `UserRecord` + конвертеры, таблицы `users` + `web_sessions` (+ индекс) в schema; бот перепривязан на `users.id` (§3.4): `UserResolver`, userID параметром в handler'е telegram. **Миграция** — `data/migrate_users.sql` + `make db-migrate-users` (обязательный `make db-backup` перед запуском). Тесты: `user` (валидация, bcrypt), `session` (токен, MemoryStore), `handler/http` (E2E-цикл register→login→me→logout, 409/401/400, идемпотентный logout, case-insensitive login). Проверки: `gofmt` чистый, `go build ./...`, `go vet ./...`, `go test ./...` зелёные; живая проверка in-memory curl: register 201 → me 200 → logout 204 → me 401, dup-register 409, bad-password 401, healthz 200 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -181,9 +189,10 @@
 | **Сервис** | `service/todo/service.go` | CRUD (с entities), приоритеты, архивация, выполненные, закрепление (Pin/PinUntil/Unpin, `ProcessExpiredPins`), напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
 | **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами (entities — JSON), `GetPendingReminders`, `GetExpiredPins`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`) |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
-| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML) |
+| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML); userID = `users.id` через `UserResolver` |
 | **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
-| **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs) |
+| **Веб-аккаунты** | `internal/user/`, `internal/session/` | Пользователи (username + bcrypt cost 12 / telegram_id), веб-сессии: токен 32 байта base64url, SHA-256 хеш в БД (`web_sessions`), TTL 30 дней; `MemoryStore` + `PostgresStore` |
+| **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test` |
 
 ---
 
@@ -196,12 +205,14 @@ internal/
   errors/errors.go       — sentinel-ошибки
   model/                 — Note, Folder, Topic, Attachment, UserSettings (агрегаты с бизнес-логикой)
   service/todo/          — сервис-оркестратор (интерфейсы репозиториев здесь)
-  repository/todo/       — MemStore + PostgresStore + Entity Records
+  repository/todo/       — MemStore + PostgresStore + Entity Records (+ users: CreateUser/FindOrCreateByTelegramID)
   storage/fs/            — файловое хранилище вложений
-  handler/telegram/      — Telegram Bot API handler + renderer + FSM-состояния
-  handler/http/          — REST API (router, GET /healthz)
+  handler/telegram/      — Telegram Bot API handler + renderer + FSM-состояния (userID = users.id)
+  handler/http/          — REST API (router, healthz, auth: register/login/logout/me, DTO)
   httperr/               — единый формат ошибок {"error": "..."} и маппинг статусов
-  middleware/            — Logging (slog) + Recover (panic → 500)
+  middleware/            — Logging (slog) + Recover (panic → 500) + RequireAuth (cookie-сессии)
+  user/                  — пользователи: валидация username/пароля, bcrypt cost 12
+  session/               — веб-сессии: токен 32 байта base64url, SHA-256 хеш в хранилище, TTL 30 дней
 ```
 
 Проект следует принципам **чистой архитектуры**: Rich Domain Model, интерфейсы на стороне потребителя, ручной DI, никаких фреймворков.

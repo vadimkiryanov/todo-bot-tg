@@ -27,6 +27,10 @@ type MemStore struct {
 	userFolders  map[int64][]int64 // userID → []folderID
 	noteAtts     map[int64][]int64 // noteID → []attachmentID
 	quickTopics  map[int64][]int64 // userID → []topicID (выбранные для быстрых кнопок)
+	users        map[int64]entity.UserRecord
+	usernameIdx  map[string]int64 // username (lowercase) → userID
+	telegramIdx  map[int64]int64  // telegram_id → userID
+	nextUserID   int64
 }
 
 // NewMemStore создаёт новый MemStore.
@@ -42,10 +46,14 @@ func NewMemStore() *MemStore {
 		userFolders:  make(map[int64][]int64),
 		noteAtts:     make(map[int64][]int64),
 		quickTopics:  make(map[int64][]int64),
+		users:        make(map[int64]entity.UserRecord),
+		usernameIdx:  make(map[string]int64),
+		telegramIdx:  make(map[int64]int64),
 		nextTopicID:  1,
 		nextNoteID:   1,
 		nextFolderID: 1,
 		nextAttID:    1,
+		nextUserID:   1,
 	}
 }
 

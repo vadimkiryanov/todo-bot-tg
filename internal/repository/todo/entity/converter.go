@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"todo-bot-tg/internal/model"
+	"todo-bot-tg/internal/user"
 )
 
 // NoteToRecord конвертирует доменную модель в persistence-record.
@@ -177,5 +178,25 @@ func SettingsFromRecord(r SettingsRecord) model.UserSettings {
 		TimezoneOffset:   r.TimezoneOffset,
 		FoldersCollapsed: r.FoldersCollapsed,
 		QuickTopicsCount: r.QuickTopicsCount,
+	}
+}
+
+// UserToRecord конвертирует доменную модель пользователя в persistence-record.
+func UserToRecord(u user.User) UserRecord {
+	return UserRecord{
+		ID:           u.ID,
+		Username:     u.Username,
+		PasswordHash: u.PasswordHash,
+		TelegramID:   u.TelegramID,
+	}
+}
+
+// UserFromRecord конвертирует persistence-record в доменную модель пользователя.
+func UserFromRecord(r UserRecord) user.User {
+	return user.User{
+		ID:           r.ID,
+		Username:     r.Username,
+		PasswordHash: r.PasswordHash,
+		TelegramID:   r.TelegramID,
 	}
 }

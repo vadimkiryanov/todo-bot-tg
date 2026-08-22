@@ -38,11 +38,11 @@ const (
 	ActionChPrio         CallbackAction = "chprio"
 	ActionDone           CallbackAction = "done"
 	ActionUndone         CallbackAction = "undone"
-	ActionPin            CallbackAction = "pin"          // меню закрепления (постоянно / на время)
-	ActionPinForever     CallbackAction = "pinforever"   // закрепить постоянно
-	ActionPinTime        CallbackAction = "pintime"      // выбор длительности закрепления
-	ActionPinHours       CallbackAction = "pinhours"     // закрепить на N часов
-	ActionPinCal         CallbackAction = "pincal"       // календарь выбора даты окончания закрепления
+	ActionPin            CallbackAction = "pin"        // меню закрепления (постоянно / на время)
+	ActionPinForever     CallbackAction = "pinforever" // закрепить постоянно
+	ActionPinTime        CallbackAction = "pintime"    // выбор длительности закрепления
+	ActionPinHours       CallbackAction = "pinhours"   // закрепить на N часов
+	ActionPinCal         CallbackAction = "pincal"     // календарь выбора даты окончания закрепления
 	ActionPinDay         CallbackAction = "pinday"
 	ActionPinHour        CallbackAction = "pinhour"
 	ActionPinMRange      CallbackAction = "pinmrange"
@@ -235,8 +235,8 @@ func (h *Handler) callbackShowArchived(chatID int64, msgID int, userID int64) {
 }
 
 // handleCallback разбирает callback_data и делегирует обработку типизированному диспетчеру.
-func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
-	userID := cb.From.ID
+// userID — users.id (резолв выполнен в Run через FindOrCreateByTelegramID).
+func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery, userID int64) {
 	data := cb.Data
 	chatID := cb.Message.Chat.ID
 	msgID := cb.Message.MessageID

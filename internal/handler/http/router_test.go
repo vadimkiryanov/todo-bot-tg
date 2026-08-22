@@ -4,10 +4,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	repo "todo-bot-tg/internal/repository/todo"
+	"todo-bot-tg/internal/session"
 )
 
+// newTestRouter собирает роутер на in-memory хранилищах (как в dev без БД).
+func newTestRouter() http.Handler {
+	store := repo.NewMemStore()
+	return NewRouter(store, session.NewMemoryStore())
+}
+
 func TestRouter_Healthz(t *testing.T) {
-	router := NewRouter()
+	router := newTestRouter()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	router.ServeHTTP(rec, req)
@@ -21,7 +30,7 @@ func TestRouter_Healthz(t *testing.T) {
 }
 
 func TestRouter_UnknownRoute_404(t *testing.T) {
-	router := NewRouter()
+	router := newTestRouter()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/nope", nil)
 	router.ServeHTTP(rec, req)

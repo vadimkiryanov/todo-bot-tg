@@ -62,3 +62,12 @@ type SettingsRecord struct {
 	FoldersCollapsed bool  `db:"folders_collapsed"`
 	QuickTopicsCount int   `db:"quick_topics_count"`
 }
+
+// UserRecord — persistence-модель для пользователя (только базовые типы).
+// TelegramID == nil — веб-пользователь; Username/PasswordHash пусты — бот-пользователь.
+type UserRecord struct {
+	ID           int64  `db:"id"`
+	Username     string `db:"username"`
+	PasswordHash string `db:"password_hash"`
+	TelegramID   *int64 `db:"telegram_id"`
+}

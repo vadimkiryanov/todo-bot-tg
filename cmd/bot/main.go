@@ -16,10 +16,21 @@ import (
 	"todo-bot-tg/internal/handler/telegram"
 	repo "todo-bot-tg/internal/repository/todo"
 	"todo-bot-tg/internal/service/todo"
+	"todo-bot-tg/internal/session"
 	"todo-bot-tg/internal/storage/fs"
+	"todo-bot-tg/internal/user"
 	"todo-bot-tg/internal/worker/pin"
 	"todo-bot-tg/internal/worker/reminder"
 )
+
+// usersRepository — объединение интерфейсов потребителей (telegram.UserResolver +
+// http.UserRepository), чтобы держать один репозиторий в DI.
+type usersRepository interface {
+	CreateUser(u user.User) (user.User, error)
+	FindByUsername(username string) (user.User, error)
+	GetByID(id int64) (user.User, error)
+	FindOrCreateByTelegramID(telegramID int64) (int64, error)
+}
 
 func main() {
 	cfg, err := config.Load()
@@ -36,6 +47,8 @@ func main() {
 	var folderRepo todo.FolderRepository
 	var attRepo todo.AttachmentRepository
 	var settingsRepo todo.SettingsRepository
+	var usersRepo usersRepository
+	var sessionStore session.Store
 
 	if cfg.DatabaseURL != "" {
 		pgStore, err := repo.NewPostgresStore(ctx, cfg.DatabaseURL)
@@ -48,6 +61,8 @@ func main() {
 		folderRepo = pgStore
 		attRepo = pgStore
 		settingsRepo = pgStore
+		usersRepo = pgStore
+		sessionStore = session.NewPostgresStore(pgStore.Pool())
 		log.Println("Хранилище: PostgreSQL")
 	} else {
 		memStore := repo.NewMemStore()
@@ -56,6 +71,8 @@ func main() {
 		folderRepo = memStore
 		attRepo = memStore
 		settingsRepo = memStore
+		usersRepo = memStore
+		sessionStore = session.NewMemoryStore()
 		log.Println("Хранилище: in-memory (DATABASE_URL не задан)")
 	}
 
@@ -69,7 +86,7 @@ func main() {
 	svc := todo.NewService(noteRepo, topicRepo, folderRepo, attRepo, settingsRepo, fileStore)
 
 	// 4. Handler (реализует порт reminder.NotificationSender)
-	h, err := telegram.NewHandler(cfg.Token, svc, svc, svc, svc, svc)
+	h, err := telegram.NewHandler(cfg.Token, svc, svc, svc, svc, svc, usersRepo)
 	if err != nil {
 		log.Fatalf("Ошибка создания бота: %v", err)
 	}
@@ -97,7 +114,7 @@ func main() {
 	if cfg.HTTPAddr != "" {
 		httpSrv = &http.Server{
 			Addr:         cfg.HTTPAddr,
-			Handler:      httpapi.NewRouter(),
+			Handler:      httpapi.NewRouter(usersRepo, sessionStore),
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 			IdleTimeout:  60 * time.Second,
