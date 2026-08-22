@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"todo-bot-tg/config"
+	httpapi "todo-bot-tg/internal/handler/http"
 	"todo-bot-tg/internal/handler/telegram"
 	repo "todo-bot-tg/internal/repository/todo"
 	"todo-bot-tg/internal/service/todo"
@@ -87,10 +92,33 @@ func main() {
 		errCh <- h.Run()
 	}()
 
+	// 6. HTTP-сервер (REST API) — внутри того же процесса, graceful shutdown
+	var httpSrv *http.Server
+	if cfg.HTTPAddr != "" {
+		httpSrv = &http.Server{
+			Addr:         cfg.HTTPAddr,
+			Handler:      httpapi.NewRouter(),
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		}
+		go func() {
+			log.Printf("HTTP-сервер запущен на %s", cfg.HTTPAddr)
+			if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("http-сервер: %w", err)
+			}
+		}()
+	}
+
 	select {
 	case <-ctx.Done():
 		log.Println("Получен сигнал остановки, завершаем...")
 		h.Stop()
+		if httpSrv != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = httpSrv.Shutdown(shutdownCtx)
+			cancel()
+		}
 	case err := <-errCh:
 		if err != nil {
 			log.Fatalf("Ошибка работы бота: %v", err)

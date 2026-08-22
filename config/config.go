@@ -12,6 +12,7 @@ type Config struct {
 	Token       string
 	DatabaseURL string // PostgreSQL DSN, если пусто — in-memory
 	FilesDir    string // каталог файлового хранилища вложений
+	HTTPAddr    string // адрес HTTP-сервера REST API, пусто — HTTP не запускается
 }
 
 // Load читает настройки из .env и переменных окружения.
@@ -28,9 +29,15 @@ func Load() (*Config, error) {
 		filesDir = "data/files"
 	}
 
+	httpAddr := os.Getenv("HTTP_ADDR")
+	if httpAddr == "" {
+		httpAddr = ":8080"
+	}
+
 	return &Config{
 		Token:       token,
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		FilesDir:    filesDir,
+		HTTPAddr:    httpAddr,
 	}, nil
 }

@@ -165,6 +165,14 @@
 
 ---
 
+## Этап 16: Web API, этап 0 — HTTP-инфраструктура (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **REST API, Этап 0** (по `docs/BACKEND_API_PLAN.md`): **`internal/httperr`** — единый формат ошибок `{"error": "..."}` и маппинг sentinel-ошибок на HTTP-статусы (404 — not found, 409 — already exists, 400 — валидация, 500 — прочее; `ErrInternal` без раскрытия деталей). **`internal/middleware`** — `Logging` (slog: метод, путь, статус, длительность через `statusRecorder`) и `Recover` (паника → 500 в едином формате). **`internal/handler/http`** — `NewRouter()` (Go 1.22+ паттерны `METHOD /path`, цепочка `Logging(Recover(mux))`), `GET /healthz` → `{"status":"ok"}`. **config** — `HTTP_ADDR` (по умолчанию `:8080`, пусто — HTTP не запускается). **`cmd/bot/main.go`** — `http.Server` в том же процессе (ReadTimeout 10s / WriteTimeout 10s / IdleTimeout 60s), graceful shutdown при сигнале (5s timeout), ошибка слушателя → в общий `errCh`. Тесты: `httperr` (13 кейсов маппинга + формат ответа), `middleware` (паника → 500, проход без паники), `handler/http` (healthz, неизвестный маршрут → 404). Проверки: `gofmt` чистый, `go build ./...`, `go vet ./...`, `go test ./...` зелёные |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -191,6 +199,9 @@ internal/
   repository/todo/       — MemStore + PostgresStore + Entity Records
   storage/fs/            — файловое хранилище вложений
   handler/telegram/      — Telegram Bot API handler + renderer + FSM-состояния
+  handler/http/          — REST API (router, GET /healthz)
+  httperr/               — единый формат ошибок {"error": "..."} и маппинг статусов
+  middleware/            — Logging (slog) + Recover (panic → 500)
 ```
 
 Проект следует принципам **чистой архитектуры**: Rich Domain Model, интерфейсы на стороне потребителя, ручной DI, никаких фреймворков.
