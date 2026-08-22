@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"sort"
 	"strconv"
@@ -143,4 +144,44 @@ func TestTgLogin_SameTelegramID_ReturnsSameUser(t *testing.T) {
 	require.Len(t, cookie2, 1)
 	rec2me := doJSON(t, router, http.MethodGet, "/api/v1/me", "", cookie2[0])
 	require.Equal(t, http.StatusOK, rec2me.Code)
+}
+
+// doForm отправляет form-urlencoded запрос (как виджет с data-onauth).
+func doForm(t *testing.T, router http.Handler, path string, form url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestTgLogin_PostForm_Success(t *testing.T) {
+	router := newTestRouter(t)
+	q := tgAuthParams("test-bot-token", 1113143852, time.Now())
+
+	rec := doForm(t, router, "/api/v1/auth/tg", q)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	cookies := rec.Result().Cookies()
+	require.Len(t, cookies, 1)
+	require.Equal(t, "session", cookies[0].Name)
+	require.True(t, cookies[0].HttpOnly)
+	require.True(t, cookies[0].Secure)
+
+	// Вошедший пользователь доступен через /me с этой cookie.
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/me", "", cookies[0])
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestTgLogin_PostForm_BadHash(t *testing.T) {
+	router := newTestRouter(t)
+	q := tgAuthParams("wrong-token", 111, time.Now()) // подпись не тем токеном
+
+	rec := doForm(t, router, "/api/v1/auth/tg", q)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Len(t, rec.Result().Cookies(), 0)
 }

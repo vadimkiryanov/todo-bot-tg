@@ -135,33 +135,57 @@ func (h *authHandler) logout(w http.ResponseWriter, r *http.Request) {
 // telegramAuthMaxAge — максимальный возраст auth_date (защита от replay).
 const telegramAuthMaxAge = 24 * time.Hour
 
-// tgLogin обрабатывает GET /api/v1/auth/tg — вход через Telegram Login Widget.
-// Виджет редиректит сюда с подписанными параметрами (hash — HMAC-SHA256 по токену бота).
-// При успехе: сессия + cookie + редирект на "/"; при ошибке — на /login?error=telegram_*.
+// tgLogin обрабатывает GET/POST /api/v1/auth/tg — вход через Telegram Login Widget.
+// Виджет (data-onauth) и фронт шлют POST form-urlencoded с подписанными
+// параметрами (hash — HMAC-SHA256 по токену бота); GET поддерживается для
+// прямых ссылок. При успехе: сессия + cookie; POST → 200 {user},
+// GET → редирект на "/". При ошибке POST → 400, GET → /login?error=telegram_*.
 func (h *authHandler) tgLogin(w http.ResponseWriter, r *http.Request) {
+	redirectErr := func(err string) {
+		if r.Method == http.MethodPost {
+			httperr.Write(w, errs.ErrInvalidTelegramAuth)
+			return
+		}
+		http.Redirect(w, r, "/login?error="+err, http.StatusFound)
+	}
+
 	if h.botToken == "" {
-		http.Redirect(w, r, "/login?error=telegram_disabled", http.StatusFound)
+		redirectErr("telegram_disabled")
+		return
+	}
+	// r.Form объединяет query и тело POST (виджет шлёт form-urlencoded).
+	if err := r.ParseForm(); err != nil {
+		redirectErr("telegram_invalid")
 		return
 	}
 
-	q := r.URL.Query()
-	telegramID, err := strconv.ParseInt(q.Get("id"), 10, 64)
+	telegramID, err := strconv.ParseInt(r.Form.Get("id"), 10, 64)
 	if err != nil || telegramID == 0 {
-		http.Redirect(w, r, "/login?error=telegram_invalid", http.StatusFound)
+		redirectErr("telegram_invalid")
 		return
 	}
-	if !validTelegramAuth(h.botToken, q, telegramAuthMaxAge) {
-		http.Redirect(w, r, "/login?error=telegram_invalid", http.StatusFound)
+	if !validTelegramAuth(h.botToken, r.Form, telegramAuthMaxAge) {
+		redirectErr("telegram_invalid")
 		return
 	}
 
 	userID, err := h.users.FindOrCreateByTelegramID(telegramID)
 	if err != nil {
-		http.Redirect(w, r, "/login?error=telegram_failed", http.StatusFound)
+		redirectErr("telegram_failed")
 		return
 	}
 	if err := h.createSession(w, userID); err != nil {
-		http.Redirect(w, r, "/login?error=telegram_failed", http.StatusFound)
+		redirectErr("telegram_failed")
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		u, err := h.users.GetByID(userID)
+		if err != nil {
+			httperr.Write(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, dto.UserEnvelope{User: dto.ToUserResponse(u)})
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusFound)

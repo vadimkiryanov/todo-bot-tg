@@ -47,7 +47,8 @@ func Status(err error) int {
 		errors.Is(err, errs.ErrInvalidReminderRepeat),
 		errors.Is(err, errs.ErrInvalidUsername),
 		errors.Is(err, errs.ErrInvalidPassword),
-		errors.Is(err, errs.ErrInvalidJSON):
+		errors.Is(err, errs.ErrInvalidJSON),
+		errors.Is(err, errs.ErrInvalidTelegramAuth):
 		return http.StatusBadRequest
 
 	default:

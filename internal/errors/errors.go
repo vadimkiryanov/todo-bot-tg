@@ -57,6 +57,7 @@ var (
 	ErrInvalidPassword     = errors.New("пароль должен быть не короче 8 символов")
 	ErrInvalidCredentials  = errors.New("неверный логин или пароль")
 	ErrInvalidJSON         = errors.New("некорректный JSON")
+	ErrInvalidTelegramAuth = errors.New("некорректные данные авторизации Telegram")
 	ErrSessionNotFound     = errors.New("сессия не найдена")
 	ErrSessionExpired      = errors.New("сессия истекла")
 	ErrInvalidPasswordHash = errors.New("некорректный хеш пароля")

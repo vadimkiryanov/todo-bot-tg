@@ -24,6 +24,7 @@ func NewRouter(users UserRepository, sessions session.Store, svc TodoService, se
 	mux.HandleFunc("POST /api/v1/auth/login", auth.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", auth.logout)
 	mux.HandleFunc("GET /api/v1/auth/tg", auth.tgLogin)
+	mux.HandleFunc("POST /api/v1/auth/tg", auth.tgLogin)
 
 	// Маршруты с сессией: middleware.RequireAuth кладёт userID в контекст.
 	withAuth := func(h http.HandlerFunc) http.Handler {

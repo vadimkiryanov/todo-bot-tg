@@ -197,6 +197,16 @@
 
 ---
 
+## Этап 17: Telegram Login Widget (2026-08-23)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | `0cfaaf3` | **fix**: `FindOrCreateByTelegramID` — полные колонки + `COALESCE(username,'')/COALESCE(password_hash,'')` в RETURNING/SELECT (иначе `RowToStructByName` падал «cannot find field username» / «cannot scan NULL») |
+| — | `2440c29` | **feat**: вход через Telegram Login Widget — `GET /api/v1/auth/tg` (валидация HMAC-SHA256 по токену бота: data_check_string = отсортированные key=value кроме hash через `\n`, `hmac.Equal`, auth_date ≤ 24 ч; `FindOrCreateByTelegramID` → сессия + cookie → редирект `/`; ошибки → `/login?error=telegram_*`; пустой токен — вход отключён). Кнопка «Вход через Telegram» на LoginView (виджет, разделитель «или», `VITE_TG_LOGIN` + HTTPS). compose: `TELEGRAM_BOT_TOKEN` у api, build-arg `VITE_TG_LOGIN`; тесты `auth_tg_test.go` |
+| — | *(не закоммичен)* | **fix**: виджет шлёт **POST** form-urlencoded (а не GET query) — добавлен маршрут `POST /api/v1/auth/tg` (GET остаётся), обработчик читает `r.Form`; фронт переведён на `data-onauth` — данные приходят в главное окно, POST делает сам фронт (cookie ставится first-party, не блокируется браузерами в iframe); POST-успех → `200 {user}`, ошибки → 400 `ErrInvalidTelegramAuth` |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
