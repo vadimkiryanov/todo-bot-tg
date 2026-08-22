@@ -7,6 +7,8 @@ set -e
 # Перед первым запуском создай .env:
 #   cat > .env << 'EOF'
 #   TELEGRAM_BOT_TOKEN=123456:ABC...DEF
+#   POSTGRES_PASSWORD=надёжный_пароль
+#   APP_BASE_URL=todo.example.com   # домен → авто-HTTPS через Caddy; ":80" — без HTTPS
 #   DATABASE_URL=postgres://user:password@db:5432/dbname?sslmode=disable
 #   EOF
 #
