@@ -122,7 +122,8 @@ func (s *PostgresStore) FindByUsername(username string) (user.User, error) {
 // GetByID возвращает пользователя по ID.
 func (s *PostgresStore) GetByID(id int64) (user.User, error) {
 	rows, err := s.pool.Query(context.Background(),
-		`SELECT id, username, password_hash, telegram_id FROM users WHERE id = @id`,
+		`SELECT id, COALESCE(username, '') AS username, COALESCE(password_hash, '') AS password_hash, telegram_id
+		 FROM users WHERE id = @id`,
 		pgx.NamedArgs{"id": id},
 	)
 	if err != nil {
@@ -144,7 +145,7 @@ func (s *PostgresStore) FindOrCreateByTelegramID(telegramID int64) (int64, error
 	ctx := context.Background()
 	rows, err := s.pool.Query(ctx,
 		`INSERT INTO users (telegram_id) VALUES (@tg) ON CONFLICT (telegram_id) DO NOTHING
-		 RETURNING id`,
+		 RETURNING id, COALESCE(username, '') AS username, COALESCE(password_hash, '') AS password_hash, telegram_id`,
 		pgx.NamedArgs{"tg": telegramID},
 	)
 	if err != nil {
@@ -160,7 +161,8 @@ func (s *PostgresStore) FindOrCreateByTelegramID(telegramID int64) (int64, error
 
 	// Уже существует — вернуть id
 	rows, err = s.pool.Query(ctx,
-		`SELECT id FROM users WHERE telegram_id = @tg`,
+		`SELECT id, COALESCE(username, '') AS username, COALESCE(password_hash, '') AS password_hash, telegram_id
+		 FROM users WHERE telegram_id = @tg`,
 		pgx.NamedArgs{"tg": telegramID},
 	)
 	if err != nil {
