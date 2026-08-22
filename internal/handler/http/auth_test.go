@@ -45,7 +45,7 @@ func doJSON(t *testing.T, router http.Handler, method, path, body string, cookie
 }
 
 func TestAuth_Register_Login_Me_Logout(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 
 	// 1. Регистрация → 201 + Set-Cookie + {user}
 	cookie := registerUser(t, router, "alice", "password123")
@@ -83,7 +83,7 @@ func TestAuth_Register_Login_Me_Logout(t *testing.T) {
 }
 
 func TestAuth_Register_UsernameTaken(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 	registerUser(t, router, "bob", "password123")
 
 	rec := doJSON(t, router, http.MethodPost, "/api/v1/auth/register",
@@ -93,7 +93,7 @@ func TestAuth_Register_UsernameTaken(t *testing.T) {
 }
 
 func TestAuth_Register_InvalidInput(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 
 	cases := []struct {
 		name string
@@ -114,7 +114,7 @@ func TestAuth_Register_InvalidInput(t *testing.T) {
 }
 
 func TestAuth_Login_WrongPassword(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 	registerUser(t, router, "carol", "password123")
 
 	rec := doJSON(t, router, http.MethodPost, "/api/v1/auth/login",
@@ -124,7 +124,7 @@ func TestAuth_Login_WrongPassword(t *testing.T) {
 }
 
 func TestAuth_Login_UnknownUser(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 
 	// Несуществующий пользователь — та же ошибка 401, что и неверный пароль
 	rec := doJSON(t, router, http.MethodPost, "/api/v1/auth/login",
@@ -134,20 +134,20 @@ func TestAuth_Login_UnknownUser(t *testing.T) {
 }
 
 func TestAuth_Me_NoCookie(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 	rec := doJSON(t, router, http.MethodGet, "/api/v1/me", "")
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 func TestAuth_Logout_Idempotent(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 	// Выход без сессии — 204, без ошибки
 	rec := doJSON(t, router, http.MethodPost, "/api/v1/auth/logout", "")
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
 func TestAuth_UsernameCaseInsensitive(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 	registerUser(t, router, "dave", "password123")
 
 	// Вход с другим регистром логина — работает (нормализация в lowercase)

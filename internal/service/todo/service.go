@@ -35,6 +35,7 @@ type TopicRepository interface {
 	CreateTopic(userID int64, name string) (model.Topic, error)
 	ListTopics(userID int64) ([]model.Topic, error)
 	GetTopic(userID, topicID int64) (model.Topic, error)
+	UpdateTopic(userID, topicID int64, name string) (model.Topic, error)
 	DeleteTopic(userID, topicID int64) error
 }
 
@@ -115,6 +116,18 @@ func (s *Service) ListTopics(userID int64) ([]model.Topic, error) {
 // GetTopic возвращает топик по ID.
 func (s *Service) GetTopic(userID, topicID int64) (model.Topic, error) {
 	return s.topicRepo.GetTopic(userID, topicID)
+}
+
+// RenameTopic переименовывает топик.
+func (s *Service) RenameTopic(userID, topicID int64, name string) (model.Topic, error) {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	if name == "" {
+		return model.Topic{}, errs.ErrEmptyName
+	}
+
+	return s.topicRepo.UpdateTopic(userID, topicID, name)
 }
 
 // DeleteTopic удаляет топик вместе с заметками и файлами вложений.

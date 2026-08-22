@@ -101,6 +101,26 @@ func (s *MemStore) GetTopic(userID, topicID int64) (model.Topic, error) {
 	return entity.TopicFromRecord(t), nil
 }
 
+func (s *MemStore) UpdateTopic(userID, topicID int64, name string) (model.Topic, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.topics[topicID]
+	if !ok || t.UserID != userID {
+		return model.Topic{}, errors.ErrTopicNotFound
+	}
+
+	for _, tid := range s.userTopics[userID] {
+		if tid != topicID && s.topics[tid].Name == name {
+			return model.Topic{}, errors.ErrTopicAlreadyExists
+		}
+	}
+
+	t.Name = name
+	s.topics[topicID] = t
+	return entity.TopicFromRecord(t), nil
+}
+
 func (s *MemStore) DeleteTopic(userID, topicID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

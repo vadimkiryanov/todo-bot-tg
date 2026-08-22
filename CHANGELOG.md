@@ -181,6 +181,14 @@
 
 ---
 
+## Этап 16 (продолжение): Web API, этап 2 — топики и заметки CRUD (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **REST API, Этап 2** (по `docs/BACKEND_API_PLAN.md` §6; цель «Done: фронт работает с полным CRUD»): **`internal/handler/http/service.go`** — интерфейс `TodoService` (ListTopics/CreateTopic/RenameTopic/DeleteTopic; ListNotes/AddNote/GetNote/EditNote/MarkDone/MarkUndone/SetPriority/DeleteNote; CountNotes) + `todoHandler`. **topics.go** — `GET /api/v1/topics` (с `note_count` через CountNotes на каждый топик), `POST /api/v1/topics` `{name}` → 201 (пустое имя → 400), `PATCH /api/v1/topics/{id}` `{name}` → 200, `DELETE /api/v1/topics/{id}` → 204; хелпер `pathID` (невалидный/≤0 id → 404). **notes.go** — `GET /api/v1/notes?topic_id=N` (фильтр опционален; кривой `topic_id` → 400), `POST /api/v1/notes` `{topic_id, text}` → 201 (пустой текст → 400), `PATCH /api/v1/notes/{id}` — применяет **только переданные** поля text → done → priority (`EditNote`/`MarkDone`/`MarkUndone`/`SetPriority`), пустой `{}` → 400, ответ — актуальный объект через GetNote (оптимистичные обновления фронта), `DELETE /api/v1/notes/{id}` → 204. **DTO** (`dto/`) — `TopicRequest`/`TopicResponse` (+`NoteCount`), `NoteCreateRequest`, `NotePatchRequest` (указатели `*string`/`*bool` отличают «не передано» от нуля), `NoteResponse` (`priority` строка `none|low|medium|high`, `pinned` = `IsPinned()`, `created_at` RFC3339), конвертеры `PriorityString`/`ParsePriority`. **Сервис** — интерфейс `TopicRepository` дополнен `UpdateTopic`, метод `RenameTopic` (пустое имя → `ErrEmptyName`; блокировка userLocks). **Репозиторий** — memstore `UpdateTopic` (поиск по id + UserID → 404; дубль имени среди **других** топиков → 409); postgres `UpdateTopic` (`UPDATE ... ON CONFLICT (user_id,name) DO NOTHING RETURNING`; `pgx.ErrNoRows` → повторный GetTopic: есть топик → 409, нет → 404). **router.go** — новая сигнатура `NewRouter(users, sessions, svc)`, хелпер `withAuth := RequireAuth(sessions)`, 8 маршрутов топиков/заметок; `cmd/bot/main.go` — `NewRouter(usersRepo, sessionStore, svc)`. **CORS не добавлялся** (фронт — same-origin). Тесты: `dto/converter_test` (round-trip priority), `topics_test` (E2E create→list→rename→delete, ошибки 401/400/409/404, изоляция между пользователями), `notes_test` (E2E create→list→patch text/done/priority→delete→note_count, юнит PATCH «применяются только переданные поля» со стабом `stubTodoService`). Проверки: `gofmt` чистый, `go build ./...`, `go vet ./...`, `go test ./...` зелёные; живая проверка in-memory curl (127.0.0.1:18080): полный CRUD-цикл топиков и заметок (201/200/204), ошибки: пустое имя 400, дубль 409, пустой текст 400, кривой priority 400, чужие id 404 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -192,7 +200,8 @@
 | **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML); userID = `users.id` через `UserResolver` |
 | **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
 | **Веб-аккаунты** | `internal/user/`, `internal/session/` | Пользователи (username + bcrypt cost 12 / telegram_id), веб-сессии: токен 32 байта base64url, SHA-256 хеш в БД (`web_sessions`), TTL 30 дней; `MemoryStore` + `PostgresStore` |
-| **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test` |
+| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes`, `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
+| **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test`, `topics_test`, `notes_test`, `dto/converter_test` |
 
 ---
 
@@ -208,7 +217,7 @@ internal/
   repository/todo/       — MemStore + PostgresStore + Entity Records (+ users: CreateUser/FindOrCreateByTelegramID)
   storage/fs/            — файловое хранилище вложений
   handler/telegram/      — Telegram Bot API handler + renderer + FSM-состояния (userID = users.id)
-  handler/http/          — REST API (router, healthz, auth: register/login/logout/me, DTO)
+  handler/http/          — REST API (router, healthz, auth: register/login/logout/me; topics/notes CRUD: service.go + topics.go + notes.go + dto)
   httperr/               — единый формат ошибок {"error": "..."} и маппинг статусов
   middleware/            — Logging (slog) + Recover (panic → 500) + RequireAuth (cookie-сессии)
   user/                  — пользователи: валидация username/пароля, bcrypt cost 12

@@ -208,6 +208,31 @@ func (s *PostgresStore) GetTopic(userID, topicID int64) (model.Topic, error) {
 	return entity.TopicFromRecord(rec), nil
 }
 
+func (s *PostgresStore) UpdateTopic(userID, topicID int64, name string) (model.Topic, error) {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx,
+		`UPDATE topics SET name = @name WHERE id = @id AND user_id = @user
+		 ON CONFLICT (user_id, name) DO NOTHING
+		 RETURNING id, user_id, name`,
+		pgx.NamedArgs{"id": topicID, "user": userID, "name": name},
+	)
+	if err != nil {
+		return model.Topic{}, fmt.Errorf("переименование топика: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.TopicRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Не обновлено: либо топика нет, либо имя занято другим топиком.
+		if _, gerr := s.GetTopic(userID, topicID); gerr == nil {
+			return model.Topic{}, errs.ErrTopicAlreadyExists
+		}
+		return model.Topic{}, errs.ErrTopicNotFound
+	}
+	if err != nil {
+		return model.Topic{}, fmt.Errorf("переименование топика: %w", err)
+	}
+	return entity.TopicFromRecord(rec), nil
+}
+
 func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 	ctx := context.Background()
 	tx, err := s.pool.Begin(ctx)
