@@ -1,0 +1,60 @@
+@import 'tailwindcss';
+
+/*
+ * Дизайн-токены. Светлая тема в стиле Telegram:
+ * фон чата — серый, поверхности (панели, карточки) — белые,
+ * акцент — Telegram blue.
+ */
+@theme {
+  --color-background: #e7ebee;
+  --color-surface: #ffffff;
+  --color-content: #0f0f0f;
+  --color-muted: #707579;
+  --color-border: #dfe3e8;
+  --color-accent: #3390ec;
+  /* Затемнённый акцент для белого текста на кнопках: контраст ≥4.5:1 */
+  --color-accent-strong: #1f6fc2;
+  --color-danger: #e53935;
+}
+
+/* Тёмная тема: следует системной настройке. Утилиты Tailwind ссылаются
+   на var(--color-*), поэтому достаточно переопределить токены. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #0f1115;
+    --color-surface: #1b1e24;
+    --color-content: #e8e8e8;
+    --color-muted: #8d9199;
+    --color-border: #2a2e35;
+    --color-accent: #5ea6f0;
+    --color-accent-strong: #236cce;
+    --color-danger: #ef5350;
+  }
+}
+
+html,
+body {
+  height: 100%;
+}
+
+/* Контейнер приложения: без высоты h-full в корне ChatView/LoginView не работает */
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-content);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  /* PWA: страница не должна скроллиться сама, скроллится список заметок */
+  overflow: hidden;
+}

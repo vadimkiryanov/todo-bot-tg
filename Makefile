@@ -1,16 +1,21 @@
-.PHONY: run build db-up db-down db-reset
+.PHONY: run api build db-up db-down db-reset db-backup db-restore db-migrate-users
 
 DB_NAME ?= todobot
 DB_USER ?= todobot
 DB_PASS ?= todobot
 DB_PORT ?= 5432
-DATABASE_URL ?= [MASKED]
+DATABASE_URL ?= postgres://$(DB_USER):$(DB_PASS)@localhost:$(DB_PORT)/$(DB_NAME)
 
 build:
 	go build -o bin/todobot ./cmd/bot/
+	go build -o bin/todoapi ./cmd/api/
 
 run:
 	go run ./cmd/bot/
+
+# REST API отдельным процессом (без Telegram-бота)
+api:
+	go run ./cmd/api/
 
 # --- PostgreSQL ---
 
@@ -40,3 +45,9 @@ db-restore:
 	@test -n "$(FILE)" || (echo "Укажи файл: make db-restore FILE=backup.sql"; exit 1)
 	docker compose exec -T db psql -U todobot todobot < $(FILE)
 	@echo "Восстановлено из $(FILE)"
+
+# Одноразовая привязка данных бота к users.id (docs/BACKEND_API_PLAN.md §3).
+# Перед запуском обязательно: make db-backup
+db-migrate-users:
+	docker compose exec -T db psql -U todobot todobot < data/migrate_users.sql
+	@echo "Миграция пользователей выполнена"

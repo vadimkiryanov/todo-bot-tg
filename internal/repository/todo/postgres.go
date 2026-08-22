@@ -77,6 +77,24 @@ CREATE TABLE IF NOT EXISTS user_quick_topics (
     PRIMARY KEY (user_id, topic_id)
 );
 
+-- Пользователи (веб-аккаунт и/или привязка Telegram).
+-- До миграции data/migrate_users.sql user_id в остальных таблицах = telegram_id;
+-- после — перепривязаны на users.id.
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username TEXT UNIQUE,
+    password_hash TEXT NOT NULL DEFAULT '',
+    telegram_id BIGINT UNIQUE
+);
+
+-- Веб-сессии: в БД хранится только SHA-256 хеш токена (не сам токен).
+CREATE TABLE IF NOT EXISTS web_sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_at TIMESTAMPTZ;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_repeat TEXT NOT NULL DEFAULT 'once';
@@ -95,6 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_folders_user_topic ON folders(user_id, topic_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id);
 CREATE INDEX IF NOT EXISTS idx_quick_topics_user ON user_quick_topics(user_id);
+CREATE INDEX IF NOT EXISTS idx_web_sessions_user ON web_sessions(user_id);
 `
 
 // PostgresStore — реализация репозитория на PostgreSQL (pgxpool).
@@ -185,6 +204,31 @@ func (s *PostgresStore) GetTopic(userID, topicID int64) (model.Topic, error) {
 	}
 	if err != nil {
 		return model.Topic{}, fmt.Errorf("поиск топика: %w", err)
+	}
+	return entity.TopicFromRecord(rec), nil
+}
+
+func (s *PostgresStore) UpdateTopic(userID, topicID int64, name string) (model.Topic, error) {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx,
+		`UPDATE topics SET name = @name WHERE id = @id AND user_id = @user
+		 ON CONFLICT (user_id, name) DO NOTHING
+		 RETURNING id, user_id, name`,
+		pgx.NamedArgs{"id": topicID, "user": userID, "name": name},
+	)
+	if err != nil {
+		return model.Topic{}, fmt.Errorf("переименование топика: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.TopicRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Не обновлено: либо топика нет, либо имя занято другим топиком.
+		if _, gerr := s.GetTopic(userID, topicID); gerr == nil {
+			return model.Topic{}, errs.ErrTopicAlreadyExists
+		}
+		return model.Topic{}, errs.ErrTopicNotFound
+	}
+	if err != nil {
+		return model.Topic{}, fmt.Errorf("переименование топика: %w", err)
 	}
 	return entity.TopicFromRecord(rec), nil
 }

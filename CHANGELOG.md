@@ -133,6 +133,70 @@
 
 ---
 
+## Этап 12: Планы веб-приложения (2026-08-21)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **Планы веб-приложения 📱**: переработаны планы фронтенда и бэкенда под самостоятельное веб-приложение (не зависящее от Telegram-бота): `docs/WEB_PLAN.md` — фронтенд (Vite + Svelte 5 + Tailwind v4 + PWA, аутентификация по логину/паролю, независимые от бота аккаунты, MVP — топики и заметки, дизайн как в Telegram-чате: табы топиков сверху, список заметок, поле ввода снизу); `docs/BACKEND_API_PLAN.md` — изменения бэкенда (таблица `users` + одноразовая миграция данных бота с бэкапом, REST API `/api/v1`: auth по логину/паролю с bcrypt и cookie-сессиями, CRUD топиков и заметок, в перспективе отдельный сервис `cmd/api`); `web/AGENTS.md` — правила для ИИ-агента фронтенда. Реализация не начата |
+
+---
+
+## Этап 13: Веб-приложение, скелет (2026-08-21)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **Web, Этап 0 — скелет** (по `docs/WEB_PLAN.md`): пересоздан `web/` с нуля (старый скелет под Telegram Login удалён). Vite 8 + Svelte 5 (runes) + TypeScript strict (5.9) + Tailwind v4 (`@tailwindcss/vite`) + `vite-plugin-pwa` (manifest, SW `generateSW`, stale-while-revalidate для GET `/api/*`, autoUpdate). Файлы: `package.json` (скрипты dev/build/preview/check/test/gen:icons), `vite.config.ts` (прокси `/api` → :8080 для dev, vitest `passWithNoTests`), `tsconfig.json`/`tsconfig.node.json` (strict, `verbatimModuleSyntax`), `svelte.config.js` (vitePreprocess), `index.html` (viewport-fit=cover, theme-color, apple-touch-icon). `src/app.css` — дизайн-токены `@theme` в стиле Telegram (background `#e7ebee`, surface белый, accent `#3390ec`); `src/App.svelte` — каркас экрана чата (верхняя панель / список / нижнее поле ввода, safe-area-inset); компоненты-каркасы `Modal.svelte` (оверлей, $bindable open, Escape) и `EmptyState.svelte` (эмодзи + текст). PWA-иконки генерируются `scripts/gen-icons.mjs` (sharp: SVG-галочка → `public/icons/icon-{180,192,512}.png`). `.gitignore`: добавлены `web/dist`, `web/.env.local`. Проверки: `svelte-check` 0 ошибок / 0 warnings, `vite build` зелёный (SW + manifest в dist), `vitest` запускается, dev-сервер отдаёт HTTP 200 |
+
+---
+
+## Этап 14: Web, этапы 1–3 — аутентификация, топики, заметки (2026-08-21)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **Web, Этапы 1–3** (по `docs/WEB_PLAN.md`): **Этап 1 — аутентификация**: `api/client.ts` (единый fetch, `credentials: 'same-origin'`, `ApiError` со статусом, текст из `{"error": ...}`, обработчик 401 → сброс сессии), `api/auth.ts` (register/login/logout/me), `types/api.ts` (User/Topic/Note/Priority — зеркало DTO бэкенда), `LoginView` (переключатель «Вход / Регистрация», валидация username 3–32 `[a-z0-9_]`, password ≥8, ошибки сервера), `stores/session.svelte.ts` (loading/guest/authed, восстановление через `GET /me`). **Этап 2 — топики**: `api/topics.ts`, `stores/topics.svelte.ts` (загрузка, авто-выбор активного из localStorage), `TopicTabs` (горизонтальный скролл, активный подсвечен, «＋» — модалка создания, долгий тап — переименовать/удалить с подтверждением). **Этап 3 — заметки**: `api/notes.ts` + полный CRUD в `mock.ts` (in-memory, localStorage, серверная сортировка pinned → priority → done в конце), `stores/notes.svelte.ts` (оптимистичные мутации ✅/приоритет с откатом при ошибке, после мутации — тихая перезагрузка серверной сортировки), `NoteCard` (превью первой строки, слева 📌/🔴/🟡/🔵, done — зачёркнуто), `InputBar` (Enter = отправить, Shift+Enter = перевод строки, авто-рост, очистка после отправки), `NoteOverlay` (полный текст + ✅ 🔴🟡🔵 ✏️ 🗑; тап по активному приоритету снимает его; удаление с подтверждением), интеграция в `ChatView` (список + EmptyState «📝» + поле ввода, загрузка заметок при смене топика). Исправлены импорты `.svelte.ts`-модулей с явным расширением `.svelte` (как в `App.svelte`) — иначе не резолвятся svelte-check/Vite. Тесты: `notes.test.ts` (5 кейсов: создание, серверная сортировка после ✅/🔴, откаты мутаций и удаления). Проверки: `svelte-check` 0 ошибок / 0 warnings, `vitest` 5/5, `vite build` зелёный (PWA + SW), dev-сервер HTTP 200 |
+
+---
+
+## Этап 15: Web, этап 4 — UX-полировка и PWA (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **Web, Этап 4** (по `docs/WEB_PLAN.md`): **Офлайн-индикатор** — store `network.svelte.ts` (`navigator.onLine` + события online/offline, cleanup на unmount), фиксированный баннер «📡 Нет сети» (bg-danger, z-50, safe-area-inset-top). **Состояния ошибок** — в `ChatView` при ошибке загрузки топиков/заметок показывается EmptyState «⚠️» с кнопкой «Повторить» (`loadTopics()` / `loadNotes(activeTopicID)`). **Тёмная тема** — `@media (prefers-color-scheme: dark)` переопределяет CSS-переменные (background `#0f1115`, surface `#1b1e24`, content `#e8e8e8`, muted `#8d9199`, border `#2a2e35`, accent `#5ea6f0`, danger `#ef5350`), в `index.html` — два `theme-color` с media (light `#3390ec` / dark `#0f1115`). **Фикс футера** — `#app { height: 100% }` в app.css: без него `h-full` в ChatView/LoginView обрывается и нижняя панель не прижимается к низу (проверено в headless Chrome mobile 375×667). **Accessibility (Lighthouse 73 → 100)**: кнопки с белым текстом переведены на новый токен `--color-accent-strong` (светлая `#1f6fc2` / тёмная `#236cce`, контраст 5.11:1 вместо 3.3:1 — LoginView submit, InputBar, активный таб TopicTabs, кнопки модалок), табы «Вход/Регистрация» получили `role="tab"` + `aria-selected`, из viewport убран `user-scalable=no` (запрет зума — провал accessibility), корневой элемент `#app` заменён на `<main>` (landmark). Итоговый Lighthouse (mobile): **performance 100, accessibility 100, best-practices 96** (502 на `/api` без бэкенда — ожидаемо). Проверки: `svelte-check` 0 ошибок / 0 warnings, `vitest` 5/5, `vite build` зелёный (PWA, precache 12 entries) |
+
+---
+
+## Этап 16: Web API, этап 0 — HTTP-инфраструктура (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **REST API, Этап 0** (по `docs/BACKEND_API_PLAN.md`): **`internal/httperr`** — единый формат ошибок `{"error": "..."}` и маппинг sentinel-ошибок на HTTP-статусы (404 — not found, 409 — already exists, 400 — валидация, 500 — прочее; `ErrInternal` без раскрытия деталей). **`internal/middleware`** — `Logging` (slog: метод, путь, статус, длительность через `statusRecorder`) и `Recover` (паника → 500 в едином формате). **`internal/handler/http`** — `NewRouter()` (Go 1.22+ паттерны `METHOD /path`, цепочка `Logging(Recover(mux))`), `GET /healthz` → `{"status":"ok"}`. **config** — `HTTP_ADDR` (по умолчанию `:8080`, пусто — HTTP не запускается). **`cmd/bot/main.go`** — `http.Server` в том же процессе (ReadTimeout 10s / WriteTimeout 10s / IdleTimeout 60s), graceful shutdown при сигнале (5s timeout), ошибка слушателя → в общий `errCh`. Тесты: `httperr` (13 кейсов маппинга + формат ответа), `middleware` (паника → 500, проход без паники), `handler/http` (healthz, неизвестный маршрут → 404). Проверки: `gofmt` чистый, `go build ./...`, `go vet ./...`, `go test ./...` зелёные |
+
+---
+
+## Этап 16 (продолжение): Web API, этап 1 — пользователи, авторизация, сессии (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **REST API, Этап 1** (по `docs/BACKEND_API_PLAN.md` §3, §6): **`internal/user`** — `User{ID, Username, PasswordHash, TelegramID *int64}`, `ValidateUsername` (3–32 `[a-z0-9_]`, нормализация lowercase), `ValidatePassword` (≥8), bcrypt cost 12 (`HashPassword`/`CheckPassword`; битый хеш → `ErrInvalidPasswordHash` (500), чтобы не раскрывать причину через `errors.Is`), `NewUserWithHash`. **`internal/session`** — `Session{TokenHash, UserID, CreatedAt, ExpiresAt}`, TTL 30 дней, `GenerateToken` (32 байта base64url) + SHA-256 хеш в хранилище, `Store` (Create/Get/Delete), `MemoryStore` + `PostgresStore` (таблица `web_sessions`). **`internal/middleware/auth.go`** — `RequireAuth` (cookie `session` → `Get(HashToken)`, userID в контексте, 401 в едином формате), `UserID(ctx)`. **`internal/handler/http`** — DTO (`RegisterRequest`/`LoginRequest`/`UserEnvelope`/`ToUserResponse`), `auth.go` (register → 201 + Set-Cookie, login → 200, logout → 204 идемпотентный, me → 200; 409 `ErrUsernameTaken`, 401 одинаково для неверного логина и пароля), роуты `/api/v1/auth/*` + `GET /api/v1/me` (за RequireAuth). **repository** — `users.go` (CreateUser/FindByUsername/GetByID/FindOrCreateByTelegramID, mem+pg), `UserRecord` + конвертеры, таблицы `users` + `web_sessions` (+ индекс) в schema; бот перепривязан на `users.id` (§3.4): `UserResolver`, userID параметром в handler'е telegram. **Миграция** — `data/migrate_users.sql` + `make db-migrate-users` (обязательный `make db-backup` перед запуском). Тесты: `user` (валидация, bcrypt), `session` (токен, MemoryStore), `handler/http` (E2E-цикл register→login→me→logout, 409/401/400, идемпотентный logout, case-insensitive login). Проверки: `gofmt` чистый, `go build ./...`, `go vet ./...`, `go test ./...` зелёные; живая проверка in-memory curl: register 201 → me 200 → logout 204 → me 401, dup-register 409, bad-password 401, healthz 200 |
+
+---
+
+## Этап 16 (продолжение): Web API, этап 2 — топики и заметки CRUD (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **REST API, Этап 2** (по `docs/BACKEND_API_PLAN.md` §6; цель «Done: фронт работает с полным CRUD»): **`internal/handler/http/service.go`** — интерфейс `TodoService` (ListTopics/CreateTopic/RenameTopic/DeleteTopic; ListNotes/AddNote/GetNote/EditNote/MarkDone/MarkUndone/SetPriority/DeleteNote; CountNotes) + `todoHandler`. **topics.go** — `GET /api/v1/topics` (с `note_count` через CountNotes на каждый топик), `POST /api/v1/topics` `{name}` → 201 (пустое имя → 400), `PATCH /api/v1/topics/{id}` `{name}` → 200, `DELETE /api/v1/topics/{id}` → 204; хелпер `pathID` (невалидный/≤0 id → 404). **notes.go** — `GET /api/v1/notes?topic_id=N` (фильтр опционален; кривой `topic_id` → 400), `POST /api/v1/notes` `{topic_id, text}` → 201 (пустой текст → 400), `PATCH /api/v1/notes/{id}` — применяет **только переданные** поля text → done → priority (`EditNote`/`MarkDone`/`MarkUndone`/`SetPriority`), пустой `{}` → 400, ответ — актуальный объект через GetNote (оптимистичные обновления фронта), `DELETE /api/v1/notes/{id}` → 204. **DTO** (`dto/`) — `TopicRequest`/`TopicResponse` (+`NoteCount`), `NoteCreateRequest`, `NotePatchRequest` (указатели `*string`/`*bool` отличают «не передано» от нуля), `NoteResponse` (`priority` строка `none|low|medium|high`, `pinned` = `IsPinned()`, `created_at` RFC3339), конвертеры `PriorityString`/`ParsePriority`. **Сервис** — интерфейс `TopicRepository` дополнен `UpdateTopic`, метод `RenameTopic` (пустое имя → `ErrEmptyName`; блокировка userLocks). **Репозиторий** — memstore `UpdateTopic` (поиск по id + UserID → 404; дубль имени среди **других** топиков → 409); postgres `UpdateTopic` (`UPDATE ... ON CONFLICT (user_id,name) DO NOTHING RETURNING`; `pgx.ErrNoRows` → повторный GetTopic: есть топик → 409, нет → 404). **router.go** — новая сигнатура `NewRouter(users, sessions, svc)`, хелпер `withAuth := RequireAuth(sessions)`, 8 маршрутов топиков/заметок; `cmd/bot/main.go` — `NewRouter(usersRepo, sessionStore, svc)`. **CORS не добавлялся** (фронт — same-origin). Тесты: `dto/converter_test` (round-trip priority), `topics_test` (E2E create→list→rename→delete, ошибки 401/400/409/404, изоляция между пользователями), `notes_test` (E2E create→list→patch text/done/priority→delete→note_count, юнит PATCH «применяются только переданные поля» со стабом `stubTodoService`). Проверки: `gofmt` чистый, `go build ./...`, `go vet ./...`, `go test ./...` зелёные; живая проверка in-memory curl (127.0.0.1:18080): полный CRUD-цикл топиков и заметок (201/200/204), ошибки: пустое имя 400, дубль 409, пустой текст 400, кривой priority 400, чужие id 404 |
+
+---
+
+## Этап 16 (продолжение): Web API, этап 3 — отдельный сервис cmd/api и деплой (2026-08-22)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | — | **REST API, Этап 3** (по `docs/BACKEND_API_PLAN.md` §10): **отдельный сервис `cmd/api`** — новый бинарник `todoapi` (Docker target `api`), работает независимо от Telegram-бота: `config.LoadAPI()` (токен не нужен, но `SESSION_TTL` → `SessionTTL`, по умолчанию 720h, и `APP_BASE_URL`), ручной DI (PostgresStore или MemStore по `DATABASE_URL`, `todo.NewService`, `fs.NewStore`), `http.Server` (таймауты 10/10/60) + graceful shutdown 5s через errCh. `NewRouter` получил 4-й параметр `sessionTTL` (`authHandler.sessionTTL`, `createSession` использует TTL и в `session.New`, и в Max-Age cookie). **Docker**: переписан корневой `Dockerfile` — multi-stage на `golang:1.25-alpine` собирает оба бинарника, две целевые стадии `bot`/`api` (`alpine:3.20` + ca-certificates + postgresql-client + tzdata); `web/Dockerfile` — `node:22-alpine` (npm ci → vite build) → `caddy:2-alpine`; `web/Caddyfile` — статика `/srv`, `handle /api/*` → `reverse_proxy api:8080`, SPA fallback (`try_files` → `/index.html`), `encode zstd gzip`, сайт `{$APP_BASE_URL}` (по умолчанию `:80`, домен → авто-HTTPS Let's Encrypt). **docker-compose.yml** — 4 сервиса: `db` (postgres:16-alpine, healthcheck `pg_isready`), `api` (healthcheck `/healthz`, volume `files`, depends_on db healthy), `bot` (volume `files`, depends_on db healthy), `web` (порты 80/443, `APP_BASE_URL`, depends_on api healthy). **Makefile** — `build` собирает `bin/todobot` + `bin/todoapi`, цель `api` (`go run ./cmd/api/`). **.env.example** — `DATABASE_URL`, `SESSION_TTL=720h`, `APP_BASE_URL` (комментарий про авто-HTTPS). **README** — обновлены шапка, Стек, Docker Compose (4 сервиса), раздел «Веб-приложение и REST API», Переменные окружения, Makefile, Структура проекта (cmd/api, web/Dockerfile, web/Caddyfile), Деплой (APP_BASE_URL/HTTPS). Проверки: `gofmt` чистый, `go build ./...`, `go vet ./...`, `go test ./...` зелёные; `docker compose config` OK; Caddyfile валиден (`caddy validate` для `:80` и для домена); web-образ собран (npm ci + vite build + caddy); живой тест cmd/api in-memory (127.0.0.1:18081): healthz → `{"status":"ok"}`, register → 201 + cookie `Max-Age=3600` (SessionTTL применился), me → 200, POST /topics → 201, POST /notes → 201, GET /notes?topic_id=1 → 200 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -141,24 +205,38 @@
 | **Сервис** | `service/todo/service.go` | CRUD (с entities), приоритеты, архивация, выполненные, закрепление (Pin/PinUntil/Unpin, `ProcessExpiredPins`), напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
 | **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами (entities — JSON), `GetPendingReminders`, `GetExpiredPins`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`) |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
-| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML) |
+| **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML); userID = `users.id` через `UserResolver` |
 | **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
-| **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs) |
+| **Веб-аккаунты** | `internal/user/`, `internal/session/` | Пользователи (username + bcrypt cost 12 / telegram_id), веб-сессии: токен 32 байта base64url, SHA-256 хеш в БД (`web_sessions`), TTL 30 дней; `MemoryStore` + `PostgresStore` |
+| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes`, `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
+| **REST-сервис (cmd/api)** | `cmd/api/main.go`, `config/config.go` (`LoadAPI`), `Dockerfile` (target `api`) | Отдельный бинарник `todoapi` без Telegram: ручной DI (PostgresStore/MemStore), `http.Server` + graceful shutdown; `SessionTTL` (cookie + сессия), `AppBaseURL` |
+| **Деплой** | `docker-compose.yml`, `web/Dockerfile`, `web/Caddyfile`, `.env.example`, `deploy.sh` | 4 сервиса (db/api/bot/web), healthchecks, volume `files`; Caddy: статика + прокси `/api` + авто-HTTPS Let's Encrypt по `APP_BASE_URL` |
+| **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test`, `topics_test`, `notes_test`, `dto/converter_test` |
 
 ---
 
 ## Актуальная архитектура
 
 ```
-cmd/bot/main.go          — точка входа, ручной DI
-config/config.go         — загрузка .env
+cmd/bot/main.go          — Telegram-бот: точка входа, ручной DI
+cmd/api/main.go          — REST API: отдельный сервис (todoapi), без Telegram
+config/config.go         — загрузка .env (Load — бот, LoadAPI — REST: SessionTTL, AppBaseURL)
 internal/
   errors/errors.go       — sentinel-ошибки
   model/                 — Note, Folder, Topic, Attachment, UserSettings (агрегаты с бизнес-логикой)
   service/todo/          — сервис-оркестратор (интерфейсы репозиториев здесь)
-  repository/todo/       — MemStore + PostgresStore + Entity Records
+  repository/todo/       — MemStore + PostgresStore + Entity Records (+ users: CreateUser/FindOrCreateByTelegramID)
   storage/fs/            — файловое хранилище вложений
-  handler/telegram/      — Telegram Bot API handler + renderer + FSM-состояния
+  handler/telegram/      — Telegram Bot API handler + renderer + FSM-состояния (userID = users.id)
+  handler/http/          — REST API (router, healthz, auth: register/login/logout/me; topics/notes CRUD: service.go + topics.go + notes.go + dto)
+  httperr/               — единый формат ошибок {"error": "..."} и маппинг статусов
+  middleware/            — Logging (slog) + Recover (panic → 500) + RequireAuth (cookie-сессии)
+  user/                  — пользователи: валидация username/пароля, bcrypt cost 12
+  session/               — веб-сессии: токен 32 байта base64url, SHA-256 хеш в хранилище, TTL (SessionTTL)
+web/                     — веб-фронтенд: Vite + Svelte 5 + Tailwind v4 (PWA); Dockerfile (node → Caddy), Caddyfile (прокси /api + авто-HTTPS)
+Dockerfile               — multi-stage: bot + api (golang:1.25-alpine → alpine:3.20)
+docker-compose.yml       — 4 сервиса: db + api + bot + web
+deploy.sh                — установка Docker/git, docker compose up -d --build
 ```
 
 Проект следует принципам **чистой архитектуры**: Rich Domain Model, интерфейсы на стороне потребителя, ручной DI, никаких фреймворков.

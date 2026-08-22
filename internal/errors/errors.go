@@ -48,3 +48,16 @@ var (
 var (
 	ErrSettingsNotFound = errors.New("настройки не найдены")
 )
+
+// User / Auth (веб-приложение)
+var (
+	ErrUserNotFound        = errors.New("пользователь не найден")
+	ErrUsernameTaken       = errors.New("имя пользователя уже занято")
+	ErrInvalidUsername     = errors.New("логин должен быть 3–32 символа: латиница, цифры, подчёркивание")
+	ErrInvalidPassword     = errors.New("пароль должен быть не короче 8 символов")
+	ErrInvalidCredentials  = errors.New("неверный логин или пароль")
+	ErrInvalidJSON         = errors.New("некорректный JSON")
+	ErrSessionNotFound     = errors.New("сессия не найдена")
+	ErrSessionExpired      = errors.New("сессия истекла")
+	ErrInvalidPasswordHash = errors.New("некорректный хеш пароля")
+)

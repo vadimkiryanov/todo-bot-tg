@@ -69,6 +69,12 @@ type SettingsService interface {
 	SaveSettings(settings model.UserSettings) error
 }
 
+// UserResolver — резолвит telegram_id → users.id, создавая запись
+// пользователя при первом обращении (репозиторий users в repository/todo).
+type UserResolver interface {
+	FindOrCreateByTelegramID(telegramID int64) (int64, error)
+}
+
 // Handler — обработчик обновлений Telegram.
 type Handler struct {
 	api               *tgbotapi.BotAPI
@@ -77,12 +83,13 @@ type Handler struct {
 	folderService     FolderService
 	attachmentService AttachmentService
 	settingsService   SettingsService
+	userResolver      UserResolver
 	states            *StateManager
 	selfUsername      string // @-имя бота для обрезки SwitchInlineQuery
 }
 
 // NewHandler создаёт новый Handler.
-func NewHandler(token string, noteService NoteService, topicService TopicService, folderService FolderService, attachmentService AttachmentService, settingsService SettingsService) (*Handler, error) {
+func NewHandler(token string, noteService NoteService, topicService TopicService, folderService FolderService, attachmentService AttachmentService, settingsService SettingsService, userResolver UserResolver) (*Handler, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка подключения к Telegram API: %w", err)
@@ -95,6 +102,7 @@ func NewHandler(token string, noteService NoteService, topicService TopicService
 		folderService:     folderService,
 		attachmentService: attachmentService,
 		settingsService:   settingsService,
+		userResolver:      userResolver,
 		states:            NewStateManager(),
 		selfUsername:      "@" + api.Self.UserName,
 	}
@@ -107,25 +115,44 @@ func NewHandler(token string, noteService NoteService, topicService TopicService
 }
 
 // Run запускает обработку обновлений.
+// userID для сервисного слоя — users.id из FindOrCreateByTelegramID (§3.4),
+// а не сырой telegram_id.
 func (h *Handler) Run() error {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 	updates := h.api.GetUpdatesChan(u)
 
 	for update := range updates {
+		// Определяем отправителя (CallbackQuery или Message)
+		var telegramID int64
+		switch {
+		case update.CallbackQuery != nil:
+			telegramID = update.CallbackQuery.From.ID
+		case update.Message != nil:
+			telegramID = update.Message.From.ID
+		default:
+			continue
+		}
+
+		userID, err := h.userResolver.FindOrCreateByTelegramID(telegramID)
+		if err != nil {
+			slog.Error("резолв пользователя", "telegram_id", telegramID, "error", err)
+			continue
+		}
+
 		if update.CallbackQuery != nil {
-			h.ensureSettings(update.CallbackQuery.From.ID)
-			h.handleCallback(update.CallbackQuery)
+			h.ensureSettings(userID)
+			h.handleCallback(update.CallbackQuery, userID)
 			continue
 		}
 		if update.Message == nil {
 			continue
 		}
-		h.ensureSettings(update.Message.From.ID)
+		h.ensureSettings(userID)
 		if update.Message.IsCommand() {
-			h.handleCommand(update.Message)
+			h.handleCommand(update.Message, userID)
 		} else {
-			h.handleMessage(update.Message)
+			h.handleMessage(update.Message, userID)
 		}
 	}
 	return nil
@@ -202,8 +229,7 @@ func (h *Handler) persistSettings(userID int64) {
 
 // --- Commands ---
 
-func (h *Handler) handleCommand(msg *tgbotapi.Message) {
-	userID := msg.From.ID
+func (h *Handler) handleCommand(msg *tgbotapi.Message, userID int64) {
 	cmd := strings.ToLower(msg.Command())
 	args := msg.CommandArguments()
 
@@ -211,9 +237,9 @@ func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 
 	switch cmd {
 	case "start":
-		h.cmdStart(msg)
+		h.cmdStart(msg, userID)
 	case "help":
-		h.cmdHelp(msg)
+		h.cmdHelp(msg, userID)
 	case "topics":
 		h.cmdTopics(msg, userID)
 	case "newtopic":
@@ -253,8 +279,7 @@ func (h *Handler) handleCommand(msg *tgbotapi.Message) {
 
 // --- Messages (interactive state) ---
 
-func (h *Handler) handleMessage(msg *tgbotapi.Message) {
-	userID := msg.From.ID
+func (h *Handler) handleMessage(msg *tgbotapi.Message, userID int64) {
 	s := h.states.Get(userID)
 
 	// Медиа-сообщение — вложение к заметке
@@ -324,7 +349,7 @@ func (h *Handler) handleCommandText(msg *tgbotapi.Message, userID int64, text st
 	if strings.HasPrefix(text, "/") {
 		oldText := msg.Text
 		msg.Text = text
-		h.handleCommand(msg)
+		h.handleCommand(msg, userID)
 		msg.Text = oldText
 		return
 	}

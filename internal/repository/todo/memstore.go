@@ -27,6 +27,10 @@ type MemStore struct {
 	userFolders  map[int64][]int64 // userID → []folderID
 	noteAtts     map[int64][]int64 // noteID → []attachmentID
 	quickTopics  map[int64][]int64 // userID → []topicID (выбранные для быстрых кнопок)
+	users        map[int64]entity.UserRecord
+	usernameIdx  map[string]int64 // username (lowercase) → userID
+	telegramIdx  map[int64]int64  // telegram_id → userID
+	nextUserID   int64
 }
 
 // NewMemStore создаёт новый MemStore.
@@ -42,10 +46,14 @@ func NewMemStore() *MemStore {
 		userFolders:  make(map[int64][]int64),
 		noteAtts:     make(map[int64][]int64),
 		quickTopics:  make(map[int64][]int64),
+		users:        make(map[int64]entity.UserRecord),
+		usernameIdx:  make(map[string]int64),
+		telegramIdx:  make(map[int64]int64),
 		nextTopicID:  1,
 		nextNoteID:   1,
 		nextFolderID: 1,
 		nextAttID:    1,
+		nextUserID:   1,
 	}
 }
 
@@ -90,6 +98,26 @@ func (s *MemStore) GetTopic(userID, topicID int64) (model.Topic, error) {
 	if !ok || t.UserID != userID {
 		return model.Topic{}, errors.ErrTopicNotFound
 	}
+	return entity.TopicFromRecord(t), nil
+}
+
+func (s *MemStore) UpdateTopic(userID, topicID int64, name string) (model.Topic, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.topics[topicID]
+	if !ok || t.UserID != userID {
+		return model.Topic{}, errors.ErrTopicNotFound
+	}
+
+	for _, tid := range s.userTopics[userID] {
+		if tid != topicID && s.topics[tid].Name == name {
+			return model.Topic{}, errors.ErrTopicAlreadyExists
+		}
+	}
+
+	t.Name = name
+	s.topics[topicID] = t
 	return entity.TopicFromRecord(t), nil
 }
 

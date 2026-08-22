@@ -16,10 +16,9 @@ import (
 // Command implementations
 // ============================================================
 
-func (h *Handler) cmdStart(msg *tgbotapi.Message) {
+func (h *Handler) cmdStart(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
 
-	userID := msg.From.ID
 	h.clearAttachmentView(msg.Chat.ID, userID)
 	h.hideQuickTopics(msg.Chat.ID, userID)
 	// Создаём дефолтные топики и заметки для нового пользователя
@@ -38,17 +37,16 @@ func (h *Handler) cmdStart(msg *tgbotapi.Message) {
 	}
 }
 
-func (h *Handler) cmdHelp(msg *tgbotapi.Message) {
+func (h *Handler) cmdHelp(msg *tgbotapi.Message, userID int64) {
 	h.deleteUserMsg(msg)
 
-	userID := msg.From.ID
 	text, markup := buildHelpMessage()
 	msg2 := h.newMsg(msg.Chat.ID, userID, text)
 	msg2.ParseMode = tgbotapi.ModeMarkdown
 	msg2.ReplyMarkup = markup
 	sent, err := h.api.Send(msg2)
 	if err == nil {
-		h.states.Get(msg.From.ID).LastListMsgID = sent.MessageID
+		h.states.Get(userID).LastListMsgID = sent.MessageID
 	}
 }
 

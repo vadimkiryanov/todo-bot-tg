@@ -1,0 +1,16 @@
+# Caddy: SPA-статика + прокси /api на REST-сервис (api:8080).
+# APP_BASE_URL:
+#   - домен (example.com)  → авто-HTTPS (Let's Encrypt), порты 80/443
+#   - ":80" (по умолчанию) → простой HTTP на 80-м порту
+{$APP_BASE_URL} {
+	root * /srv
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
