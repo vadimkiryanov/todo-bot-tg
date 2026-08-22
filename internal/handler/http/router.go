@@ -12,9 +12,10 @@ import (
 // Порядок: Recover внутри Logging — паника логируется с реальным статусом 500.
 // Все маршруты, кроме /auth/* и /healthz, требуют валидную сессию (RequireAuth).
 // sessionTTL — срок жизни сессии (cookie Max-Age и expires_at в хранилище).
-func NewRouter(users UserRepository, sessions session.Store, svc TodoService, sessionTTL time.Duration) http.Handler {
+// cookieSecure — помечать сессионную cookie флагом Secure (true — только HTTPS).
+func NewRouter(users UserRepository, sessions session.Store, svc TodoService, sessionTTL time.Duration, cookieSecure bool) http.Handler {
 	mux := http.NewServeMux()
-	auth := newAuthHandler(users, sessions, sessionTTL)
+	auth := newAuthHandler(users, sessions, sessionTTL, cookieSecure)
 	todo := newTodoHandler(svc)
 
 	mux.HandleFunc("GET /healthz", handleHealthz)

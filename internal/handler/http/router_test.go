@@ -20,7 +20,19 @@ func newTestRouter(t *testing.T) http.Handler {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
 	svc := todo.NewService(store, store, store, store, store, fileStore)
-	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL)
+	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, true)
+}
+
+// newTestRouterCookieSecure собирает роутер с заданным флагом Secure для cookie.
+func newTestRouterCookieSecure(t *testing.T, cookieSecure bool) http.Handler {
+	t.Helper()
+	store := repo.NewMemStore()
+	fileStore, err := fs.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("fs.NewStore() error: %v", err)
+	}
+	svc := todo.NewService(store, store, store, store, store, fileStore)
+	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, cookieSecure)
 }
 
 func TestRouter_Healthz(t *testing.T) {

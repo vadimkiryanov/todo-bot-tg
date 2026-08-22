@@ -7,7 +7,7 @@ services:
     environment:
       - TZ=Europe/Moscow
       - POSTGRES_USER=todobot
-      - POSTGRES_PASSWORD=todobot
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан}
       - POSTGRES_DB=todobot
     volumes:
       - pgdata:/var/lib/postgresql/data

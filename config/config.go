@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -63,4 +64,14 @@ func load(requireToken bool) (*Config, error) {
 		SessionTTL:  sessionTTL,
 		AppBaseURL:  os.Getenv("APP_BASE_URL"),
 	}, nil
+}
+
+// CookieSecure возвращает true, если сессионную cookie нужно помечать Secure
+// (только для доменного APP_BASE_URL — трафик идёт через HTTPS).
+// Для ":80" (порт) и "localhost" — false, иначе браузер не примет cookie по HTTP.
+func (c *Config) CookieSecure() bool {
+	if c.AppBaseURL == "" {
+		return false
+	}
+	return !strings.HasPrefix(c.AppBaseURL, ":") && c.AppBaseURL != "localhost"
 }

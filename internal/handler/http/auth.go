@@ -29,13 +29,14 @@ type SessionStore interface {
 
 // authHandler — обработчики эндпоинтов авторизации (§6).
 type authHandler struct {
-	users      UserRepository
-	sessions   SessionStore
-	sessionTTL time.Duration
+	users        UserRepository
+	sessions     SessionStore
+	sessionTTL   time.Duration
+	cookieSecure bool
 }
 
-func newAuthHandler(users UserRepository, sessions SessionStore, sessionTTL time.Duration) *authHandler {
-	return &authHandler{users: users, sessions: sessions, sessionTTL: sessionTTL}
+func newAuthHandler(users UserRepository, sessions SessionStore, sessionTTL time.Duration, cookieSecure bool) *authHandler {
+	return &authHandler{users: users, sessions: sessions, sessionTTL: sessionTTL, cookieSecure: cookieSecure}
 }
 
 // register обрабатывает POST /api/v1/auth/register → 201 {user} + Set-Cookie.
@@ -112,7 +113,7 @@ func (h *authHandler) logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(middleware.SessionCookie); err == nil {
 		_ = h.sessions.Delete(session.HashToken(cookie.Value))
 	}
-	http.SetCookie(w, expiredSessionCookie())
+	http.SetCookie(w, expiredSessionCookie(h.cookieSecure))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -142,7 +143,7 @@ func (h *authHandler) createSession(w http.ResponseWriter, userID int64) error {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(h.sessionTTL.Seconds()),
 	})
@@ -150,13 +151,13 @@ func (h *authHandler) createSession(w http.ResponseWriter, userID int64) error {
 }
 
 // expiredSessionCookie возвращает cookie с истёкшим сроком (для logout).
-func expiredSessionCookie() *http.Cookie {
+func expiredSessionCookie(cookieSecure bool) *http.Cookie {
 	return &http.Cookie{
 		Name:     middleware.SessionCookie,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	}

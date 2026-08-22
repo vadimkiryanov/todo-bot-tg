@@ -114,7 +114,7 @@ func main() {
 	if cfg.HTTPAddr != "" {
 		httpSrv = &http.Server{
 			Addr:         cfg.HTTPAddr,
-			Handler:      httpapi.NewRouter(usersRepo, sessionStore, svc, cfg.SessionTTL),
+			Handler:      httpapi.NewRouter(usersRepo, sessionStore, svc, cfg.SessionTTL, cfg.CookieSecure()),
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 			IdleTimeout:  60 * time.Second,
