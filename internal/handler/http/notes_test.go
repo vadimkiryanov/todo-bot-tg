@@ -211,7 +211,7 @@ func (s *stubTodoService) GetNote(userID, noteID int64) (model.Note, error) {
 }
 
 func newPatchRouter(stub TodoService) http.Handler {
-	return NewRouter(repo.NewMemStore(), session.NewMemoryStore(), stub, session.TTL, true)
+	return NewRouter(repo.NewMemStore(), session.NewMemoryStore(), stub, session.TTL, true, "test-bot-token")
 }
 
 func TestNotes_Patch_AppliesOnlyProvidedFields(t *testing.T) {

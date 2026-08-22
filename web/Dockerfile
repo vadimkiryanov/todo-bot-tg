@@ -3,6 +3,10 @@ FROM node:22-alpine AS build
 
 WORKDIR /web
 
+# VITE_TG_LOGIN — username Telegram-бота для виджета входа (пусто — вход скрыт)
+ARG VITE_TG_LOGIN
+ENV VITE_TG_LOGIN=$VITE_TG_LOGIN
+
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 

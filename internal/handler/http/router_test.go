@@ -20,7 +20,7 @@ func newTestRouter(t *testing.T) http.Handler {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
 	svc := todo.NewService(store, store, store, store, store, fileStore)
-	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, true)
+	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, true, "test-bot-token")
 }
 
 // newTestRouterCookieSecure собирает роутер с заданным флагом Secure для cookie.
@@ -32,7 +32,19 @@ func newTestRouterCookieSecure(t *testing.T, cookieSecure bool) http.Handler {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
 	svc := todo.NewService(store, store, store, store, store, fileStore)
-	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, cookieSecure)
+	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, cookieSecure, "test-bot-token")
+}
+
+// newTestRouterTgDisabled собирает роутер с отключённым входом через Telegram.
+func newTestRouterTgDisabled(t *testing.T) http.Handler {
+	t.Helper()
+	store := repo.NewMemStore()
+	fileStore, err := fs.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("fs.NewStore() error: %v", err)
+	}
+	svc := todo.NewService(store, store, store, store, store, fileStore)
+	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, true, "")
 }
 
 func TestRouter_Healthz(t *testing.T) {

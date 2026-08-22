@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { login as apiLogin, register as apiRegister } from '../lib/api/auth';
   import { showChat } from '../lib/stores/navigation.svelte';
 
@@ -10,7 +11,31 @@
   let pending = $state(false);
   let error = $state('');
 
+  // Вход через Telegram Login Widget (VITE_TG_LOGIN задаётся при сборке web).
+  const tgLogin = import.meta.env.VITE_TG_LOGIN as string | undefined;
+  const tgAuthUrl = `${window.location.origin}/api/v1/auth/tg`;
+  const tgEnabled = !!tgLogin && window.location.protocol === 'https:';
+  let tgError = $state('');
+
   const title = $derived(mode === 'login' ? 'Вход' : 'Регистрация');
+
+  onMount(() => {
+    const err = new URLSearchParams(window.location.search).get('error');
+    if (err?.startsWith('telegram')) {
+      tgError = 'Не удалось войти через Telegram. Попробуйте ещё раз.';
+    }
+    if (!tgEnabled) return;
+    const widget = document.getElementById('telegram-login-widget');
+    if (!widget) return;
+    const script = document.createElement('script');
+    script.async = true;
+    script.src = 'https://telegram.org/js/telegram-widget.js?22';
+    script.setAttribute('data-telegram-login', tgLogin!);
+    script.setAttribute('data-size', 'large');
+    script.setAttribute('data-radius', '8');
+    script.setAttribute('data-auth-url', tgAuthUrl);
+    widget.appendChild(script);
+  });
 
   function switchMode(next: Mode) {
     mode = next;
@@ -69,6 +94,20 @@
       Регистрация
     </button>
   </div>
+
+  {#if tgEnabled}
+    <div class="flex w-full max-w-xs flex-col items-center gap-3">
+      <div class="flex w-full items-center gap-3 text-xs text-muted">
+        <span class="h-px flex-1 bg-border"></span>
+        или
+        <span class="h-px flex-1 bg-border"></span>
+      </div>
+      <div id="telegram-login-widget"></div>
+    </div>
+  {/if}
+  {#if tgError}
+    <p class="text-sm text-danger">{tgError}</p>
+  {/if}
 
   <form
     class="flex w-full max-w-xs flex-col gap-3"

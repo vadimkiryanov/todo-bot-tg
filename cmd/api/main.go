@@ -26,6 +26,7 @@ type usersRepository interface {
 	CreateUser(u user.User) (user.User, error)
 	FindByUsername(username string) (user.User, error)
 	GetByID(id int64) (user.User, error)
+	FindOrCreateByTelegramID(telegramID int64) (int64, error)
 }
 
 func main() {
@@ -83,8 +84,9 @@ func main() {
 
 	// 4. HTTP-сервер (REST API)
 	srv := &http.Server{
-		Addr:         cfg.HTTPAddr,
-		Handler:      httpapi.NewRouter(usersRepo, sessionStore, svc, cfg.SessionTTL, cfg.CookieSecure()),
+		Addr: cfg.HTTPAddr,
+		// cfg.Token — токен бота для входа через Telegram (пусто — вход отключён)
+		Handler:      httpapi.NewRouter(usersRepo, sessionStore, svc, cfg.SessionTTL, cfg.CookieSecure(), cfg.Token),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

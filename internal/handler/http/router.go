@@ -13,15 +13,17 @@ import (
 // Все маршруты, кроме /auth/* и /healthz, требуют валидную сессию (RequireAuth).
 // sessionTTL — срок жизни сессии (cookie Max-Age и expires_at в хранилище).
 // cookieSecure — помечать сессионную cookie флагом Secure (true — только HTTPS).
-func NewRouter(users UserRepository, sessions session.Store, svc TodoService, sessionTTL time.Duration, cookieSecure bool) http.Handler {
+// botToken — токен Telegram-бота для входа через виджет; пусто — вход отключён.
+func NewRouter(users UserRepository, sessions session.Store, svc TodoService, sessionTTL time.Duration, cookieSecure bool, botToken string) http.Handler {
 	mux := http.NewServeMux()
-	auth := newAuthHandler(users, sessions, sessionTTL, cookieSecure)
+	auth := newAuthHandler(users, sessions, sessionTTL, cookieSecure, botToken)
 	todo := newTodoHandler(svc)
 
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("POST /api/v1/auth/register", auth.register)
 	mux.HandleFunc("POST /api/v1/auth/login", auth.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", auth.logout)
+	mux.HandleFunc("GET /api/v1/auth/tg", auth.tgLogin)
 
 	// Маршруты с сессией: middleware.RequireAuth кладёт userID в контекст.
 	withAuth := func(h http.HandlerFunc) http.Handler {
