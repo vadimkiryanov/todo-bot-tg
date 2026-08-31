@@ -2,6 +2,15 @@
 # APP_BASE_URL:
 #   - домен (example.com)  → авто-HTTPS (Let's Encrypt), порты 80/443
 #   - ":80" (по умолчанию) → простой HTTP на 80-м порту
+
+# HTTP/3 (QUIC) отключён: на h3-пути теряется Set-Cookie в ответах 302
+# (браузеры не сохраняют session-куку, вход через Telegram ломается).
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
 {$APP_BASE_URL} {
 	root * /srv
 	encode zstd gzip
