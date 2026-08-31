@@ -1,27 +1,12 @@
-// Навигация state-based (без роутера): экран + активный топик.
+// Активный топик: выбор между сессиями, сохраняется в localStorage.
+// Экраны (login/chat/archive) определяет SvelteKit-роутер по URL — здесь их нет.
 import type { Topic } from '../types/api';
 
 const ACTIVE_KEY = 'todo.activeTopicID';
 
-export const navigation = $state<{
-  screen: 'login' | 'chat' | 'archived';
-  activeTopicID: number | null;
-}>({
-  screen: 'login',
+export const navigation = $state<{ activeTopicID: number | null }>({
   activeTopicID: null,
 });
-
-export function showLogin(): void {
-  navigation.screen = 'login';
-}
-
-export function showChat(): void {
-  navigation.screen = 'chat';
-}
-
-export function showArchived(): void {
-  navigation.screen = 'archived';
-}
 
 export function setActiveTopic(id: number): void {
   navigation.activeTopicID = id;
@@ -47,4 +32,14 @@ export function restoreActiveTopic(topics: Topic[]): void {
   }
   const exists = topics.some((t) => t.id === saved);
   navigation.activeTopicID = exists && saved !== null ? saved : topics[0].id;
+}
+
+/** Сброс активного топика (выход из аккаунта). */
+export function resetActiveTopic(): void {
+  navigation.activeTopicID = null;
+  try {
+    localStorage.removeItem(ACTIVE_KEY);
+  } catch {
+    // localStorage недоступен — нечего чистить
+  }
 }

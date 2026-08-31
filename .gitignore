@@ -6,4 +6,6 @@ data/
 *.pdf
 */node_modules
 web/dist
+web/build
+web/.svelte-kit
 web/.env.local

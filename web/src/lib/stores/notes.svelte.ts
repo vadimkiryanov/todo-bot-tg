@@ -161,6 +161,16 @@ export async function removeArchivedNote(note: Note): Promise<void> {
   }
 }
 
+/** Сброс сторов (выход из аккаунта): активные и архивные заметки. */
+export function resetNotes(): void {
+  notesStore.notes = [];
+  notesStore.loading = false;
+  notesStore.error = null;
+  archivedStore.notes = [];
+  archivedStore.loading = false;
+  archivedStore.error = null;
+}
+
 /** Общая мутация поля (done/priority): применить → сервер → тихая перезагрузка сортировки. */
 async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
   const previous = notesStore.notes;

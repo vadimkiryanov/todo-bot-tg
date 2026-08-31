@@ -1,16 +1,16 @@
 <script lang="ts">
   // Экран чата: табы топиков сверху, список заметок, поле ввода снизу.
-  // Долгий тап по шапке — меню пользователя (выход).
-  import EmptyState from '../lib/components/EmptyState.svelte';
-  import InputBar from '../lib/components/InputBar.svelte';
-  import Modal from '../lib/components/Modal.svelte';
-  import NoteCard from '../lib/components/NoteCard.svelte';
-  import NoteOverlay from '../lib/components/NoteOverlay.svelte';
-  import TopicTabs from '../lib/components/TopicTabs.svelte';
-  import { navigation, showArchived, showLogin } from '../lib/stores/navigation.svelte';
-  import { loadArchived, loadNotes, notesStore } from '../lib/stores/notes.svelte';
-  import { logout } from '../lib/stores/session.svelte';
-  import { loadTopics, topicsStore } from '../lib/stores/topics.svelte';
+  // Выход из аккаунта — кнопка 🚪 в шапке; архив — кнопка 🗄 (URL /archive).
+  import { goto } from '$app/navigation';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import InputBar from '$lib/components/InputBar.svelte';
+  import NoteCard from '$lib/components/NoteCard.svelte';
+  import NoteOverlay from '$lib/components/NoteOverlay.svelte';
+  import TopicTabs from '$lib/components/TopicTabs.svelte';
+  import { navigation } from '$lib/stores/navigation.svelte';
+  import { loadArchived, loadNotes, notesStore } from '$lib/stores/notes.svelte';
+  import { logout, session } from '$lib/stores/session.svelte';
+  import { loadTopics, topicsStore } from '$lib/stores/topics.svelte';
 
   // Актуальная заметка для оверлея — из store по id (после мутаций объект обновляется).
   let selectedId: number | null = $state(null);
@@ -20,34 +20,23 @@
       : notesStore.notes.find((n) => n.id === selectedId) ?? null,
   );
 
-  // Меню пользователя (долгий тап по шапке).
-  let showMenu = $state(false);
-  let longPressTimer: number | undefined;
-
-  const LONG_PRESS_MS = 500;
-
-  function headerPointerDown(): void {
-    longPressTimer = window.setTimeout(() => {
-      showMenu = true;
-    }, LONG_PRESS_MS);
-  }
-
-  function cancelLongPress(): void {
-    window.clearTimeout(longPressTimer);
-  }
-
-  function headerKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      showMenu = true;
-    }
-  }
-
   async function doLogout(): Promise<void> {
-    showMenu = false;
     await logout();
-    showLogin();
+    await goto('/login');
   }
+
+  async function goArchived(): Promise<void> {
+    // Сразу грузим архив — экран покажет данные без повторного запроса.
+    await loadArchived();
+    await goto('/archive');
+  }
+
+  // При авторизации (старт или вход) — загружаем топики.
+  $effect(() => {
+    if (session.state === 'authed') {
+      void loadTopics();
+    }
+  });
 
   // При выборе топика — загружаем его заметки.
   $effect(() => {
@@ -61,24 +50,22 @@
 <div class="flex h-full flex-col">
   <header
     class="flex shrink-0 items-center justify-center border-b border-border bg-surface pt-[env(safe-area-inset-top)]"
-    role="button"
-    tabindex="0"
-    aria-label="Меню"
-    onpointerdown={headerPointerDown}
-    onpointerup={cancelLongPress}
-    onpointerleave={cancelLongPress}
-    onkeydown={headerKeydown}
   >
     <div class="relative flex h-[52px] w-full items-center justify-center">
       <span class="text-xl">📝</span>
       <button
         type="button"
+        aria-label="Выйти"
+        class="absolute left-3 flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+        onclick={() => void doLogout()}
+      >
+        🚪
+      </button>
+      <button
+        type="button"
         aria-label="Архив"
         class="absolute right-3 flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
-        onclick={() => {
-          void loadArchived();
-          showArchived();
-        }}
+        onclick={() => void goArchived()}
       >
         🗄
       </button>
@@ -133,27 +120,6 @@
     <InputBar />
   </footer>
 </div>
-
-{#if showMenu}
-  <Modal open onClose={() => (showMenu = false)}>
-    <div class="flex flex-col gap-1 px-1 py-2">
-      <button
-        type="button"
-        class="flex h-12 items-center gap-3 rounded-xl px-2 text-base"
-        onclick={doLogout}
-      >
-        <span>🚪</span> Выйти
-      </button>
-      <button
-        type="button"
-        class="mt-2 h-11 rounded-xl border border-border text-sm"
-        onclick={() => (showMenu = false)}
-      >
-        Отмена
-      </button>
-    </div>
-  </Modal>
-{/if}
 
 {#if selectedNote !== null}
   <NoteOverlay note={selectedNote} onClose={() => (selectedId = null)} />

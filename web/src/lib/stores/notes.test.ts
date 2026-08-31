@@ -13,6 +13,7 @@ import {
   loadNotes,
   notesStore,
   removeNote,
+  resetNotes,
   setPriority,
   toggleDone,
   togglePin,
@@ -139,5 +140,22 @@ describe('notes store', () => {
     expect(archivedStore.notes).toHaveLength(0);
     await loadNotes(topicId);
     expect(notesStore.notes.map((n) => n.text)).toEqual(['в архив']);
+  });
+
+  it('resetNotes очищает активные и архивные заметки (выход из аккаунта)', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('первая');
+    await archiveNote(notesStore.notes[0]);
+    await loadArchived();
+    expect(notesStore.notes).toHaveLength(0);
+    expect(archivedStore.notes).toHaveLength(1);
+
+    resetNotes();
+
+    expect(notesStore.notes).toHaveLength(0);
+    expect(archivedStore.notes).toHaveLength(0);
+    expect(notesStore.error).toBeNull();
+    expect(archivedStore.error).toBeNull();
   });
 });

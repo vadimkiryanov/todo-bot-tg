@@ -37,10 +37,8 @@ body {
   height: 100%;
 }
 
-/* Контейнер приложения: без высоты h-full в корне ChatView/LoginView не работает */
-#app {
-  height: 100%;
-}
+/* SvelteKit рендерит layout в div[data-sveltekit-preload-data] с display:contents —
+   корневой layout сам занимает 100% высоты (класс h-full). */
 
 body {
   margin: 0;

@@ -1,18 +1,19 @@
 <script lang="ts">
-  // Экран архива: заметки из всех топиков. Действия — вернуть / удалить.
+  // Экран архива (URL /archive): заметки из всех топиков. Действия — вернуть / удалить.
   import { onMount } from 'svelte';
-  import EmptyState from '../lib/components/EmptyState.svelte';
-  import Modal from '../lib/components/Modal.svelte';
-  import NoteCard from '../lib/components/NoteCard.svelte';
-  import { showChat } from '../lib/stores/navigation.svelte';
+  import { goto } from '$app/navigation';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import Modal from '$lib/components/Modal.svelte';
+  import NoteCard from '$lib/components/NoteCard.svelte';
   import {
     archivedStore,
     loadArchived,
     removeArchivedNote,
     unarchiveNote,
-  } from '../lib/stores/notes.svelte';
-  import type { Note } from '../lib/types/api';
-  import { renderNoteHtml } from '../lib/utils/format';
+  } from '$lib/stores/notes.svelte';
+  import { logout } from '$lib/stores/session.svelte';
+  import type { Note } from '$lib/types/api';
+  import { renderNoteHtml } from '$lib/utils/format';
 
   let selectedId: number | null = $state(null);
   const selectedNote = $derived(
@@ -28,6 +29,11 @@
   onMount(() => {
     void loadArchived();
   });
+
+  async function doLogout(): Promise<void> {
+    await logout();
+    await goto('/login');
+  }
 
   async function doUnarchive(note: Note): Promise<void> {
     busy = true;
@@ -64,12 +70,19 @@
       type="button"
       aria-label="Назад"
       class="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
-      onclick={showChat}
+      onclick={() => void goto('/')}
     >
       ←
     </button>
     <span class="text-xl">🗄</span>
-    <span class="w-10"></span>
+    <button
+      type="button"
+      aria-label="Выйти"
+      class="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+      onclick={() => void doLogout()}
+    >
+      🚪
+    </button>
   </header>
 
   <main class="flex-1 overflow-y-auto">

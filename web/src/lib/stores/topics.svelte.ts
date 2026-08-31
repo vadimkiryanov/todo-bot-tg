@@ -52,3 +52,10 @@ export async function deleteTopic(id: number): Promise<void> {
     restoreActiveTopic(topicsStore.topics);
   }
 }
+
+/** Сброс стора (выход из аккаунта). */
+export function resetTopics(): void {
+  topicsStore.topics = [];
+  topicsStore.loading = false;
+  topicsStore.error = null;
+}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { login as apiLogin, register as apiRegister } from '../lib/api/auth';
-  import { showChat } from '../lib/stores/navigation.svelte';
+  import { goto } from '$app/navigation';
+  import { login, register } from '$lib/stores/session.svelte';
 
   type Mode = 'login' | 'register';
 
@@ -58,12 +58,14 @@
     }
     pending = true;
     try {
+      // Вход через session store (login/register применяют сессию сами),
+      // после чего guard / перенаправляет авторизованного в чат.
       if (mode === 'login') {
-        await apiLogin(username, password);
+        await login(username, password);
       } else {
-        await apiRegister(username, password);
+        await register(username, password);
       }
-      showChat();
+      await goto('/');
     } catch (e) {
       error = e instanceof Error ? e.message : 'Что-то пошло не так';
     } finally {

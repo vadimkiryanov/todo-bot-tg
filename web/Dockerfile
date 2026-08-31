@@ -16,5 +16,5 @@ RUN npm run build
 # Раздача статики + прокси /api → api:8080
 FROM caddy:2-alpine
 
-COPY --from=build /web/dist /srv
+COPY --from=build /web/build /srv
 COPY web/Caddyfile /etc/caddy/Caddyfile

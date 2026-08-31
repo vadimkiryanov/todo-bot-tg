@@ -1,20 +1,15 @@
 {
-  "extends": "./tsconfig.node.json",
+  "extends": "./.svelte-kit/tsconfig.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "useDefineForClassFields": true,
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "types": ["vite/client", "vite-plugin-pwa/client"]
-  },
-  "include": ["src/**/*.ts", "src/**/*.svelte"]
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true
+  }
 }

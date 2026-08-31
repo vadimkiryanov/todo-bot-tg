@@ -239,6 +239,22 @@
 
 ---
 
+## Этап 22: Веб — выход из аккаунта (2026-08-31)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(см. ниже)* | **feat**: видимый выход из аккаунта в вебе — кнопка «🚪» в шапке экрана чата (слева, симметрично архиву) и экрана архива (справа) вместо скрытого меню долгого тапа по шапке. При выходе (`POST /api/v1/auth/logout` уже существовал) сбрасывается всё клиентское состояние: экран → вход, активный топик и localStorage-ключ очищены (`resetNavigation`), топики/заметки/архив выгружены (`resetTopics`/`resetNotes`) — данные не протекают между аккаунтами; сброс также срабатывает по 401. **Тесты**: web — `resetNotes` очищает активные и архивные заметки. Проверки: `npm run check` 0 ошибок, `npm run build` успешен, `vitest` 18/18 |
+
+---
+
+## Этап 23: Веб — URL-роутинг на SvelteKit (2026-08-31)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(см. ниже)* | **feat**: веб переведён с state-based навигации на **SvelteKit** (SPA, `adapter-static` + fallback `index.html`, Caddy/Docker почти не тронуты — только `dist`→`build`). Экраны привязаны к чистым URL: `/login` — вход/регистрация, `/` — чат, `/archive` — архив; работают кнопки «назад/вперёд» и прямые ссылки. **Guard'ы**: в `load`-функциях маршрутов — `/` и `/archive` доступны только авторизованным (`ensureSession` → `redirect('/login')`), `/login` — только гостям (`redirect('/')`); 401 на любом запросе API → `clearSession()` + `goto('/login')`. **Фикс бага «Вход»**: LoginView больше не вызывает `apiLogin` напрямую — вход/регистрация идут через session store (`login`/`register` применяют сессию), после чего `goto('/')`. **Рефакторинг**: `navigation` store сокращён до активного топика (`resetNavigation` → `resetActiveTopic`, навигацию при logout/401 делает роутер); logout в шапках → `goto('/login')`. PWA: `registerSW` переехал в корневой `+layout`. Проверки: `npm run check` 0 ошибок, `npm run build` успешен, `vitest` 18/18 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -275,7 +291,7 @@ internal/
   middleware/            — Logging (slog) + Recover (panic → 500) + RequireAuth (cookie-сессии)
   user/                  — пользователи: валидация username/пароля, bcrypt cost 12
   session/               — веб-сессии: токен 32 байта base64url, SHA-256 хеш в хранилище, TTL (SessionTTL)
-web/                     — веб-фронтенд: Vite + Svelte 5 + Tailwind v4 (PWA); Dockerfile (node → Caddy), Caddyfile (прокси /api + авто-HTTPS)
+web/                     — веб-фронтенд: SvelteKit (SPA, adapter-static, ssr=false) + Svelte 5 + Tailwind v4 (PWA); маршруты /login, /, /archive с guard'ами в load; Dockerfile (node → Caddy), Caddyfile (прокси /api + авто-HTTPS)
 Dockerfile               — multi-stage: bot + api (golang:1.25-alpine → alpine:3.20)
 docker-compose.yml       — 4 сервиса: db + api + bot + web
 deploy.sh                — установка Docker/git, docker compose up -d --build
