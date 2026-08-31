@@ -38,7 +38,7 @@
 
 {#if session.state === 'loading'}
   <div class="flex h-full items-center justify-center text-muted">…</div>
-{:else if session.state === 'guest' || navigation.screen === 'login'}
+{:else if session.state === 'guest'}
   <LoginView />
 {:else if navigation.screen === 'archived'}
   <ArchivedView />
