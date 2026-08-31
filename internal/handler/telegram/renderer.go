@@ -1289,10 +1289,20 @@ func buildRepeatPicker(noteID int64, year int, month time.Month, day, hour, minu
 	)
 }
 
-// buildReminderNotificationMarkup строит клавиатуру для сообщения-напоминания.
+// buildReminderNotificationMarkup строит клавиатуру для сообщения-напоминания:
+// отложить на 15/30/60 минут, выполнить, закрыть или открыть задачу.
 func buildReminderNotificationMarkup(noteID int64) tgbotapi.InlineKeyboardMarkup {
-	delBtn := tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("delremmsg:%d", noteID))
-	return tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(delBtn),
+	snoozeRow := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("15 мин", fmt.Sprintf("snoozerem:%d:15", noteID)),
+		tgbotapi.NewInlineKeyboardButtonData("30 мин", fmt.Sprintf("snoozerem:%d:30", noteID)),
+		tgbotapi.NewInlineKeyboardButtonData("1 час", fmt.Sprintf("snoozerem:%d:60", noteID)),
 	)
+	actionRow := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("✅ Выполнено", fmt.Sprintf("donerem:%d", noteID)),
+		tgbotapi.NewInlineKeyboardButtonData("✖️ Закрыть", fmt.Sprintf("delremmsg:%d", noteID)),
+	)
+	viewRow := tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("Открыть", fmt.Sprintf("view:%d", noteID)),
+	)
+	return tgbotapi.NewInlineKeyboardMarkup(snoozeRow, actionRow, viewRow)
 }

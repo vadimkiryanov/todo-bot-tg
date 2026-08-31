@@ -476,6 +476,49 @@ func TestBuildReminderMenu(t *testing.T) {
 	}
 }
 
+// --- buildReminderNotificationMarkup ---
+
+func TestBuildReminderNotificationMarkup(t *testing.T) {
+	markup := buildReminderNotificationMarkup(42)
+
+	if len(markup.InlineKeyboard) != 3 {
+		t.Fatalf("keyboard rows = %d, want 3", len(markup.InlineKeyboard))
+	}
+
+	// Ряд 1: отложка 15/30/60 минут
+	snoozeRow := markup.InlineKeyboard[0]
+	if len(snoozeRow) != 3 {
+		t.Fatalf("snooze row buttons = %d, want 3", len(snoozeRow))
+	}
+	wantSnooze := []string{"snoozerem:42:15", "snoozerem:42:30", "snoozerem:42:60"}
+	for i, want := range wantSnooze {
+		if snoozeRow[i].CallbackData == nil || *snoozeRow[i].CallbackData != want {
+			t.Errorf("snooze[%d] data = %v, want %s", i, snoozeRow[i].CallbackData, want)
+		}
+	}
+
+	// Ряд 2: выполнить / закрыть
+	actionRow := markup.InlineKeyboard[1]
+	if len(actionRow) != 2 {
+		t.Fatalf("action row buttons = %d, want 2", len(actionRow))
+	}
+	wantAction := []string{"donerem:42", "delremmsg:42"}
+	for i, want := range wantAction {
+		if actionRow[i].CallbackData == nil || *actionRow[i].CallbackData != want {
+			t.Errorf("action[%d] data = %v, want %s", i, actionRow[i].CallbackData, want)
+		}
+	}
+
+	// Ряд 3: открыть задачу
+	viewRow := markup.InlineKeyboard[2]
+	if len(viewRow) != 1 {
+		t.Fatalf("view row buttons = %d, want 1", len(viewRow))
+	}
+	if viewRow[0].CallbackData == nil || *viewRow[0].CallbackData != "view:42" {
+		t.Errorf("view data = %v, want view:42", viewRow[0].CallbackData)
+	}
+}
+
 // --- buildTopicsMessage ---
 
 func TestBuildTopicsMessage(t *testing.T) {

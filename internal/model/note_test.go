@@ -202,6 +202,23 @@ func TestNote_MarkDone(t *testing.T) {
 	}
 }
 
+func TestNote_MarkDone_ClearsReminder(t *testing.T) {
+	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+	n := &Note{ReminderAt: &at, ReminderRepeat: ReminderRepeatDaily}
+
+	n.MarkDone()
+
+	if !n.Done {
+		t.Error("MarkDone() did not set Done to true")
+	}
+	if n.ReminderAt != nil {
+		t.Error("MarkDone() should clear the reminder")
+	}
+	if n.ReminderRepeat != ReminderRepeatOnce {
+		t.Errorf("ReminderRepeat = %q, want %q", n.ReminderRepeat, ReminderRepeatOnce)
+	}
+}
+
 func TestNote_MarkUndone(t *testing.T) {
 	n := &Note{Done: true}
 	n.MarkUndone()

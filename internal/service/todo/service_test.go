@@ -549,6 +549,70 @@ func TestService_ClearReminder(t *testing.T) {
 	}
 }
 
+func TestService_SnoozeReminder(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
+	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatOnce)
+
+	err := svc.SnoozeReminder(1, note.ID, 15)
+	if err != nil {
+		t.Fatalf("SnoozeReminder() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if got.ReminderAt == nil {
+		t.Fatal("ReminderAt is nil after snooze")
+	}
+	delta := time.Until(*got.ReminderAt)
+	if delta < 14*time.Minute || delta > 16*time.Minute {
+		t.Errorf("snooze delta = %v, want ~15m", delta)
+	}
+}
+
+func TestService_SnoozeReminder_KeepsRepeat(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
+	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatDaily)
+
+	err := svc.SnoozeReminder(1, note.ID, 30)
+	if err != nil {
+		t.Fatalf("SnoozeReminder() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if got.ReminderRepeat != model.ReminderRepeatDaily {
+		t.Errorf("ReminderRepeat = %q, want %q", got.ReminderRepeat, model.ReminderRepeatDaily)
+	}
+}
+
+func TestService_SnoozeReminder_NoReminder(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
+
+	err := svc.SnoozeReminder(1, note.ID, 15)
+	if err != nil {
+		t.Fatalf("SnoozeReminder() on note without reminder: %v", err)
+	}
+}
+
+func TestService_MarkDone_ClearsReminder(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
+	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatDaily)
+
+	if err := svc.MarkDone(1, note.ID); err != nil {
+		t.Fatalf("MarkDone() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if !got.Done {
+		t.Error("MarkDone() did not set Done to true")
+	}
+	if got.ReminderAt != nil {
+		t.Error("MarkDone() did not clear the reminder")
+	}
+}
+
 func TestService_ProcessPendingReminders(t *testing.T) {
 	svc := newTestService(t)
 	past := time.Now().Add(-1 * time.Hour)

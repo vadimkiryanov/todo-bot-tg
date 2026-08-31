@@ -23,6 +23,8 @@ const (
 	ActionMoveInsert     CallbackAction = "moveinsert"
 	ActionDoneFolder     CallbackAction = "donefolder"
 	ActionDelRemMsg      CallbackAction = "delremmsg" // спец-кейс: удаление сообщения-напоминания
+	ActionSnoozeRem      CallbackAction = "snoozerem" // отложить напоминание (аргумент "id:минуты")
+	ActionDoneRem        CallbackAction = "donerem"   // выполнить задачу из сообщения-напоминания
 	ActionCloseAtt       CallbackAction = "closeatt"
 	ActionSetTopic       CallbackAction = "settopic"
 	ActionView           CallbackAction = "view"
@@ -138,22 +140,37 @@ var callbackHandlers = map[CallbackAction]callbackHandler{
 	ActionCloseAtt:   noArg((*Handler).callbackCloseAttachment),
 
 	// С int64-аргументом (ID)
-	ActionSetTopic:    withNoteID((*Handler).callbackSetTopic),
-	ActionView:        withNoteID((*Handler).callbackViewNote),
-	ActionDelNote:     withNoteIDNoMsgID((*Handler).callbackDeleteNote),
-	ActionAskDel:      withNoteID((*Handler).askDeleteNote),
-	ActionConfDel:     withNoteIDNoMsgID((*Handler).doDelete),
-	ActionArchNote:    withNoteIDNoMsgID((*Handler).callbackArchiveNote),
-	ActionUnarch:      withNoteID((*Handler).doUnarchive),
-	ActionChPrio:      withNoteID((*Handler).callbackChangePriority),
-	ActionDone:        withNoteID((*Handler).callbackMarkDone),
-	ActionUndone:      withNoteID((*Handler).callbackMarkUndone),
-	ActionPin:         withNoteID((*Handler).callbackPinMenu),
-	ActionPinForever:  withNoteID((*Handler).callbackPinForever),
-	ActionPinTime:     withNoteID((*Handler).callbackPinTime),
-	ActionUnpin:       withNoteID((*Handler).callbackUnpinNote),
-	ActionRemClear:    withNoteID((*Handler).callbackClearReminder),
-	ActionRemMenu:     withNoteID((*Handler).callbackReminderMenu),
+	ActionSetTopic:   withNoteID((*Handler).callbackSetTopic),
+	ActionView:       withNoteID((*Handler).callbackViewNote),
+	ActionDelNote:    withNoteIDNoMsgID((*Handler).callbackDeleteNote),
+	ActionAskDel:     withNoteID((*Handler).askDeleteNote),
+	ActionConfDel:    withNoteIDNoMsgID((*Handler).doDelete),
+	ActionArchNote:   withNoteIDNoMsgID((*Handler).callbackArchiveNote),
+	ActionUnarch:     withNoteID((*Handler).doUnarchive),
+	ActionChPrio:     withNoteID((*Handler).callbackChangePriority),
+	ActionDone:       withNoteID((*Handler).callbackMarkDone),
+	ActionUndone:     withNoteID((*Handler).callbackMarkUndone),
+	ActionPin:        withNoteID((*Handler).callbackPinMenu),
+	ActionPinForever: withNoteID((*Handler).callbackPinForever),
+	ActionPinTime:    withNoteID((*Handler).callbackPinTime),
+	ActionUnpin:      withNoteID((*Handler).callbackUnpinNote),
+	ActionRemClear:   withNoteID((*Handler).callbackClearReminder),
+	ActionRemMenu:    withNoteID((*Handler).callbackReminderMenu),
+	ActionDoneRem:    withNoteID((*Handler).callbackDoneReminder),
+
+	// snoozerem имеет составной аргумент "id:минуты" → arg="id:минуты"
+	ActionSnoozeRem: func(h *Handler, chatID int64, msgID int, userID int64, arg string) {
+		parts := strings.SplitN(arg, ":", 2)
+		if len(parts) != 2 {
+			return
+		}
+		noteID, err1 := strconv.ParseInt(parts[0], 10, 64)
+		minutes, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil {
+			return
+		}
+		h.callbackSnoozeReminder(chatID, msgID, userID, noteID, minutes)
+	},
 	ActionMove:        withNoteID((*Handler).callbackMovePicker),
 	ActionMovePick:    withNoteID((*Handler).callbackMoveNavigate),
 	ActionMoveTopic:   withNoteID((*Handler).callbackMoveTopic),

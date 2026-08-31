@@ -147,6 +147,46 @@ func (h *Handler) callbackClearReminder(chatID int64, msgID int, userID int64, n
 }
 
 // ============================================================
+// Reminder notification actions
+// ============================================================
+
+// snoozeLabel форматирует интервал отложки: "15 мин", "1 час".
+func snoozeLabel(minutes int) string {
+	if minutes%60 == 0 {
+		return fmt.Sprintf("%d час", minutes/60)
+	}
+	return fmt.Sprintf("%d мин", minutes)
+}
+
+// callbackSnoozeReminder откладывает напоминание на указанное число минут.
+// Сообщение-напоминание превращается в короткое подтверждение.
+func (h *Handler) callbackSnoozeReminder(chatID int64, msgID int, userID int64, noteID int64, minutes int) {
+	if err := h.noteService.SnoozeReminder(userID, noteID, minutes); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	edit := tgbotapi.NewEditMessageText(chatID, msgID, fmt.Sprintf("⏰ Напомню через %s", snoozeLabel(minutes)))
+	h.api.Send(edit)
+}
+
+// callbackDoneReminder выполняет задачу из сообщения-напоминания
+// (таймер сбрасывается в MarkDone) и удаляет сообщение.
+func (h *Handler) callbackDoneReminder(chatID int64, msgID int, userID int64, noteID int64) {
+	if err := h.noteService.MarkDone(userID, noteID); err != nil {
+		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
+		return
+	}
+	del := tgbotapi.NewDeleteMessage(chatID, msgID)
+	h.api.Request(del)
+
+	// Обновляем список в фоне — задача перешла в выполненные
+	lastMsgID := h.states.Get(userID).LastListMsgID
+	if lastMsgID != 0 && lastMsgID != msgID {
+		h.showListPage(chatID, lastMsgID, userID, 0)
+	}
+}
+
+// ============================================================
 // Reminder params parsing helpers
 // ============================================================
 

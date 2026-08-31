@@ -412,6 +412,27 @@ func (s *Service) ClearReminder(userID, noteID int64) error {
 	return s.noteRepo.UpdateNote(note)
 }
 
+// SnoozeReminder откладывает напоминание на указанное число минут,
+// сохраняя тип повторения (одноразовое / ежедневное).
+func (s *Service) SnoozeReminder(userID, noteID int64, minutes int) error {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	note, err := s.noteRepo.GetNote(userID, noteID)
+	if err != nil {
+		return err
+	}
+	if note.ReminderAt == nil || minutes <= 0 {
+		return nil // напоминания нет — откладывать нечего
+	}
+
+	at := time.Now().UTC().Add(time.Duration(minutes) * time.Minute)
+	if err := note.SetReminder(at, note.ReminderRepeat); err != nil {
+		return err
+	}
+	return s.noteRepo.UpdateNote(note)
+}
+
 // ProcessPendingReminders возвращает заметки с просроченными напоминаниями.
 // Для одноразовых — сбрасывает ReminderAt. Для ежедневных — сдвигает на 24 часа.
 // Каждая заметка повторно читается под локом пользователя, чтобы обновление

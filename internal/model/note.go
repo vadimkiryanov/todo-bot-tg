@@ -86,9 +86,11 @@ func (n *Note) Unarchive() {
 	n.Archived = false
 }
 
-// MarkDone помечает заметку как выполненную.
+// MarkDone помечает заметку как выполненную и сбрасывает напоминание
+// (выполненная задача не должна напоминать).
 func (n *Note) MarkDone() {
 	n.Done = true
+	n.ClearReminder()
 }
 
 // MarkUndone снимает отметку выполнения.

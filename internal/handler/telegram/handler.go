@@ -28,6 +28,7 @@ type NoteService interface {
 	SetPriority(userID, noteID int64, priority model.Priority) error
 	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error
 	ClearReminder(userID, noteID int64) error
+	SnoozeReminder(userID, noteID int64, minutes int) error
 	ProcessPendingReminders() ([]model.Note, error)
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)
 	CountDoneNotes(userID, topicID int64, folderID *int64) (int, error)
