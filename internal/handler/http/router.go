@@ -41,6 +41,12 @@ func NewRouter(users UserRepository, sessions session.Store, svc TodoService, se
 	mux.Handle("POST /api/v1/notes", withAuth(todo.createNote))
 	mux.Handle("PATCH /api/v1/notes/{id}", withAuth(todo.patchNote))
 	mux.Handle("DELETE /api/v1/notes/{id}", withAuth(todo.deleteNote))
+	mux.Handle("POST /api/v1/notes/{id}/move", withAuth(todo.moveNote))
+
+	mux.Handle("GET /api/v1/folders", withAuth(todo.listFolders))
+	mux.Handle("POST /api/v1/folders", withAuth(todo.createFolder))
+	mux.Handle("PATCH /api/v1/folders/{id}", withAuth(todo.renameFolder))
+	mux.Handle("DELETE /api/v1/folders/{id}", withAuth(todo.deleteFolder))
 
 	return middleware.Logging(middleware.Recover(mux))
 }

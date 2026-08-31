@@ -3,14 +3,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { request } from '../api/client';
 import { resetMockStore, setMockDelay } from '../api/mock';
-import type { Priority, Topic } from '../types/api';
-import { setActiveTopic } from './navigation.svelte';
+import type { Folder, Priority, Topic } from '../types/api';
+import { setActiveFolder, setActiveTopic } from './navigation.svelte';
 import {
   archivedStore,
   archiveNote,
   createNote,
   loadArchived,
   loadNotes,
+  moveNote,
   notesStore,
   removeNote,
   resetNotes,
@@ -33,6 +34,10 @@ async function setupTopic(): Promise<number> {
   const topic = await request<Topic>('POST', '/api/v1/topics', { name: 'Работа' });
   setActiveTopic(topic.id);
   return topic.id;
+}
+
+async function createFolderIn(topicId: number, name: string): Promise<Folder> {
+  return request<Folder>('POST', '/api/v1/folders', { topic_id: topicId, name });
 }
 
 describe('notes store', () => {
@@ -157,5 +162,46 @@ describe('notes store', () => {
     expect(archivedStore.notes).toHaveLength(0);
     expect(notesStore.error).toBeNull();
     expect(archivedStore.error).toBeNull();
+  });
+
+  it('создаёт заметку в активной папке (folder_id заполнен)', async () => {
+    const topicId = await setupTopic();
+    const folder = await createFolderIn(topicId, 'Проект');
+    setActiveFolder(folder.id);
+
+    await loadNotes(topicId, folder.id);
+    await createNote('в папке');
+
+    expect(notesStore.notes).toHaveLength(1);
+    expect(notesStore.notes[0].folder_id).toBe(folder.id);
+    expect(notesStore.notes[0].topic_id).toBe(topicId);
+  });
+
+  it('moveNote переносит заметку в папку и обновляет список', async () => {
+    const topicId = await setupTopic();
+    const folder = await createFolderIn(topicId, 'Проект');
+    await loadNotes(topicId);
+    await createNote('первая');
+
+    const note = notesStore.notes[0];
+    await moveNote(note, folder.id);
+
+    // Список корня перезагружен — заметка осталась (все заметки топика),
+    // но её папка обновилась.
+    expect(notesStore.notes[0].folder_id).toBe(folder.id);
+  });
+
+  it('moveNote убирает заметку из списка папки при переносе в корень', async () => {
+    const topicId = await setupTopic();
+    const folder = await createFolderIn(topicId, 'Проект');
+    setActiveFolder(folder.id);
+    await loadNotes(topicId, folder.id);
+    await createNote('в папке');
+
+    const note = notesStore.notes[0];
+    await moveNote(note, null);
+
+    // Активная папка != целевой (null) — список перезагружен, заметка ушла.
+    expect(notesStore.notes).toHaveLength(0);
   });
 });

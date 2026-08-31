@@ -163,6 +163,18 @@ func (s *MemStore) DeleteTopic(userID, topicID int64) error {
 	}
 	s.userNotes[userID] = filtered
 
+	// Удаляем папки топика (все уровни вложенности — они привязаны к topicID)
+	filteredFolders := make([]int64, 0, len(s.userFolders[userID]))
+	for _, fid := range s.userFolders[userID] {
+		f, ok := s.folders[fid]
+		if ok && f.TopicID == topicID {
+			delete(s.folders, fid)
+			continue
+		}
+		filteredFolders = append(filteredFolders, fid)
+	}
+	s.userFolders[userID] = filteredFolders
+
 	_ = t // used for validation above
 	return nil
 }
@@ -425,6 +437,22 @@ func (s *MemStore) ListFolders(userID, topicID int64, parentFolderID *int64) ([]
 	return result, nil
 }
 
+func (s *MemStore) ListAllFolders(userID, topicID int64) ([]model.Folder, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := s.userFolders[userID]
+	result := make([]model.Folder, 0, len(ids))
+	for _, id := range ids {
+		f, ok := s.folders[id]
+		if !ok || f.TopicID != topicID {
+			continue
+		}
+		result = append(result, entity.FolderFromRecord(f))
+	}
+	return result, nil
+}
+
 func (s *MemStore) GetFolder(userID, folderID int64) (model.Folder, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -486,6 +514,110 @@ func (s *MemStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
 
 // compile-time assertion
 var _ = fmt.Sprintf("%T", (*MemStore)(nil))
+
+// RenameFolder переименовывает папку (с проверкой уникальности имени среди соседей).
+func (s *MemStore) RenameFolder(userID, folderID int64, name string) (model.Folder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	f, ok := s.folders[folderID]
+	if !ok || f.UserID != userID {
+		return model.Folder{}, errors.ErrFolderNotFound
+	}
+	if name == "" {
+		return model.Folder{}, errors.ErrEmptyFolderName
+	}
+
+	for _, id := range s.userFolders[userID] {
+		other, exists := s.folders[id]
+		if !exists || id == folderID || other.TopicID != f.TopicID {
+			continue
+		}
+		if other.Name != name {
+			continue
+		}
+		if (f.ParentFolderID == nil && other.ParentFolderID == nil) ||
+			(f.ParentFolderID != nil && other.ParentFolderID != nil &&
+				*f.ParentFolderID == *other.ParentFolderID) {
+			return model.Folder{}, errors.ErrFolderAlreadyExists
+		}
+	}
+
+	f.Name = name
+	s.folders[folderID] = f
+	return entity.FolderFromRecord(f), nil
+}
+
+// DeleteFolder удаляет папку со всеми подпапками (рекурсивно) и заметками в них.
+func (s *MemStore) DeleteFolder(userID, folderID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.folders[folderID]; !ok {
+		return errors.ErrFolderNotFound
+	}
+	// Владельца проверяем в collectFolderIDsLocked (первая папка — пользовательская).
+	ids := s.collectFolderIDsLocked(userID, folderID)
+	if len(ids) == 0 {
+		return errors.ErrFolderNotFound
+	}
+
+	// Удаляем заметки всех папок (с вложениями) и сами папки.
+	for _, id := range ids {
+		for _, nid := range s.userNotes[userID] {
+			n, ok := s.notes[nid]
+			if !ok || n.FolderID == nil || *n.FolderID != id {
+				continue
+			}
+			s.deleteAttachmentsLocked(nid)
+			delete(s.notes, nid)
+		}
+		filtered := make([]int64, 0, len(s.userNotes[userID]))
+		for _, nid := range s.userNotes[userID] {
+			n, ok := s.notes[nid]
+			if !ok || n.FolderID == nil || *n.FolderID != id {
+				filtered = append(filtered, nid)
+			}
+		}
+		s.userNotes[userID] = filtered
+		delete(s.folders, id)
+	}
+	filteredFolders := make([]int64, 0, len(s.userFolders[userID]))
+	for _, id := range s.userFolders[userID] {
+		found := false
+		for _, del := range ids {
+			if id == del {
+				found = true
+				break
+			}
+		}
+		if !found {
+			filteredFolders = append(filteredFolders, id)
+		}
+	}
+	s.userFolders[userID] = filteredFolders
+	return nil
+}
+
+// collectFolderIDsLocked собирает id удаляемой папки и всех её подпапок (BFS).
+// Пустой результат — папка не принадлежит пользователю.
+func (s *MemStore) collectFolderIDsLocked(userID, folderID int64) []int64 {
+	root, ok := s.folders[folderID]
+	if !ok || root.UserID != userID {
+		return nil
+	}
+	ids := []int64{folderID}
+	for i := 0; i < len(ids); i++ {
+		for _, id := range s.userFolders[userID] {
+			f, ok := s.folders[id]
+			if !ok || f.ParentFolderID == nil || *f.ParentFolderID != ids[i] {
+				continue
+			}
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
 
 // MoveNote перемещает заметку в другой топик и/или папку.
 func (s *MemStore) MoveNote(userID, noteID int64, topicID int64, folderID *int64) error {

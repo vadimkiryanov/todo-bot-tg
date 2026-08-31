@@ -1,12 +1,14 @@
 <script lang="ts">
-  // Экран чата: табы топиков сверху, список заметок, поле ввода снизу.
+  // Экран чата: табы топиков сверху, папки под ними, список заметок, поле ввода снизу.
   // Выход из аккаунта — кнопка 🚪 в шапке; архив — кнопка 🗄 (URL /archive).
   import { goto } from '$app/navigation';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import FolderBar from '$lib/components/FolderBar.svelte';
   import InputBar from '$lib/components/InputBar.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
   import NoteOverlay from '$lib/components/NoteOverlay.svelte';
   import TopicTabs from '$lib/components/TopicTabs.svelte';
+  import { loadFolders } from '$lib/stores/folders.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { loadArchived, loadNotes, notesStore } from '$lib/stores/notes.svelte';
   import { logout, session } from '$lib/stores/session.svelte';
@@ -38,12 +40,18 @@
     }
   });
 
-  // При выборе топика — загружаем его заметки.
+  // При выборе топика — загружаем его папки (полный список для дерева).
   $effect(() => {
     const topicId = navigation.activeTopicID;
-    if (topicId !== null) {
-      void loadNotes(topicId);
-    }
+    if (topicId === null) return;
+    void loadFolders(topicId);
+  });
+
+  // При смене топика или папки — загружаем заметки уровня.
+  $effect(() => {
+    const topicId = navigation.activeTopicID;
+    if (topicId === null) return;
+    void loadNotes(topicId, navigation.activeFolderID);
   });
 </script>
 
@@ -73,6 +81,7 @@
   </header>
 
   <TopicTabs />
+  <FolderBar />
 
   <main class="flex-1 overflow-y-auto">
     {#if topicsStore.loading}
@@ -99,7 +108,8 @@
           type="button"
           class="h-11 rounded-xl border border-border px-6 text-sm"
           onclick={() => {
-            if (navigation.activeTopicID !== null) void loadNotes(navigation.activeTopicID);
+            const topicId = navigation.activeTopicID;
+            if (topicId !== null) void loadNotes(topicId, navigation.activeFolderID);
           }}
         >
           Повторить

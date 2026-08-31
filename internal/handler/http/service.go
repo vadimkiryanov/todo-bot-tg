@@ -27,6 +27,13 @@ type TodoService interface {
 	DeleteNote(userID, noteID int64) error
 
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)
+
+	ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error)
+	ListAllFolders(userID, topicID int64) ([]model.Folder, error)
+	CreateFolder(userID, topicID int64, parentFolderID *int64, name string) (model.Folder, error)
+	RenameFolder(userID, folderID int64, name string) (model.Folder, error)
+	DeleteFolder(userID, folderID int64) error
+	MoveNote(userID, noteID int64, topicID int64, folderID *int64) error
 }
 
 // todoHandler — обработчики эндпоинтов топиков и заметок (§6).

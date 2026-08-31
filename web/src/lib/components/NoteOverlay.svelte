@@ -3,6 +3,7 @@
   // ✅ — выполнить/вернуть, 🔴🟡🔵 — приоритет (тап по активному снимает),
   // ✏️ — редактирование, 🗑 — удаление с подтверждением.
   import Modal from './Modal.svelte';
+  import MoveModal from './MoveModal.svelte';
   import {
     archiveNote,
     removeNote,
@@ -27,6 +28,7 @@
   let busy = $state(false);
   let error = $state('');
   let confirmDelete = $state(false);
+  let showMove = $state(false);
 
   function startEdit(): void {
     // В редакторе показываем разметку (**жирный** и т.п.), восстановленную из entities.
@@ -276,7 +278,29 @@
             🗑
           </button>
         </div>
+
+        <button
+          type="button"
+          class="h-11 rounded-xl border border-border text-sm disabled:opacity-50"
+          disabled={busy}
+          onclick={() => {
+            showMove = true;
+            error = '';
+          }}
+        >
+          📂 Переместить
+        </button>
       </div>
     </div>
   {/if}
 </Modal>
+
+{#if showMove}
+  <MoveModal
+    {note}
+    onClose={() => {
+      showMove = false;
+      onClose();
+    }}
+  />
+{/if}

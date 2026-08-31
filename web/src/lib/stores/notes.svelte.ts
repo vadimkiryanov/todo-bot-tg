@@ -5,6 +5,7 @@ import {
   deleteNote as apiDeleteNote,
   listArchivedNotes,
   listNotes,
+  moveNote as apiMoveNote,
   updateNote as apiUpdateNote,
   type NotePatch,
 } from '../api/notes';
@@ -33,14 +34,14 @@ export const archivedStore = $state<{
 });
 
 /** Загрузка заметок топика. silent — тихая перезагрузка (например, после мутации). */
-export async function loadNotes(topicId: number, silent = false): Promise<void> {
+export async function loadNotes(topicId: number, folderId: number | null = null, silent = false): Promise<void> {
   if (!silent) {
     notesStore.loading = true;
     notesStore.notes = [];
   }
   notesStore.error = null;
   try {
-    const notes = await listNotes(topicId);
+    const notes = await listNotes(topicId, folderId);
     // Защита от гонки: применяем, только если топик не успели переключить.
     if (navigation.activeTopicID === topicId) {
       notesStore.notes = notes;
@@ -72,13 +73,27 @@ export async function loadArchived(silent = false): Promise<void> {
   }
 }
 
-/** Создание заметки в активном топике; после — серверная сортировка. */
+/** Создание заметки в активном топике/папке; после — серверная сортировка. */
 export async function createNote(text: string): Promise<void> {
   const topicId = navigation.activeTopicID;
   if (topicId === null) return;
-  const note = await apiCreateNote(topicId, text);
+  const folderId = navigation.activeFolderID;
+  const note = await apiCreateNote(topicId, text, folderId);
   notesStore.notes = [...notesStore.notes, note];
-  await loadNotes(topicId, true);
+  await loadNotes(topicId, folderId, true);
+}
+
+/** Перемещение заметки в папку (folderId null — в корень) активного топика. */
+export async function moveNote(note: Note, folderId: number | null): Promise<void> {
+  const topicId = navigation.activeTopicID;
+  if (topicId === null) return;
+  if (note.topic_id === topicId && note.folder_id === folderId) return;
+  await apiMoveNote(note.id, topicId, folderId);
+  const activeFolder = navigation.activeFolderID;
+  if (activeFolder !== folderId) {
+    // Заметка покинула текущий список (или пришла в него извне) — перезагружаем.
+    await loadNotes(topicId, activeFolder, true);
+  }
 }
 
 /** Выполнить / вернуть в работу: оптимистично, откат при ошибке. */
@@ -181,7 +196,7 @@ async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
     notesStore.notes = notesStore.notes.map((n) => (n.id === note.id ? fromApi : n));
     const topicId = navigation.activeTopicID;
     if (topicId !== null) {
-      await loadNotes(topicId, true);
+      await loadNotes(topicId, navigation.activeFolderID, true);
     }
   } catch (e) {
     notesStore.notes = previous;

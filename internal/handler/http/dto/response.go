@@ -37,4 +37,14 @@ type NoteResponse struct {
 	Pinned    bool                 `json:"pinned"`
 	Archived  bool                 `json:"archived"`
 	CreatedAt string               `json:"created_at"`
+	TopicID   int64                `json:"topic_id"`
+	FolderID  *int64               `json:"folder_id"` // nil — в корне топика
+}
+
+// FolderResponse — публичное представление папки (контракт фронта).
+type FolderResponse struct {
+	ID             int64  `json:"id"`
+	TopicID        int64  `json:"topic_id"`
+	ParentFolderID *int64 `json:"parent_folder_id"` // nil — папка в корне топика
+	Name           string `json:"name"`
 }

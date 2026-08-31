@@ -255,6 +255,14 @@
 
 ---
 
+## Этап 24: Веб — папки (2026-09-01)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(в коммите)* | **feat: папки в вебе** — полный набор: навигация через хлебные крошки под табами топиков, создание/переименование/удаление папок (каскад подпапок и заметок) и перемещение заметок между папками. **REST**: `GET/POST /api/v1/folders` (`topic_id`, `parent_id?`, `all=true` — все уровни для дерева), `PATCH/DELETE /api/v1/folders/{id}`, `POST /api/v1/notes/{id}/move` (`{topic_id, folder_id?}`; folder_id null/отсутствует — в корень топика). **Бэкенд**: `FolderRepository` расширен (`ListAllFolders`, `RenameFolder`, `DeleteFolder`), Postgres `DeleteFolder` — `WITH RECURSIVE tree` в транзакции (attachments → notes → folders) с проверкой владельца в корне; `RenameFolder` — NULL-safe проверка уникальности имени среди соседей; `MoveNote` проверяет принадлежность папки пользователю и совпадение топика; `DeleteTopic` каскадно удаляет папки в обоих хранилищах. **Фронтенд**: типы `Folder`, API-клиент `api/folders.ts`, мок (CRUD, каскады, валидация), stores `navigation.activeFolderID` (сброс при смене топика/logout) + `folders.svelte.ts` (цепочка крошек, папки уровня, CRUD, каскад по стору), `notes.svelte.ts` — `loadNotes(topicId, folderId)`, создание в активную папку, `moveNote`. UI: `FolderBar` (крошки «📂 Корень › …», чипы папок уровня, «＋» создание, долгий тап → меню переименовать/удалить), `MoveModal` (дерево папок с отступами, «В корень», текущая помечена), кнопка «📂 Переместить» в оверлее заметки. Проверки: `go test ./...` ok, `npm run check` 0 ошибок, `npm run build` успешен, `vitest` 28/28 (в т.ч. новые folders.test.ts и тесты moveNote) |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -266,7 +274,7 @@
 | **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML); userID = `users.id` через `UserResolver` |
 | **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
 | **Веб-аккаунты** | `internal/user/`, `internal/session/` | Пользователи (username + bcrypt cost 12 / telegram_id), веб-сессии: токен 32 байта base64url, SHA-256 хеш в БД (`web_sessions`), TTL 30 дней; `MemoryStore` + `PostgresStore` |
-| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes`, `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
+| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes,folders}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes`, `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект), `POST /api/v1/notes/{id}/move`; папки: `GET/POST /api/v1/folders`, `PATCH/DELETE /api/v1/folders/{id}` (`all=true` — все уровни, каскад при удалении); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
 | **REST-сервис (cmd/api)** | `cmd/api/main.go`, `config/config.go` (`LoadAPI`), `Dockerfile` (target `api`) | Отдельный бинарник `todoapi` без Telegram: ручной DI (PostgresStore/MemStore), `http.Server` + graceful shutdown; `SessionTTL` (cookie + сессия), `AppBaseURL` |
 | **Деплой** | `docker-compose.yml`, `web/Dockerfile`, `web/Caddyfile`, `.env.example`, `deploy.sh` | 4 сервиса (db/api/bot/web), healthchecks, volume `files`; Caddy: статика + прокси `/api` + авто-HTTPS Let's Encrypt по `APP_BASE_URL` |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test`, `topics_test`, `notes_test`, `dto/converter_test` |

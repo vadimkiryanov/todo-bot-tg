@@ -11,7 +11,7 @@ import (
 	"todo-bot-tg/internal/model"
 )
 
-// listNotes обрабатывает GET /api/v1/notes?topic_id=N → [Note].
+// listNotes обрабатывает GET /api/v1/notes?topic_id=N&folder_id=X → [Note].
 // topic_id опционален: без него возвращаются заметки без топика.
 // archived=true → архивные заметки пользователя (без фильтра по топику).
 func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +31,16 @@ func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 			}
 			topicID = id
 		}
-		notes, err = h.svc.ListNotes(userID, topicID, nil)
+		var folderID *int64
+		if q := r.URL.Query().Get("folder_id"); q != "" {
+			id, parseErr := strconv.ParseInt(q, 10, 64)
+			if parseErr != nil || id <= 0 {
+				httperr.Write(w, errs.ErrInvalidJSON)
+				return
+			}
+			folderID = &id
+		}
+		notes, err = h.svc.ListNotes(userID, topicID, folderID)
 	}
 	if err != nil {
 		httperr.Write(w, err)
@@ -45,7 +54,7 @@ func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// createNote обрабатывает POST /api/v1/notes {topic_id, text} → 201 Note.
+// createNote обрабатывает POST /api/v1/notes {topic_id, folder_id?, text} → 201 Note.
 // Разметка **bold**/*italic*/`code`/[text](url) конвертируется в entities.
 func (h *todoHandler) createNote(w http.ResponseWriter, r *http.Request) {
 	var input dto.NoteCreateRequest
@@ -59,12 +68,45 @@ func (h *todoHandler) createNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	text, entities := parseMarkdownEntities(input.Text)
-	n, err := h.svc.AddNote(middleware.UserID(r.Context()), input.TopicID, nil, text, entities, model.PriorityNone)
+	n, err := h.svc.AddNote(middleware.UserID(r.Context()), input.TopicID, input.FolderID, text, entities, model.PriorityNone)
 	if err != nil {
 		httperr.Write(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, dto.ToNoteResponse(n))
+}
+
+// moveNote обрабатывает POST /api/v1/notes/{id}/move {topic_id, folder_id?} → 200 Note.
+// folder_id null/отсутствует — заметка перемещается в корень топика.
+func (h *todoHandler) moveNote(w http.ResponseWriter, r *http.Request) {
+	noteID, err := pathID(r)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+
+	var input dto.NoteMoveRequest
+	if err := decodeJSON(r, &input); err != nil {
+		httperr.Write(w, errs.ErrInvalidJSON)
+		return
+	}
+	if input.TopicID <= 0 {
+		httperr.Write(w, errs.ErrInvalidJSON)
+		return
+	}
+
+	userID := middleware.UserID(r.Context())
+	if err := h.svc.MoveNote(userID, noteID, input.TopicID, input.FolderID); err != nil {
+		httperr.Write(w, err)
+		return
+	}
+
+	n, err := h.svc.GetNote(userID, noteID)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto.ToNoteResponse(n))
 }
 
 // patchNote обрабатывает PATCH /api/v1/notes/{id} {text?, done?, priority?, pinned?, archived?} → 200 Note.

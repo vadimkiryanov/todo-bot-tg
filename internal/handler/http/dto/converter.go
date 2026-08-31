@@ -46,6 +46,18 @@ func ToNoteResponse(n model.Note) NoteResponse {
 		Pinned:    n.IsPinned(),
 		Archived:  n.Archived,
 		CreatedAt: n.CreatedAt.Format(time.RFC3339),
+		TopicID:   n.TopicID,
+		FolderID:  n.FolderID,
+	}
+}
+
+// ToFolderResponse конвертирует папку в DTO.
+func ToFolderResponse(f model.Folder) FolderResponse {
+	return FolderResponse{
+		ID:             f.ID,
+		TopicID:        f.TopicID,
+		ParentFolderID: f.ParentFolderID,
+		Name:           f.Name,
 	}
 }
 

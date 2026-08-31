@@ -256,6 +256,13 @@ func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 		return fmt.Errorf("удаление заметок топика: %w", err)
 	}
 
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM folders WHERE user_id = @user AND topic_id = @topic`,
+		pgx.NamedArgs{"user": userID, "topic": topicID},
+	); err != nil {
+		return fmt.Errorf("удаление папок топика: %w", err)
+	}
+
 	res, err := tx.Exec(ctx,
 		`DELETE FROM topics WHERE id = @id AND user_id = @user`,
 		pgx.NamedArgs{"id": topicID, "user": userID},
@@ -635,6 +642,26 @@ func (s *PostgresStore) ListFolders(userID, topicID int64, parentFolderID *int64
 	return result, nil
 }
 
+func (s *PostgresStore) ListAllFolders(userID, topicID int64) ([]model.Folder, error) {
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT id, user_id, topic_id, parent_folder_id, name FROM folders
+		 WHERE user_id = @user AND topic_id = @topic ORDER BY id`,
+		pgx.NamedArgs{"user": userID, "topic": topicID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("список папок: %w", err)
+	}
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.FolderRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение папок: %w", err)
+	}
+	result := make([]model.Folder, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.FolderFromRecord(r))
+	}
+	return result, nil
+}
+
 func (s *PostgresStore) GetFolder(userID, folderID int64) (model.Folder, error) {
 	rows, err := s.pool.Query(context.Background(),
 		`SELECT id, user_id, topic_id, parent_folder_id, name FROM folders WHERE id = @id AND user_id = @user`,
@@ -699,6 +726,115 @@ func (s *PostgresStore) GetFolderChain(folderID int64) ([]model.Folder, error) {
 		currentID = rec.ParentFolderID
 	}
 	return chain, nil
+}
+
+// RenameFolder переименовывает папку (с проверкой уникальности имени среди соседей).
+func (s *PostgresStore) RenameFolder(userID, folderID int64, name string) (model.Folder, error) {
+	ctx := context.Background()
+
+	// Проверяем, что папка существует и принадлежит пользователю.
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, topic_id, parent_folder_id, name FROM folders WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{"id": folderID, "user": userID},
+	)
+	if err != nil {
+		return model.Folder{}, fmt.Errorf("поиск папки: %w", err)
+	}
+	rec, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entity.FolderRecord])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Folder{}, errs.ErrFolderNotFound
+	}
+	if err != nil {
+		return model.Folder{}, fmt.Errorf("поиск папки: %w", err)
+	}
+
+	var exists int
+	_ = s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM folders
+		 WHERE user_id = @user AND topic_id = @topic AND name = @name AND id <> @id
+		 AND parent_folder_id IS NOT DISTINCT FROM @parent`,
+		pgx.NamedArgs{
+			"user":   userID,
+			"topic":  rec.TopicID,
+			"name":   name,
+			"parent": rec.ParentFolderID,
+			"id":     folderID,
+		},
+	).Scan(&exists)
+	if exists > 0 {
+		return model.Folder{}, errs.ErrFolderAlreadyExists
+	}
+
+	rec.Name = name
+	_, err = s.pool.Exec(ctx,
+		`UPDATE folders SET name = @name WHERE id = @id AND user_id = @user`,
+		pgx.NamedArgs{"name": name, "id": folderID, "user": userID},
+	)
+	if err != nil {
+		return model.Folder{}, fmt.Errorf("переименование папки: %w", err)
+	}
+	return entity.FolderFromRecord(rec), nil
+}
+
+// DeleteFolder удаляет папку со всеми подпапками (рекурсивно) и заметками в них.
+func (s *PostgresStore) DeleteFolder(userID, folderID int64) error {
+	ctx := context.Background()
+
+	// Рекурсивный CTE собирает папку и всех потомков (с проверкой владельца в корне).
+	rows, err := s.pool.Query(ctx,
+		`WITH RECURSIVE tree AS (
+			SELECT id FROM folders WHERE id = @root AND user_id = @user
+			UNION ALL
+			SELECT f.id FROM folders f
+			JOIN tree t ON f.parent_folder_id = t.id
+			WHERE f.user_id = @user
+		 )
+		 SELECT id FROM tree`,
+		pgx.NamedArgs{"root": folderID, "user": userID},
+	)
+	if err != nil {
+		return fmt.Errorf("поиск папки: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (int64, error) {
+		var id int64
+		if err := row.Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	})
+	if err != nil {
+		return fmt.Errorf("чтение папок: %w", err)
+	}
+	if len(ids) == 0 {
+		return errs.ErrFolderNotFound
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("начало транзакции: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM attachments WHERE user_id = @user AND note_id IN
+		 (SELECT id FROM notes WHERE user_id = @user AND folder_id = ANY(@folder_ids))`,
+		pgx.NamedArgs{"user": userID, "folder_ids": ids},
+	); err != nil {
+		return fmt.Errorf("удаление вложений: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM notes WHERE user_id = @user AND folder_id = ANY(@folder_ids)`,
+		pgx.NamedArgs{"user": userID, "folder_ids": ids},
+	); err != nil {
+		return fmt.Errorf("удаление заметок: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM folders WHERE id = ANY(@folder_ids) AND user_id = @user`,
+		pgx.NamedArgs{"user": userID, "folder_ids": ids},
+	); err != nil {
+		return fmt.Errorf("удаление папок: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 // --- Attachments ---

@@ -32,6 +32,15 @@ export interface Note {
   pinned: boolean;
   archived: boolean;
   created_at: string; // ISO 8601
+  topic_id: number;
+  folder_id: number | null; // null — в корне топика
+}
+
+export interface Folder {
+  id: number;
+  topic_id: number;
+  parent_folder_id: number | null; // null — папка в корне топика
+  name: string;
 }
 
 /** Тело ответа auth-эндпоинтов: `{ user: ... }` */

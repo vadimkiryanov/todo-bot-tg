@@ -43,9 +43,12 @@ type TopicRepository interface {
 type FolderRepository interface {
 	CreateFolder(folder model.Folder) (model.Folder, error)
 	ListFolders(userID, topicID int64, parentFolderID *int64) ([]model.Folder, error)
+	ListAllFolders(userID, topicID int64) ([]model.Folder, error) // все уровни вложенности
 	GetFolder(userID, folderID int64) (model.Folder, error)
 	GetFolderChain(folderID int64) ([]model.Folder, error) // путь от корня до папки
 	CountFolders(userID, topicID int64, parentFolderID *int64) (int, error)
+	RenameFolder(userID, folderID int64, name string) (model.Folder, error)
+	DeleteFolder(userID, folderID int64) error // каскад: подпапки и заметки
 }
 
 // AttachmentRepository — интерфейс хранилища вложений (определён потребителем — сервисом).
@@ -589,6 +592,11 @@ func (s *Service) ListFolders(userID, topicID int64, parentFolderID *int64) ([]m
 	return s.folderRepo.ListFolders(userID, topicID, parentFolderID)
 }
 
+// ListAllFolders возвращает все папки топика (все уровни вложенности).
+func (s *Service) ListAllFolders(userID, topicID int64) ([]model.Folder, error) {
+	return s.folderRepo.ListAllFolders(userID, topicID)
+}
+
 // GetFolder возвращает папку по ID.
 func (s *Service) GetFolder(userID, folderID int64) (model.Folder, error) {
 	return s.folderRepo.GetFolder(userID, folderID)
@@ -604,10 +612,42 @@ func (s *Service) CountFolders(userID, topicID int64, parentFolderID *int64) (in
 	return s.folderRepo.CountFolders(userID, topicID, parentFolderID)
 }
 
+// RenameFolder переименовывает папку.
+func (s *Service) RenameFolder(userID, folderID int64, name string) (model.Folder, error) {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	if name == "" {
+		return model.Folder{}, errs.ErrEmptyFolderName
+	}
+	return s.folderRepo.RenameFolder(userID, folderID, name)
+}
+
+// DeleteFolder удаляет папку со всеми подпапками и заметками в них.
+func (s *Service) DeleteFolder(userID, folderID int64) error {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	return s.folderRepo.DeleteFolder(userID, folderID)
+}
+
 // MoveNote перемещает заметку в другой топик и/или папку.
 func (s *Service) MoveNote(userID, noteID int64, topicID int64, folderID *int64) error {
 	unlock := s.locks.Lock(userID)
 	defer unlock()
+
+	// Дыра: без проверки folderID может указывать на папку другого топика
+	// или другого пользователя. Закрываем — папка должна существовать,
+	// принадлежать пользователю и относиться к целевому топику.
+	if folderID != nil {
+		folder, err := s.folderRepo.GetFolder(userID, *folderID)
+		if err != nil {
+			return err
+		}
+		if folder.TopicID != topicID {
+			return errs.ErrFolderNotFound
+		}
+	}
 	return s.noteRepo.MoveNote(userID, noteID, topicID, folderID)
 }
 

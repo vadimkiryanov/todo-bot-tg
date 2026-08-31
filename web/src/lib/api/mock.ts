@@ -4,12 +4,13 @@
 // Данные живут в localStorage браузера; в node (тесты) — в MemoryStorage.
 
 import { ApiError } from './error';
-import type { Note, NoteEntity, Priority, Topic, User } from '../types/api';
+import type { Folder, Note, NoteEntity, Priority, Topic, User } from '../types/api';
 import { parseMarkdown } from '../utils/format';
 
 const AUTH = '/api/v1/auth';
 const TOPICS = '/api/v1/topics';
 const NOTES = '/api/v1/notes';
+const FOLDERS = '/api/v1/folders';
 
 // ---------------------------------------------------------------------------
 // Хранилище (localStorage в браузере, MemoryStorage в тестах)
@@ -68,6 +69,7 @@ interface TopicRecord {
 interface NoteRecord {
   id: number;
   topic_id: number;
+  folder_id: number | null;
   text: string;
   entities: NoteEntity[];
   priority: Priority;
@@ -77,12 +79,21 @@ interface NoteRecord {
   created_at: string;
 }
 
+interface FolderRecord {
+  id: number;
+  topic_id: number;
+  parent_folder_id: number | null;
+  name: string;
+}
+
 const K_USERS = 'todo.mock.users';
 const K_SESSION = 'todo.mock.session';
 const K_TOPICS = (userId: number) => `todo.mock.topics.${userId}`;
 const K_NOTES = (userId: number) => `todo.mock.notes.${userId}`;
+const K_FOLDERS = (userId: number) => `todo.mock.folders.${userId}`;
 const K_TOPIC_SEQ = (userId: number) => `todo.mock.seq.topics.${userId}`;
 const K_NOTE_SEQ = (userId: number) => `todo.mock.seq.notes.${userId}`;
+const K_FOLDER_SEQ = (userId: number) => `todo.mock.seq.folders.${userId}`;
 
 // ---------------------------------------------------------------------------
 // Вспомогательное
@@ -149,6 +160,10 @@ function notesOf(userId: number): NoteRecord[] {
   return readJSON<NoteRecord[]>(K_NOTES(userId), []);
 }
 
+function foldersOf(userId: number): FolderRecord[] {
+  return readJSON<FolderRecord[]>(K_FOLDERS(userId), []);
+}
+
 function seq(key: string): number {
   const value = readJSON<number>(key, 0);
   writeJSON(key, value + 1);
@@ -173,6 +188,17 @@ function toNote(rec: NoteRecord): Note {
     pinned: rec.pinned,
     archived: rec.archived,
     created_at: rec.created_at,
+    topic_id: rec.topic_id,
+    folder_id: rec.folder_id,
+  };
+}
+
+function toFolder(rec: FolderRecord): Folder {
+  return {
+    id: rec.id,
+    topic_id: rec.topic_id,
+    parent_folder_id: rec.parent_folder_id,
+    name: rec.name,
   };
 }
 
@@ -266,7 +292,9 @@ export async function mockRequest<T>(
     if (!Number.isInteger(topicId)) {
       throw new ApiError(400, 'topic_id обязателен');
     }
-    return mockListNotes(topicId) as T;
+    const folderIdRaw = search.get('folder_id');
+    const folderId = folderIdRaw !== null ? Number(folderIdRaw) : null;
+    return mockListNotes(topicId, Number.isInteger(folderId) ? folderId : null) as T;
   }
   if (base === NOTES && method === 'POST') {
     return mockCreateNote(body) as T;
@@ -277,6 +305,35 @@ export async function mockRequest<T>(
   }
   if (noteMatch && method === 'DELETE') {
     mockDeleteNote(Number(noteMatch[1]));
+    return undefined as T;
+  }
+  const noteMoveMatch = /^\/api\/v1\/notes\/(\d+)\/move$/.exec(base);
+  if (noteMoveMatch && method === 'POST') {
+    return mockMoveNote(Number(noteMoveMatch[1]), body) as T;
+  }
+
+  // --- folders ---
+  if (base === FOLDERS && method === 'GET') {
+    const topicId = Number(search.get('topic_id'));
+    if (!Number.isInteger(topicId)) {
+      throw new ApiError(400, 'topic_id обязателен');
+    }
+    if (search.get('all') === 'true') {
+      return mockListAllFolders(topicId) as T;
+    }
+    const parentRaw = search.get('parent_id');
+    const parentId = parentRaw !== null ? Number(parentRaw) : null;
+    return mockListFolders(topicId, Number.isInteger(parentId) ? parentId : null) as T;
+  }
+  if (base === FOLDERS && method === 'POST') {
+    return mockCreateFolder(body) as T;
+  }
+  const folderMatch = /^\/api\/v1\/folders\/(\d+)$/.exec(base);
+  if (folderMatch && method === 'PATCH') {
+    return mockRenameFolder(Number(folderMatch[1]), body) as T;
+  }
+  if (folderMatch && method === 'DELETE') {
+    mockDeleteFolder(Number(folderMatch[1]));
     return undefined as T;
   }
 
@@ -376,16 +433,24 @@ function mockDeleteTopic(topicId: number): void {
     K_NOTES(user.id),
     notesOf(user.id).filter((n) => n.topic_id !== topicId),
   );
+  // Каскад: папки топика удаляются вместе с ним.
+  writeJSON(
+    K_FOLDERS(user.id),
+    foldersOf(user.id).filter((f) => f.topic_id !== topicId),
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Notes
 
-function mockListNotes(topicId: number): Note[] {
+function mockListNotes(topicId: number, folderId: number | null): Note[] {
   const user = requireUser();
   const notes = notesOf(user.id).filter(
     (n) => n.topic_id === topicId && !n.archived,
   );
+  if (folderId !== null) {
+    return sortNotes(notes.filter((n) => n.folder_id === folderId)).map(toNote);
+  }
   return sortNotes(notes).map(toNote);
 }
 
@@ -397,7 +462,7 @@ function mockListArchived(): Note[] {
 
 function mockCreateNote(body: unknown): Note {
   const user = requireUser();
-  const { topic_id, text } = asObject(body);
+  const { topic_id, folder_id, text } = asObject(body);
   if (typeof topic_id !== 'number' || !Number.isInteger(topic_id)) {
     throw new ApiError(400, 'topic_id обязателен');
   }
@@ -407,10 +472,19 @@ function mockCreateNote(body: unknown): Note {
   if (!topicsOf(user.id).some((t) => t.id === topic_id)) {
     throw new ApiError(404, 'топик не найден');
   }
+  if (folder_id !== undefined && folder_id !== null) {
+    if (typeof folder_id !== 'number' || !Number.isInteger(folder_id)) {
+      throw new ApiError(400, 'folder_id некорректен');
+    }
+    if (!foldersOf(user.id).some((f) => f.id === folder_id && f.topic_id === topic_id)) {
+      throw new ApiError(404, 'папка не найдена');
+    }
+  }
   const parsed = parseMarkdown(text.trim());
   const note: NoteRecord = {
     id: seq(K_NOTE_SEQ(user.id)),
     topic_id,
+    folder_id: folder_id === undefined || folder_id === null ? null : (folder_id as number),
     text: parsed.text,
     entities: parsed.entities,
     priority: 'none',
@@ -421,6 +495,35 @@ function mockCreateNote(body: unknown): Note {
   };
   const all = notesOf(user.id);
   all.push(note);
+  writeJSON(K_NOTES(user.id), all);
+  return toNote(note);
+}
+
+function mockMoveNote(noteId: number, body: unknown): Note {
+  const user = requireUser();
+  const { topic_id, folder_id } = asObject(body);
+  if (typeof topic_id !== 'number' || !Number.isInteger(topic_id)) {
+    throw new ApiError(400, 'topic_id обязателен');
+  }
+  if (!topicsOf(user.id).some((t) => t.id === topic_id)) {
+    throw new ApiError(404, 'топик не найден');
+  }
+  if (folder_id !== null && folder_id !== undefined) {
+    if (typeof folder_id !== 'number' || !Number.isInteger(folder_id)) {
+      throw new ApiError(400, 'folder_id некорректен');
+    }
+    const folder = foldersOf(user.id).find((f) => f.id === folder_id);
+    if (folder === undefined || folder.topic_id !== topic_id) {
+      throw new ApiError(404, 'папка не найдена');
+    }
+  }
+  const all = notesOf(user.id);
+  const note = all.find((n) => n.id === noteId);
+  if (note === undefined) {
+    throw new ApiError(404, 'заметка не найдена');
+  }
+  note.topic_id = topic_id;
+  note.folder_id = folder_id === null || folder_id === undefined ? null : (folder_id as number);
   writeJSON(K_NOTES(user.id), all);
   return toNote(note);
 }
@@ -477,6 +580,128 @@ function mockDeleteNote(noteId: number): void {
     throw new ApiError(404, 'заметка не найдена');
   }
   writeJSON(K_NOTES(user.id), filtered);
+}
+
+// ---------------------------------------------------------------------------
+// Folders
+
+function mockListFolders(topicId: number, parentId: number | null): Folder[] {
+  const user = requireUser();
+  return foldersOf(user.id)
+    .filter((f) => f.topic_id === topicId && f.parent_folder_id === parentId)
+    .map(toFolder);
+}
+
+function mockListAllFolders(topicId: number): Folder[] {
+  const user = requireUser();
+  return foldersOf(user.id)
+    .filter((f) => f.topic_id === topicId)
+    .map(toFolder);
+}
+
+function mockCreateFolder(body: unknown): Folder {
+  const user = requireUser();
+  const { topic_id, parent_folder_id, name } = asObject(body);
+  if (typeof topic_id !== 'number' || !Number.isInteger(topic_id)) {
+    throw new ApiError(400, 'topic_id обязателен');
+  }
+  if (typeof name !== 'string' || name.trim() === '') {
+    throw new ApiError(400, 'название обязательно');
+  }
+  if (!topicsOf(user.id).some((t) => t.id === topic_id)) {
+    throw new ApiError(404, 'топик не найден');
+  }
+  const parentId = parent_folder_id === undefined ? null : parent_folder_id;
+  if (parentId !== null) {
+    if (typeof parentId !== 'number' || !Number.isInteger(parentId)) {
+      throw new ApiError(400, 'parent_folder_id некорректен');
+    }
+    const parent = foldersOf(user.id).find((f) => f.id === parentId);
+    if (parent === undefined || parent.topic_id !== topic_id) {
+      throw new ApiError(404, 'родительская папка не найдена');
+    }
+  }
+  const trimmed = name.trim();
+  const all = foldersOf(user.id);
+  if (
+    all.some(
+      (f) =>
+        f.topic_id === topic_id &&
+        f.parent_folder_id === parentId &&
+        f.name === trimmed,
+    )
+  ) {
+    throw new ApiError(409, 'папка с таким названием уже существует');
+  }
+  const folder: FolderRecord = {
+    id: seq(K_FOLDER_SEQ(user.id)),
+    topic_id,
+    parent_folder_id: parentId as number | null,
+    name: trimmed,
+  };
+  all.push(folder);
+  writeJSON(K_FOLDERS(user.id), all);
+  return toFolder(folder);
+}
+
+function mockRenameFolder(folderId: number, body: unknown): Folder {
+  const user = requireUser();
+  const { name } = asObject(body);
+  if (typeof name !== 'string' || name.trim() === '') {
+    throw new ApiError(400, 'название обязательно');
+  }
+  const trimmed = name.trim();
+  const all = foldersOf(user.id);
+  const folder = all.find((f) => f.id === folderId);
+  if (folder === undefined) {
+    throw new ApiError(404, 'папка не найдена');
+  }
+  if (
+    all.some(
+      (f) =>
+        f.id !== folderId &&
+        f.topic_id === folder.topic_id &&
+        f.parent_folder_id === folder.parent_folder_id &&
+        f.name === trimmed,
+    )
+  ) {
+    throw new ApiError(409, 'папка с таким названием уже существует');
+  }
+  folder.name = trimmed;
+  writeJSON(K_FOLDERS(user.id), all);
+  return toFolder(folder);
+}
+
+/** Удаление папки: каскад на подпапки и заметки внутри них. */
+function mockDeleteFolder(folderId: number): void {
+  const user = requireUser();
+  const all = foldersOf(user.id);
+  const folder = all.find((f) => f.id === folderId);
+  if (folder === undefined) {
+    throw new ApiError(404, 'папка не найдена');
+  }
+
+  // BFS по подпапкам (безопасно в обе стороны: подпапки ссылаются на родителя).
+  const deleted = new Set<number>([folderId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of all) {
+      if (!deleted.has(f.id) && f.parent_folder_id !== null && deleted.has(f.parent_folder_id)) {
+        deleted.add(f.id);
+        changed = true;
+      }
+    }
+  }
+
+  writeJSON(
+    K_FOLDERS(user.id),
+    all.filter((f) => !deleted.has(f.id)),
+  );
+  writeJSON(
+    K_NOTES(user.id),
+    notesOf(user.id).filter((n) => n.folder_id === null || !deleted.has(n.folder_id)),
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 // logout()/401 → /login, вход → /; переходы на защищённые URL выполняют
 // guard'ы в load-функциях маршрутов. Здесь роутер не используется.
 import { login as apiLogin, logout as apiLogout, me, register as apiRegister } from '../api/auth';
+import { resetFolders } from './folders.svelte';
 import { resetActiveTopic } from './navigation.svelte';
 import { resetNotes } from './notes.svelte';
 import { resetTopics } from './topics.svelte';
@@ -70,5 +71,6 @@ function applyGuest(): void {
   // данные и активный топик, чтобы они не протекли между пользователями.
   resetActiveTopic();
   resetTopics();
+  resetFolders();
   resetNotes();
 }
