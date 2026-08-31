@@ -35,6 +35,10 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
         navigateFallback: '/index.html',
+        // Навигацию на /api/* (например /auth/tg) НЕ отдавать index.html из кэша —
+        // иначе SW перехватывает вход через Telegram до отправки на сервер,
+        // и session-cookie не ставится. Такие запросы должны идти в сеть.
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             // Чтение через API: stale-while-revalidate, кэш только GET-запросов
