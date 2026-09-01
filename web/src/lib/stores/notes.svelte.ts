@@ -75,12 +75,21 @@ export async function loadArchived(silent = false): Promise<void> {
   }
 }
 
+/** Опции создания заметки из панели ввода (приоритет, закрепление, напоминание). */
+export interface CreateNoteOptions {
+  done?: boolean;
+  pinned?: boolean;
+  priority?: Priority;
+  reminder_at?: string; // ISO 8601 (UTC)
+  reminder_repeat?: ReminderRepeat;
+}
+
 /** Создание заметки в активном топике/папке; после — серверная сортировка. */
-export async function createNote(text: string): Promise<void> {
+export async function createNote(text: string, opts: CreateNoteOptions = {}): Promise<void> {
   const topicId = navigation.activeTopicID;
   if (topicId === null) return;
   const folderId = navigation.activeFolderID;
-  const note = await apiCreateNote(topicId, text, folderId);
+  const note = await apiCreateNote(topicId, text, folderId, opts);
   notesStore.notes = [...notesStore.notes, note];
   await loadNotes(topicId, folderId, true);
 }

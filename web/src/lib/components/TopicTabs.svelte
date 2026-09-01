@@ -14,7 +14,14 @@
   // (autofocus-атрибут в Safari/повторном открытии не срабатывает).
   let createInput = $state<HTMLInputElement | undefined>();
   $effect(() => {
-    if (showCreate) createInput?.focus();
+    if (!showCreate) return;
+    createInput?.focus();
+    // Мобильная клавиатура открывается с задержкой и сжимает вьюпорт —
+    // инпут может оказаться под ней; скроллим его в центр уже после.
+    const timer = setTimeout(() => {
+      createInput?.scrollIntoView({ block: 'center' });
+    }, 350);
+    return () => clearTimeout(timer);
   });
 
   let menuTopic: Topic | null = $state(null);
@@ -115,40 +122,43 @@
   }
 </script>
 
-<div
-  class="touch-strip no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-surface px-3 py-2"
->
-  {#each topicsStore.topics as topic (topic.id)}
+<div class="shrink-0 border-b border-border bg-surface px-3 py-2">
+  <div class="flex flex-col gap-2">
+    <!-- «＋» фиксирован сверху (не скроллится вместе с сеткой), во всю ширину -->
     <button
       type="button"
-      class="flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm transition-[background-color,transform] active:scale-[0.97] {topic.id === navigation.activeTopicID
-        ? 'bg-accent-strong text-white'
-        : 'bg-background text-content'}"
-      class:active={topic.id === navigation.activeTopicID}
-      onpointerdown={() => handlePointerDown(topic.id)}
-      onpointerup={cancelLongPress}
-      onpointercancel={cancelLongPress}
-      onpointerleave={cancelLongPress}
-      onclick={() => onTap(topic.id)}
+      aria-label="Создать топик"
+      class="flex h-10 w-full shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-[0.98] active:bg-border"
+      onclick={() => {
+        createError = '';
+        createName = '';
+        showCreate = true;
+      }}
     >
-      <span class="max-w-40 truncate">{topic.name}</span>
-      {#if topic.note_count > 0}
-        <span class="text-xs opacity-60">{topic.note_count}</span>
-      {/if}
+      ＋
     </button>
-  {/each}
-  <button
-    type="button"
-    aria-label="Создать топик"
-    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
-    onclick={() => {
-      createError = '';
-      createName = '';
-      showCreate = true;
-    }}
-  >
-    ＋
-  </button>
+    <div class="topic-grid no-scrollbar grid max-h-44 grid-cols-2 gap-2 overflow-y-auto">
+      {#each topicsStore.topics as topic (topic.id)}
+        <button
+          type="button"
+          class="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] {topic.id === navigation.activeTopicID
+            ? 'bg-accent-strong text-white'
+            : 'bg-background text-content'}"
+          class:active={topic.id === navigation.activeTopicID}
+          onpointerdown={() => handlePointerDown(topic.id)}
+          onpointerup={cancelLongPress}
+          onpointercancel={cancelLongPress}
+          onpointerleave={cancelLongPress}
+          onclick={() => onTap(topic.id)}
+        >
+          <span class="truncate">{topic.name}</span>
+          {#if topic.note_count > 0}
+            <span class="shrink-0 text-xs opacity-60">{topic.note_count}</span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+  </div>
 </div>
 
 {#if showCreate}
@@ -287,13 +297,13 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
-  /* Мобильный скролл табов: touch-action сразу резервирует жест за
-     горизонтальным паном, user-select + touch-callout отключают выделение
-     текста и iOS-лупу (WebKit игнорирует user-select на родителе для
-     текста внутри <button>, поэтому задаём и кнопкам). */
-  .touch-strip,
-  .touch-strip button {
-    touch-action: pan-x;
+  /* Сетка топиков (2 колонки, до 4 рядов видимо, дальше вертикальный
+     скролл внутри секции): долгий тап по топику открывает меню —
+     выделение текста не нужно (WebKit игнорирует user-select на родителе
+     для текста внутри <button>, поэтому задаём и кнопкам). touch-action
+     не ограничиваем — вертикальный свайп скроллит секцию. */
+  .topic-grid,
+  .topic-grid button {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;

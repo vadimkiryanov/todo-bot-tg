@@ -473,7 +473,8 @@ function mockListArchived(): Note[] {
 
 function mockCreateNote(body: unknown): Note {
   const user = requireUser();
-  const { topic_id, folder_id, text } = asObject(body);
+  const { topic_id, folder_id, text, done, pinned, priority, reminder_at, reminder_repeat } =
+    asObject(body);
   if (typeof topic_id !== 'number' || !Number.isInteger(topic_id)) {
     throw new ApiError(400, 'topic_id обязателен');
   }
@@ -492,19 +493,41 @@ function mockCreateNote(body: unknown): Note {
     }
   }
   const parsed = parseMarkdown(text.trim());
+
+  let reminderAt: string | null = null;
+  let reminderRepeat: ReminderRepeat = 'once';
+  if (typeof reminder_at === 'string') {
+    const at = new Date(reminder_at);
+    if (Number.isNaN(at.getTime())) {
+      throw new ApiError(400, 'reminder_at некорректен');
+    }
+    const repeat = reminder_repeat === 'daily' ? 'daily' : 'once';
+    // Одноразовое напоминание не может быть в прошлом (как на сервере).
+    if (repeat === 'once' && at.getTime() <= Date.now()) {
+      throw new ApiError(400, 'время напоминания уже прошло');
+    }
+    reminderAt = at.toISOString();
+    reminderRepeat = repeat;
+  }
+
+  const isDone = done === true;
+  const isPinned = pinned === true;
+  const notePriority: Priority =
+    priority === 'low' || priority === 'medium' || priority === 'high' ? priority : 'none';
   const note: NoteRecord = {
     id: seq(K_NOTE_SEQ(user.id)),
     topic_id,
     folder_id: folder_id === undefined || folder_id === null ? null : (folder_id as number),
     text: parsed.text,
     entities: parsed.entities,
-    priority: 'none',
-    done: false,
-    pinned: false,
+    priority: notePriority,
+    done: isDone,
+    pinned: isPinned,
     archived: false,
     created_at: new Date().toISOString(),
-    reminder_at: null,
-    reminder_repeat: 'once',
+    // Выполненная заметка не напоминает (правило toggleDone).
+    reminder_at: isDone ? null : reminderAt,
+    reminder_repeat: isDone ? 'once' : reminderRepeat,
   };
   const all = notesOf(user.id);
   all.push(note);

@@ -2,8 +2,7 @@
   // Компактная строка контекста: «📚 Топик › 📁 Папка › Подпапка».
   // Тап — шторка снизу с полными списками (TopicTabs + FolderBar).
   // Шторка не закрывается автоматически при выборе — только вручную
-  // (тап вне / Escape). Проп hidden (от ChatView) скрывает строку
-  // при прокрутке заметок вниз.
+  // (тап вне / Escape). Строка всегда видна (не скрывается при скролле).
   import Modal from './Modal.svelte';
   import TopicTabs from './TopicTabs.svelte';
   import FolderBar from './FolderBar.svelte';
@@ -12,10 +11,8 @@
   import { topicsStore } from '../stores/topics.svelte';
 
   let {
-    hidden = false,
     open = $bindable(false),
   }: {
-    hidden?: boolean;
     open?: boolean;
   } = $props();
 
@@ -33,11 +30,7 @@
   }
 </script>
 
-<div
-  class="overflow-hidden rounded-b-2xl bg-surface pt-[env(safe-area-inset-top)] transition-[max-height] duration-300 {hidden
-    ? 'max-h-0'
-    : 'max-h-28'}"
->
+<div class="overflow-hidden rounded-b-2xl bg-surface pt-[env(safe-area-inset-top)]">
   <button
     type="button"
     aria-haspopup="dialog"

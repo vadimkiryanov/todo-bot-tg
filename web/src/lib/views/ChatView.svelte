@@ -1,7 +1,7 @@
 <script lang="ts">
   // Экран чата: строка контекста (топик/папка), список заметок, поле ввода снизу.
   // Архив и выход — в бургер-меню нижней панели (InputBar); топики и папки —
-  // в шторке строки контекста (ContextStrip), которая скрывается при скролле вниз.
+  // в шторке строки контекста (ContextStrip, всегда видна).
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ContextStrip from '$lib/components/ContextStrip.svelte';
   import InputBar from '$lib/components/InputBar.svelte';
@@ -40,24 +40,6 @@
     menuRect = null;
   }
 
-  // Авто-скрытие строки контекста: скролл вниз — прячем, вверх — показываем.
-  // В нулевой позиции строка всегда видна.
-  let stripHidden = $state(false);
-  let lastScrollTop = 0;
-
-  function onNotesScroll(event: Event): void {
-    const el = event.currentTarget as HTMLElement;
-    const delta = el.scrollTop - lastScrollTop;
-    lastScrollTop = el.scrollTop;
-    if (el.scrollTop <= 0) {
-      stripHidden = false;
-    } else if (delta > 6) {
-      stripHidden = true;
-    } else if (delta < -6) {
-      stripHidden = false;
-    }
-  }
-
   // Шторка контекста (топики/папки); открывается тапом по строке или
   // кнопкой «Создать топик» на пустом экране.
   let contextOpen = $state(false);
@@ -85,9 +67,9 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <ContextStrip bind:open={contextOpen} hidden={stripHidden} />
+  <ContextStrip bind:open={contextOpen} />
 
-  <main class="flex-1 overflow-y-auto" onscroll={onNotesScroll}>
+  <main class="scroll-area flex-1 overflow-y-auto">
     {#if topicsStore.loading}
       <EmptyState emoji="⏳" />
     {:else if topicsStore.error}
@@ -142,7 +124,7 @@
   </main>
 
   <footer class="shrink-0 rounded-t-2xl bg-surface pb-[env(safe-area-inset-bottom)]">
-    <InputBar />
+    <InputBar onOpenTopics={() => (contextOpen = true)} />
   </footer>
 </div>
 

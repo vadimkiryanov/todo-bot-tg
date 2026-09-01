@@ -10,6 +10,7 @@ import (
 	"todo-bot-tg/internal/httperr"
 	"todo-bot-tg/internal/middleware"
 	"todo-bot-tg/internal/model"
+	"todo-bot-tg/internal/service/todo"
 )
 
 // listNotes обрабатывает GET /api/v1/notes?topic_id=N&folder_id=X → [Note].
@@ -69,7 +70,53 @@ func (h *todoHandler) createNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	text, entities := parseMarkdownEntities(input.Text)
-	n, err := h.svc.AddNote(middleware.UserID(r.Context()), input.TopicID, input.FolderID, text, entities, model.PriorityNone)
+
+	priority := model.PriorityNone
+	if input.Priority != nil {
+		p, parseErr := dto.ParsePriority(*input.Priority)
+		if parseErr != nil {
+			httperr.Write(w, parseErr)
+			return
+		}
+		priority = p
+	}
+
+	var opts []todo.AddNoteOptions
+	if input.Done != nil || input.Pinned != nil || input.ReminderAt != nil {
+		opt := todo.AddNoteOptions{}
+		if input.Done != nil {
+			opt.Done = *input.Done
+		}
+		if input.Pinned != nil {
+			opt.Pinned = *input.Pinned
+		}
+		if input.ReminderAt != nil {
+			at, parseErr := time.Parse(time.RFC3339, *input.ReminderAt)
+			if parseErr != nil {
+				httperr.Write(w, errs.ErrInvalidJSON)
+				return
+			}
+			repeat := model.ReminderRepeatOnce
+			if input.ReminderRepeat != nil {
+				var repeatErr error
+				repeat, repeatErr = model.NewReminderRepeat(*input.ReminderRepeat)
+				if repeatErr != nil {
+					httperr.Write(w, repeatErr)
+					return
+				}
+			}
+			// Одноразовое напоминание не может быть в прошлом (как в боте).
+			if repeat == model.ReminderRepeatOnce && !at.After(time.Now().UTC()) {
+				httperr.Write(w, errs.ErrReminderInPast)
+				return
+			}
+			opt.ReminderAt = &at
+			opt.ReminderRepeat = repeat
+		}
+		opts = []todo.AddNoteOptions{opt}
+	}
+
+	n, err := h.svc.AddNote(middleware.UserID(r.Context()), input.TopicID, input.FolderID, text, entities, priority, opts...)
 	if err != nil {
 		httperr.Write(w, err)
 		return

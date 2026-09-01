@@ -152,8 +152,18 @@ func (s *Service) DeleteTopic(userID, topicID int64) error {
 
 // --- Notes ---
 
+// AddNoteOptions — опциональные атрибуты новой заметки (REST: done/pinned/reminder).
+type AddNoteOptions struct {
+	Done           bool
+	Pinned         bool
+	ReminderAt     *time.Time
+	ReminderRepeat model.ReminderRepeat
+}
+
 // AddNote добавляет новую заметку с указанным приоритетом и форматированием.
-func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority) (model.Note, error) {
+// opts — необязательные атрибуты (создание заметки сразу выполненной,
+// закреплённой или с напоминанием).
+func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority, opts ...AddNoteOptions) (model.Note, error) {
 	unlock := s.locks.Lock(userID)
 	defer unlock()
 
@@ -164,6 +174,27 @@ func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, e
 
 	if err := note.SetPriority(priority); err != nil {
 		return model.Note{}, err
+	}
+
+	if len(opts) > 0 {
+		opt := opts[0]
+		if opt.Pinned {
+			note.Pin()
+		}
+		if opt.ReminderAt != nil {
+			repeat := opt.ReminderRepeat
+			if repeat == "" {
+				repeat = model.ReminderRepeatOnce
+			}
+			if err := note.SetReminder(*opt.ReminderAt, repeat); err != nil {
+				return model.Note{}, err
+			}
+		}
+		// Выполненная заметка не напоминает — MarkDone сбрасывает напоминание
+		// (то же правило, что и при toggleDone).
+		if opt.Done {
+			note.MarkDone()
+		}
 	}
 	return s.noteRepo.CreateNote(*note)
 }

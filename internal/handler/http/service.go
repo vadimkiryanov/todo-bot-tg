@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"todo-bot-tg/internal/model"
+	"todo-bot-tg/internal/service/todo"
 )
 
 // TodoService — интерфейс сервиса топиков и заметок (потребитель — HTTP-handler).
@@ -15,7 +16,7 @@ type TodoService interface {
 	DeleteTopic(userID, topicID int64) error
 
 	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
-	AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority) (model.Note, error)
+	AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority, opts ...todo.AddNoteOptions) (model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
 	EditNote(userID, noteID int64, text string, entities []model.NoteEntity) error
 	MarkDone(userID, noteID int64) error

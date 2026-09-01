@@ -164,3 +164,11 @@ body {
   /* PWA: страница не должна скроллиться сама, скроллится список заметок */
   overflow: hidden;
 }
+
+/* Скролл-контейнер списка заметок. overscroll-behavior-y: contain не даёт
+   жесту на границе списка «утащить» за собой страницу (rubber-band на iOS,
+   pull-to-refresh на Android): приложение остаётся на месте. */
+.scroll-area {
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}

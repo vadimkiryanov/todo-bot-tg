@@ -1,18 +1,20 @@
 <script lang="ts">
-  // Папки под табами топиков: хлебные крошки (навигация вверх) + папки уровня (вход вниз).
-  // «＋» — создать папку на текущем уровне; долгий тап по папке — меню (переименовать/удалить).
+  // Папки под табами топиков: дерево всех папок топика (вложенность —
+  // отступ слева, клик — переход в папку, активная подсвечена).
+  // «＋» — создать папку на текущем уровне; долгий тап по папке — меню
+  // (переименовать/удалить).
   import ConfirmModal from './ConfirmModal.svelte';
   import Modal from './Modal.svelte';
   import {
     createFolder,
     deleteFolder,
-    folderChain,
     foldersStore,
-    levelFolders,
     renameFolder,
+    treeFolders,
   } from '../stores/folders.svelte';
   import { navigation, setActiveFolder } from '../stores/navigation.svelte';
   import type { Folder } from '../types/api';
+  import type { FolderTreeNode } from '../stores/folders.svelte';
 
   let showCreate = $state(false);
   let createName = $state('');
@@ -22,7 +24,14 @@
   // (autofocus-атрибут в Safari/повторном открытии не срабатывает).
   let createInput = $state<HTMLInputElement | undefined>();
   $effect(() => {
-    if (showCreate) createInput?.focus();
+    if (!showCreate) return;
+    createInput?.focus();
+    // Мобильная клавиатура открывается с задержкой и сжимает вьюпорт —
+    // инпут может оказаться под ней; скроллим его в центр уже после.
+    const timer = setTimeout(() => {
+      createInput?.scrollIntoView({ block: 'center' });
+    }, 350);
+    return () => clearTimeout(timer);
   });
 
   let menuFolder: Folder | null = $state(null);
@@ -122,43 +131,31 @@
     }
   }
 
-  const chain = $derived(folderChain());
-  const children = $derived(levelFolders());
+  const tree = $derived(treeFolders());
+
+  /** Префикс из символов веток: уровни предков (│ или пусто), затем ├──/└──. */
+  function treeGuides(node: FolderTreeNode): string {
+    if (node.depth === 0) return '';
+    let s = '';
+    for (let k = 0; k < node.depth - 1; k++) {
+      s += node.continues[k] ? '│   ' : '    ';
+    }
+    s += node.isLast ? '└── ' : '├── ';
+    return s;
+  }
 </script>
 
 <div class="shrink-0 border-b border-border bg-surface px-3 py-2">
-  {#if foldersStore.loading}
+  {#if foldersStore.loading && foldersStore.topicId !== navigation.activeTopicID}
     <div class="h-10 animate-pulse rounded-full bg-border/40"></div>
   {:else}
-    <!-- Хлебные крошки: корень → папка → подпапка -->
-    <div class="touch-strip no-scrollbar flex items-center gap-1 overflow-x-auto">
-      <button
-        type="button"
-        class="flex h-10 shrink-0 items-center rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] {navigation.activeFolderID ===
-        null
-          ? 'bg-accent-strong text-white'
-          : 'bg-background text-muted'}"
-        onclick={() => setActiveFolder(null)}
-      >
-        📂 Корень
-      </button>
-      {#each chain as folder (folder.id)}
-        <span class="shrink-0 text-muted">›</span>
-        <button
-          type="button"
-          class="max-w-40 truncate rounded-full px-3 py-2 text-sm transition-[background-color,transform] active:scale-[0.97] {folder.id ===
-          navigation.activeFolderID
-            ? 'bg-accent-strong text-white'
-            : 'bg-background text-content'}"
-          onclick={() => setActiveFolder(folder.id)}
-        >
-          {folder.name}
-        </button>
-      {/each}
+    <!-- «＋» фиксирован сверху (не скроллится вместе с деревом), во всю
+         ширину; создаёт папку на текущем уровне (в активной папке или в корне) -->
+    <div class="flex flex-col gap-2">
       <button
         type="button"
         aria-label="Создать папку"
-        class="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
+        class="flex h-10 w-full shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-[0.98] active:bg-border"
         onclick={() => {
           createError = '';
           createName = '';
@@ -167,27 +164,41 @@
       >
         ＋
       </button>
-    </div>
 
-    <!-- Папки текущего уровня (вход в подпапки) -->
-    {#if children.length > 0}
-      <div class="touch-strip no-scrollbar mt-2 flex items-center gap-2 overflow-x-auto">
-        {#each children as folder (folder.id)}
+      <!-- Дерево всех папок топика: вложенность — отступ слева, клик — переход -->
+      <div class="tree no-scrollbar flex max-h-44 flex-col gap-1 overflow-y-auto">
+        <button
+          type="button"
+          class="flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] {navigation.activeFolderID ===
+          null
+            ? 'bg-accent-strong text-white'
+            : 'bg-background text-muted'}"
+          onclick={() => setActiveFolder(null)}
+        >
+          📂 Корень
+        </button>
+        {#each tree as node (node.folder.id)}
           <button
             type="button"
-            class="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-background px-4 text-sm text-content transition-[background-color,transform] active:scale-[0.97] active:bg-border"
-            onpointerdown={() => handlePointerDown(folder.id)}
+            class="flex h-10 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm text-content transition-[background-color,transform] active:scale-[0.97] {node.folder.id ===
+            navigation.activeFolderID
+              ? 'bg-accent-strong text-white'
+              : 'bg-background active:bg-border'}"
+            onpointerdown={() => handlePointerDown(node.folder.id)}
             onpointerup={cancelLongPress}
             onpointercancel={cancelLongPress}
             onpointerleave={cancelLongPress}
-            onclick={() => onTap(folder.id)}
+            onclick={() => onTap(node.folder.id)}
           >
-            <span>📁</span>
-            <span class="max-w-40 truncate">{folder.name}</span>
+            {#if node.depth > 0}
+              <span class="tree-guides shrink-0" aria-hidden="true">{treeGuides(node)}</span>
+            {/if}
+            <span class="shrink-0">📁</span>
+            <span class="truncate">{node.folder.name}</span>
           </button>
         {/each}
       </div>
-    {/if}
+    </div>
   {/if}
 </div>
 
@@ -327,17 +338,23 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
-  /* Мобильный скролл крошек и чипов папок: touch-action сразу резервирует
-     жест за горизонтальным паном (браузер не ждёт распознавания long-press),
-     а user-select + touch-callout отключают выделение текста и iOS-лупу.
-     user-select задаём и кнопкам напрямую: WebKit игнорирует его на
-     родителе для текста внутри <button>. */
-  .touch-strip,
-  .touch-strip button {
-    touch-action: pan-x;
+  /* Дерево папок (до 4 рядов видно, дальше вертикальный скролл внутри
+     секции): долгий тап по папке открывает меню — выделение текста не
+     нужно; touch-action не ограничиваем — вертикальный свайп скроллит
+     секцию. WebKit игнорирует user-select на родителе для текста внутри
+     <button>, поэтому задаём и кнопкам. */
+  .tree,
+  .tree button {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
+  }
+  /* Символы веток (│ ├ └ ─) выравниваются только в моноширинном шрифте. */
+  .tree-guides {
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--color-border);
   }
   /* Шторка меню папки: долгий тап, открывший меню, может продолжаться уже
      на контенте шторки — выделение текста там не нужно. */

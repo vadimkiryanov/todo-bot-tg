@@ -9,11 +9,12 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"todo-bot-tg/internal/model"
+	"todo-bot-tg/internal/service/todo"
 )
 
 // NoteService — интерфейс сервиса заметок (определён потребителем — handler'ом).
 type NoteService interface {
-	AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority) (model.Note, error)
+	AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority, opts ...todo.AddNoteOptions) (model.Note, error)
 	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
 	EditNote(userID, noteID int64, text string, entities []model.NoteEntity) error

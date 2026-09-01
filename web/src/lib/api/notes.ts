@@ -15,12 +15,31 @@ export function listArchivedNotes(): Promise<Note[]> {
   return request<Note[]>('GET', '/api/v1/notes?archived=true');
 }
 
+/** Опциональные атрибуты новой заметки (панель создания). */
+export interface CreateNoteOptions {
+  done?: boolean;
+  pinned?: boolean;
+  priority?: Priority;
+  reminder_at?: string; // ISO 8601 (UTC)
+  reminder_repeat?: ReminderRepeat;
+}
+
 /** Создание заметки. folderId null — в корне топика. */
-export function createNote(topicId: number, text: string, folderId: number | null = null): Promise<Note> {
+export function createNote(
+  topicId: number,
+  text: string,
+  folderId: number | null = null,
+  opts: CreateNoteOptions = {},
+): Promise<Note> {
   const body: Record<string, unknown> = { topic_id: topicId, text };
   if (folderId !== null) {
     body.folder_id = folderId;
   }
+  if (opts.done !== undefined) body.done = opts.done;
+  if (opts.pinned !== undefined) body.pinned = opts.pinned;
+  if (opts.priority !== undefined) body.priority = opts.priority;
+  if (opts.reminder_at !== undefined) body.reminder_at = opts.reminder_at;
+  if (opts.reminder_repeat !== undefined) body.reminder_repeat = opts.reminder_repeat;
   return request<Note>('POST', '/api/v1/notes', body);
 }
 

@@ -12,6 +12,7 @@ import {
   levelFolders,
   loadFolders,
   renameFolder,
+  treeFolders,
 } from './folders.svelte';
 import { navigation, setActiveFolder, setActiveTopic } from './navigation.svelte';
 import type { Topic } from '../types/api';
@@ -52,6 +53,32 @@ describe('folders store', () => {
     expect(foldersStore.all).toHaveLength(2);
     expect(foldersStore.all[1].parent_folder_id).toBe(foldersStore.all[0].id);
     expect(foldersStore.all[1].topic_id).toBe(topicId);
+  });
+
+  it('дерево папок: обход в глубину с глубинами и ветками', async () => {
+    await setupTopic();
+    await createFolder('A'); // корень
+    const aId = foldersStore.all[0].id;
+    setActiveFolder(aId);
+    await createFolder('B'); // внутри A
+    await createFolder('C'); // внутри A
+    setActiveFolder(foldersStore.all[1].id);
+    await createFolder('D'); // внутри B
+    setActiveFolder(null);
+    await createFolder('E'); // корень
+
+    const tree = treeFolders();
+    expect(tree.map((n) => `${'  '.repeat(n.depth)}${n.folder.name}`)).toEqual([
+      'A',
+      '  B',
+      '    D',
+      '  C',
+      'E',
+    ]);
+    // Ветки: A и E — корневые (без линий); B и C — дети A (у A есть брат
+    // ниже → вертикальная линия); D — последний ребёнок B.
+    expect(tree.map((n) => n.continues)).toEqual([[], [true], [true, true], [true], []]);
+    expect(tree.map((n) => n.isLast)).toEqual([false, false, true, true, true]);
   });
 
   it('переименование обновляет папку в сторе', async () => {

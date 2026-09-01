@@ -51,6 +51,11 @@
 
   function onPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return;
+    // Мобильный браузер при удержании пальца начинает выделять текст —
+    // сбрасываем выделение и фокус, чтобы долгий тап не выделял контент.
+    window.getSelection()?.removeAllRanges();
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body) active.blur();
     // Элемент захватываем сразу: внутри setTimeout у события currentTarget уже null.
     const el = e.currentTarget as HTMLElement;
     startX = e.clientX;
@@ -66,7 +71,7 @@
   }
 
   /** Перехватывает один следующий click (capture на window): при отпускании пальца
-      после долгого тача браузер «кликает» по только что открытому меню/подложке
+      после долгого тача браузер «кликает» по только что открытому меню
       и закрыл бы его — гасим этот клик до наших обработчиков. */
   function suppressNextClick(): void {
     const handler = (e: MouseEvent) => {
@@ -81,12 +86,23 @@
 
   function onPointerMove(e: PointerEvent): void {
     if (pressTimer === null) return;
-    if (
-      Math.abs(e.clientX - startX) > MOVE_THRESHOLD ||
-      Math.abs(e.clientY - startY) > MOVE_THRESHOLD
-    ) {
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD) {
       clearPressTimer();
     }
+  }
+
+  function onPointerUp(): void {
+    clearPressTimer();
+    if (longPressTriggered) {
+      // iOS после долгого тапа может оставить выделение — снимаем его.
+      window.getSelection()?.removeAllRanges();
+    }
+  }
+
+  function onPointerCancel(): void {
+    clearPressTimer();
   }
 
   function onCardClick(): void {
@@ -113,8 +129,8 @@
   onclick={onCardClick}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
-  onpointerup={clearPressTimer}
-  onpointercancel={clearPressTimer}
+  onpointerup={onPointerUp}
+  onpointercancel={onPointerCancel}
   oncontextmenu={onContextMenu}
 >
   {#if marker !== null}

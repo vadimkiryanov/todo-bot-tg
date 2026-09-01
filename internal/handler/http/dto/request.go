@@ -19,10 +19,17 @@ type TopicRequest struct {
 }
 
 // NoteCreateRequest — тело POST /api/v1/notes.
+// Done/Pinned/Priority/ReminderAt/ReminderRepeat — опциональные атрибуты новой
+// заметки (указатели отличают «не передано» от нулевого значения).
 type NoteCreateRequest struct {
-	TopicID  int64  `json:"topic_id"`
-	FolderID *int64 `json:"folder_id"` // nil — в корне топика
-	Text     string `json:"text"`
+	TopicID        int64   `json:"topic_id"`
+	FolderID       *int64  `json:"folder_id"` // nil — в корне топика
+	Text           string  `json:"text"`
+	Done           *bool   `json:"done"`
+	Pinned         *bool   `json:"pinned"`
+	Priority       *string `json:"priority"`        // "none" | "low" | "medium" | "high"
+	ReminderAt     *string `json:"reminder_at"`     // ISO 8601 (RFC3339, UTC)
+	ReminderRepeat *string `json:"reminder_repeat"` // "once" | "daily"
 }
 
 // NotePatchRequest — тело PATCH /api/v1/notes/{id}.

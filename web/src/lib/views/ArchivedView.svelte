@@ -104,7 +104,7 @@
     </button>
   </header>
 
-  <main class="flex-1 overflow-y-auto">
+  <main class="scroll-area flex-1 overflow-y-auto">
     {#if archivedStore.loading}
       <EmptyState emoji="⏳" />
     {:else if archivedStore.error}
