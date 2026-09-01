@@ -119,7 +119,7 @@
     <div class="h-10 animate-pulse rounded-full bg-border/40"></div>
   {:else}
     <!-- Хлебные крошки: корень → папка → подпапка -->
-    <div class="no-scrollbar flex items-center gap-1 overflow-x-auto">
+    <div class="touch-strip no-scrollbar flex items-center gap-1 overflow-x-auto">
       <button
         type="button"
         class="flex h-10 shrink-0 items-center rounded-full px-3 text-sm {navigation.activeFolderID ===
@@ -159,13 +159,14 @@
 
     <!-- Папки текущего уровня (вход в подпапки) -->
     {#if children.length > 0}
-      <div class="no-scrollbar mt-2 flex items-center gap-2 overflow-x-auto">
+      <div class="touch-strip no-scrollbar mt-2 flex items-center gap-2 overflow-x-auto">
         {#each children as folder (folder.id)}
           <button
             type="button"
             class="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-background px-4 text-sm text-content transition-colors active:bg-border"
             onpointerdown={() => handlePointerDown(folder.id)}
             onpointerup={cancelLongPress}
+            onpointercancel={cancelLongPress}
             onpointerleave={cancelLongPress}
             onclick={() => onTap(folder.id)}
           >
@@ -260,7 +261,7 @@
         </div>
       </form>
     {:else}
-      <div class="flex flex-col gap-1">
+      <div class="sheet-menu flex flex-col gap-1">
         <h2 class="px-2 pb-2 pt-1 text-lg font-semibold">{menuFolder.name}</h2>
         {#if menuError}
           <p class="px-2 pb-2 text-sm text-danger">{menuError}</p>
@@ -300,5 +301,25 @@
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+  /* Мобильный скролл крошек и чипов папок: touch-action сразу резервирует
+     жест за горизонтальным паном (браузер не ждёт распознавания long-press),
+     а user-select + touch-callout отключают выделение текста и iOS-лупу.
+     user-select задаём и кнопкам напрямую: WebKit игнорирует его на
+     родителе для текста внутри <button>. */
+  .touch-strip,
+  .touch-strip button {
+    touch-action: pan-x;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Шторка меню папки: долгий тап, открывший меню, может продолжаться уже
+     на контенте шторки — выделение текста там не нужно. */
+  .sheet-menu,
+  .sheet-menu button {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 </style>

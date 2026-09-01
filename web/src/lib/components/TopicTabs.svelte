@@ -104,7 +104,7 @@
 </script>
 
 <div
-  class="no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-surface px-3 py-2"
+  class="touch-strip no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-surface px-3 py-2"
 >
   {#each topicsStore.topics as topic (topic.id)}
     <button
@@ -115,6 +115,7 @@
       class:active={topic.id === navigation.activeTopicID}
       onpointerdown={() => handlePointerDown(topic.id)}
       onpointerup={cancelLongPress}
+      onpointercancel={cancelLongPress}
       onpointerleave={cancelLongPress}
       onclick={() => onTap(topic.id)}
     >
@@ -220,7 +221,7 @@
         </div>
       </form>
     {:else}
-      <div class="flex flex-col gap-1">
+      <div class="sheet-menu flex flex-col gap-1">
         <h2 class="px-2 pb-2 pt-1 text-lg font-semibold">{menuTopic.name}</h2>
         {#if menuError}
           <p class="px-2 pb-2 text-sm text-danger">{menuError}</p>
@@ -260,5 +261,24 @@
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+  /* Мобильный скролл табов: touch-action сразу резервирует жест за
+     горизонтальным паном, user-select + touch-callout отключают выделение
+     текста и iOS-лупу (WebKit игнорирует user-select на родителе для
+     текста внутри <button>, поэтому задаём и кнопкам). */
+  .touch-strip,
+  .touch-strip button {
+    touch-action: pan-x;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Шторка меню топика: долгий тап, открывший меню, может продолжаться уже
+     на контенте шторки — выделение текста там не нужно. */
+  .sheet-menu,
+  .sheet-menu button {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 </style>
