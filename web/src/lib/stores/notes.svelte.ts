@@ -5,6 +5,7 @@ import {
   createNote as apiCreateNote,
   deleteNote as apiDeleteNote,
   listArchivedNotes,
+  listDoneNotes,
   listNotes,
   moveNote as apiMoveNote,
   setReminder as apiSetReminder,
@@ -29,6 +30,17 @@ export const notesStore = $state<{
 
 /** Архивные заметки (все топики). */
 export const archivedStore = $state<{
+  notes: Note[];
+  loading: boolean;
+  error: string | null;
+}>({
+  notes: [],
+  loading: false,
+  error: null,
+});
+
+/** Выполненные заметки (все топики) — «склад» выполненных. */
+export const doneStore = $state<{
   notes: Note[];
   loading: boolean;
   error: string | null;
@@ -74,6 +86,24 @@ export async function loadArchived(silent = false): Promise<void> {
   } finally {
     if (!silent) {
       archivedStore.loading = false;
+    }
+  }
+}
+
+/** Загрузка выполненных («склад»). silent — тихая перезагрузка. */
+export async function loadDone(silent = false): Promise<void> {
+  if (!silent) {
+    doneStore.loading = true;
+    doneStore.notes = [];
+  }
+  doneStore.error = null;
+  try {
+    doneStore.notes = await listDoneNotes();
+  } catch (e) {
+    doneStore.error = e instanceof Error ? e.message : 'не удалось загрузить выполненные';
+  } finally {
+    if (!silent) {
+      doneStore.loading = false;
     }
   }
 }
@@ -196,6 +226,30 @@ export async function removeArchivedNote(note: Note): Promise<void> {
   }
 }
 
+/** Вернуть в работу с экрана «Выполненные»: убрать из склада, откат при ошибке. */
+export async function undoneNote(note: Note): Promise<void> {
+  const previous = doneStore.notes;
+  doneStore.notes = previous.filter((n) => n.id !== note.id);
+  try {
+    await apiUpdateNote(note.id, { done: false });
+  } catch (e) {
+    doneStore.notes = previous;
+    throw e;
+  }
+}
+
+/** Удалить с экрана «Выполненные»: оптимистично, откат при ошибке. */
+export async function removeDoneNote(note: Note): Promise<void> {
+  const previous = doneStore.notes;
+  doneStore.notes = previous.filter((n) => n.id !== note.id);
+  try {
+    await apiDeleteNote(note.id);
+  } catch (e) {
+    doneStore.notes = previous;
+    throw e;
+  }
+}
+
 /** Установить/перенести напоминание: оптимистично, откат при ошибке. */
 export async function setReminder(note: Note, at: string, repeat: ReminderRepeat): Promise<void> {
   await mutateReminder(
@@ -214,7 +268,7 @@ export async function clearReminder(note: Note): Promise<void> {
   );
 }
 
-/** Сброс сторов (выход из аккаунта): активные и архивные заметки. */
+/** Сброс сторов (выход из аккаунта): активные, архивные и выполненные заметки. */
 export function resetNotes(): void {
   notesStore.notes = [];
   notesStore.loading = false;
@@ -223,6 +277,9 @@ export function resetNotes(): void {
   archivedStore.notes = [];
   archivedStore.loading = false;
   archivedStore.error = null;
+  doneStore.notes = [];
+  doneStore.loading = false;
+  doneStore.error = null;
 }
 
 /** Общая мутация поля (done/priority): применить → сервер → тихая перезагрузка сортировки. */

@@ -23,6 +23,7 @@ type NoteRepository interface {
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)
 	CountDoneNotes(userID, topicID int64, folderID *int64) (int, error)
 	ListArchived(userID int64) ([]model.Note, error)
+	ListDone(userID int64) ([]model.Note, error)
 	CountArchived(userID int64) (int, error)
 	HasAnyData(userID int64) bool
 	GetPendingReminders() ([]model.Note, error)
@@ -209,6 +210,13 @@ func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Not
 		return nil, err
 	}
 
+	sortNotes(notes)
+	return notes, nil
+}
+
+// sortNotes — серверная сортировка заметок: закреплённые → активные по приоритету
+// (High > Medium > None > Low) → выполненные в конец; внутри группы — свежие сверху.
+func sortNotes(notes []model.Note) {
 	sort.Slice(notes, func(i, j int) bool {
 		// Закреплённые — в начало (истёкшее закрепление = откреплено)
 		if notes[i].IsPinned() != notes[j].IsPinned() {
@@ -225,8 +233,6 @@ func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Not
 		// При равном приоритете — самые свежие сверху
 		return notes[i].ID > notes[j].ID
 	})
-
-	return notes, nil
 }
 
 // GetNote возвращает заметку по ID.
@@ -554,6 +560,16 @@ func (s *Service) CountDoneNotes(userID, topicID int64, folderID *int64) (int, e
 // ListArchived возвращает список архивных заметок.
 func (s *Service) ListArchived(userID int64) ([]model.Note, error) {
 	return s.noteRepo.ListArchived(userID)
+}
+
+// ListDone возвращает список выполненных (не архивных) заметок — все топики.
+func (s *Service) ListDone(userID int64) ([]model.Note, error) {
+	notes, err := s.noteRepo.ListDone(userID)
+	if err != nil {
+		return nil, err
+	}
+	sortNotes(notes)
+	return notes, nil
 }
 
 // CountArchived возвращает количество архивных заметок.

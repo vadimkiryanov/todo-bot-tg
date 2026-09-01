@@ -162,6 +162,53 @@ func TestNotes_PinAndArchive(t *testing.T) {
 	require.Empty(t, notes)
 }
 
+func TestNotes_DoneFolder(t *testing.T) {
+	router := newTestRouter(t)
+	cookie := registerUser(t, router, "done_user", "password123")
+	topic := createTopic(t, router, cookie, "Топик")
+	note := createNote(t, router, cookie, topic.ID, "Заметка")
+
+	// Выполнение → 200 с done:true; заметка уходит из основного списка
+	rec := doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/notes/%d", note.ID), `{"done":true}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	var updated dto.NoteResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.True(t, updated.Done)
+
+	rec = doJSON(t, router, http.MethodGet,
+		fmt.Sprintf("/api/v1/notes?topic_id=%d", topic.ID), "", cookie)
+	var notes []dto.NoteResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Empty(t, notes, "выполненные не показываются в основном списке")
+
+	// GET ?done=true → 1 выполненных заметка (все топики)
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes?done=true", "", cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Len(t, notes, 1)
+	require.True(t, notes[0].Done)
+
+	// done=true не пересекается с archived=true
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes?archived=true", "", cookie)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Empty(t, notes)
+
+	// Возврат в работу → снова в списке, done-склад пуст
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/notes/%d", note.ID), `{"done":false}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doJSON(t, router, http.MethodGet,
+		fmt.Sprintf("/api/v1/notes?topic_id=%d", topic.ID), "", cookie)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Len(t, notes, 1)
+
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes?done=true", "", cookie)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Empty(t, notes)
+}
+
 func TestNotes_Errors(t *testing.T) {
 	router := newTestRouter(t)
 	cookie := registerUser(t, router, "notes_errors", "password123")
@@ -288,6 +335,11 @@ func (s *stubTodoService) UnarchiveNote(userID, noteID int64) error {
 
 func (s *stubTodoService) ListArchived(userID int64) ([]model.Note, error) {
 	s.calls = append(s.calls, "listarchived")
+	return nil, nil
+}
+
+func (s *stubTodoService) ListDone(userID int64) ([]model.Note, error) {
+	s.calls = append(s.calls, "listdone")
 	return nil, nil
 }
 

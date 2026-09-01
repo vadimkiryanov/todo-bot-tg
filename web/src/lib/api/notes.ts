@@ -15,6 +15,11 @@ export function listArchivedNotes(): Promise<Note[]> {
   return request<Note[]>('GET', '/api/v1/notes?archived=true');
 }
 
+/** Выполненные заметки (все топики). */
+export function listDoneNotes(): Promise<Note[]> {
+  return request<Note[]>('GET', '/api/v1/notes?done=true');
+}
+
 /** Опциональные атрибуты новой заметки (панель создания). */
 export interface CreateNoteOptions {
   done?: boolean;

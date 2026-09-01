@@ -339,6 +339,16 @@
 
 ---
 
+## Этап 34: Веб — складирование выполненных ✅ (2026-09-01)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(в коммите)* | **REST: выполненные как отдельный склад** — `GET /api/v1/notes?done=true` возвращает выполненные заметки всех топиков (`ListDone` в memstore/postgres + `Service.ListDone`); основной список топика (`GET /api/v1/notes?topic_id=N`) **больше не содержит выполненных** — они уходят на склад, как в боте (виртуальная папка «✅ Выполненные»). Сортировка вынесена в общий хелпер `sortNotes` (используется `ListNotes` и `ListDone`). Тесты: `TestNotes_DoneFolder` (done=true уходит из списка, возвращается складом, с архивом не пересекается, done=false возвращает в список) |
+| — | *(в коммите)* | **Веб: экран «✅ Выполненные» (URL /done)** — копия экрана архива: шапка ← / ✅ / 🚪, список `NoteCard`, оверлей с кнопками ↩️ (вернуть в работу) и 🗑 (удалить через `ConfirmModal`), `NoteMenu` в done-режиме (только ↩️ и 🗑), EmptyState «Выполненных нет»; guard в `+page.ts` как у `/archive`. Стор: `doneStore`, `loadDone()`, `undoneNote()` (оптимистично: убрать со склада + `PATCH {done:false}`, откат при ошибке), `removeDoneNote()` (удаление с откатом), `resetNotes` очищает и doneStore |
+| — | *(в коммите)* | **Веб: бургер-меню** — пункт «✅ Выполненные» (над «Архив»): `loadDone()` + `goto('/done')`. Мок: `done=true` → `mockListDone` (done && !archived, `sortNotes`), `mockListNotes` фильтрует `!n.done`. Тесты vitest: 43/43 (обновлён «выполненная исчезает из списка и попадает на склад», добавлены `loadDone`, `undoneNote` возврат в активный список, `removeDoneNote` + откат, `resetNotes` с doneStore). Проверки: `gofmt`/`go build`/`go vet`/`go test ./...` — успешно, `npm run check` 0 ошибок (3 известных warnings в ReminderForm), `npm run build` успешен, `vitest` 43/43 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -350,7 +360,7 @@
 | **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML); userID = `users.id` через `UserResolver` |
 | **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
 | **Веб-аккаунты** | `internal/user/`, `internal/session/` | Пользователи (username + bcrypt cost 12 / telegram_id), веб-сессии: токен 32 байта base64url, SHA-256 хеш в БД (`web_sessions`), TTL 30 дней; `MemoryStore` + `PostgresStore` |
-| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes,folders}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes`, `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект), `POST /api/v1/notes/{id}/move`, `PUT/DELETE /api/v1/notes/{id}/reminder` (`reminder_at`/`reminder_repeat`, once в прошлом → 400); папки: `GET/POST /api/v1/folders`, `PATCH/DELETE /api/v1/folders/{id}` (`all=true` — все уровни, каскад при удалении); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
+| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes,folders}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes` (`?archived=true` — архив, `?done=true` — выполненные, основной список без выполненных), `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект), `POST /api/v1/notes/{id}/move`, `PUT/DELETE /api/v1/notes/{id}/reminder` (`reminder_at`/`reminder_repeat`, once в прошлом → 400); папки: `GET/POST /api/v1/folders`, `PATCH/DELETE /api/v1/folders/{id}` (`all=true` — все уровни, каскад при удалении); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
 | **REST-сервис (cmd/api)** | `cmd/api/main.go`, `config/config.go` (`LoadAPI`), `Dockerfile` (target `api`) | Отдельный бинарник `todoapi` без Telegram: ручной DI (PostgresStore/MemStore), `http.Server` + graceful shutdown; `SessionTTL` (cookie + сессия), `AppBaseURL` |
 | **Деплой** | `docker-compose.yml`, `web/Dockerfile`, `web/Caddyfile`, `.env.example`, `deploy.sh` | 4 сервиса (db/api/bot/web), healthchecks, volume `files`; Caddy: статика + прокси `/api` + авто-HTTPS Let's Encrypt по `APP_BASE_URL` |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test`, `topics_test`, `notes_test`, `dto/converter_test` |
@@ -375,7 +385,7 @@ internal/
   middleware/            — Logging (slog) + Recover (panic → 500) + RequireAuth (cookie-сессии)
   user/                  — пользователи: валидация username/пароля, bcrypt cost 12
   session/               — веб-сессии: токен 32 байта base64url, SHA-256 хеш в хранилище, TTL (SessionTTL)
-web/                     — веб-фронтенд: SvelteKit (SPA, adapter-static, ssr=false) + Svelte 5 + Tailwind v4 (PWA); маршруты /login, /, /archive с guard'ами в load; Dockerfile (node → Caddy), Caddyfile (прокси /api + авто-HTTPS)
+web/                     — веб-фронтенд: SvelteKit (SPA, adapter-static, ssr=false) + Svelte 5 + Tailwind v4 (PWA); маршруты /login, /, /archive, /done с guard'ами в load; Dockerfile (node → Caddy), Caddyfile (прокси /api + авто-HTTPS)
 Dockerfile               — multi-stage: bot + api (golang:1.25-alpine → alpine:3.20)
 docker-compose.yml       — 4 сервиса: db + api + bot + web
 deploy.sh                — установка Docker/git, docker compose up -d --build

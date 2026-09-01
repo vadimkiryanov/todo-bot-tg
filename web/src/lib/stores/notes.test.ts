@@ -11,10 +11,13 @@ import {
   clearNoteHighlight,
   clearReminder,
   createNote,
+  doneStore,
   loadArchived,
+  loadDone,
   loadNotes,
   moveNote,
   notesStore,
+  removeDoneNote,
   removeNote,
   resetNotes,
   setPriority,
@@ -22,6 +25,7 @@ import {
   toggleDone,
   togglePin,
   unarchiveNote,
+  undoneNote,
 } from './notes.svelte';
 
 beforeEach(() => {
@@ -70,7 +74,7 @@ describe('notes store', () => {
     expect(notesStore.highlightedId).toBeNull();
   });
 
-  it('выполненная заметка уезжает в конец (серверная сортировка)', async () => {
+  it('выполненная заметка исчезает из списка и попадает на склад (doneStore)', async () => {
     const topicId = await setupTopic();
     await loadNotes(topicId);
     await createNote('первая');
@@ -79,8 +83,71 @@ describe('notes store', () => {
     // Свежие сверху: notes[0] = 'вторая'.
     await toggleDone(notesStore.notes[0]);
 
-    expect(notesStore.notes.map((n) => n.text)).toEqual(['первая', 'вторая']);
-    expect(notesStore.notes[1].done).toBe(true);
+    // В основном списке выполненных больше нет (как на бэкенде).
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['первая']);
+    expect(notesStore.notes.some((n) => n.done)).toBe(false);
+
+    await loadDone();
+    expect(doneStore.notes.map((n) => n.text)).toEqual(['вторая']);
+    expect(doneStore.notes[0].done).toBe(true);
+  });
+
+  it('loadDone возвращает выполненные из всех топиков', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('обычная');
+    await createNote('сделано');
+    await toggleDone(notesStore.notes[0]); // 'сделано'
+
+    await loadDone();
+    expect(doneStore.notes.map((n) => n.text)).toEqual(['сделано']);
+
+    // Выполненные не пересекаются с архивом.
+    await loadArchived();
+    expect(archivedStore.notes).toHaveLength(0);
+  });
+
+  it('undoneNote убирает заметку со склада и возвращает в активный список', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('сделано');
+    await toggleDone(notesStore.notes[0]);
+    await loadDone();
+    expect(doneStore.notes).toHaveLength(1);
+
+    await undoneNote(doneStore.notes[0]);
+    expect(doneStore.notes).toHaveLength(0);
+
+    await loadNotes(topicId);
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['сделано']);
+    expect(notesStore.notes[0].done).toBe(false);
+  });
+
+  it('removeDoneNote удаляет заметку со склада', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('удалить');
+    await toggleDone(notesStore.notes[0]);
+    await loadDone();
+    expect(doneStore.notes).toHaveLength(1);
+
+    await removeDoneNote(doneStore.notes[0]);
+    expect(doneStore.notes).toHaveLength(0);
+  });
+
+  it('removeDoneNote откатывается при ошибке', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('удалить');
+    await toggleDone(notesStore.notes[0]);
+    await loadDone();
+    const count = doneStore.notes.length;
+
+    // Заметка с несуществующим id — сервер вернёт 404.
+    const ghost = { ...doneStore.notes[0], id: 9999 };
+    await expect(removeDoneNote(ghost)).rejects.toThrow();
+
+    expect(doneStore.notes).toHaveLength(count);
   });
 
   it('высокий приоритет поднимает заметку наверх', async () => {
@@ -172,21 +239,27 @@ describe('notes store', () => {
     expect(notesStore.notes.map((n) => n.text)).toEqual(['в архив']);
   });
 
-  it('resetNotes очищает активные и архивные заметки (выход из аккаунта)', async () => {
+  it('resetNotes очищает активные, архивные и выполненные заметки (выход из аккаунта)', async () => {
     const topicId = await setupTopic();
     await loadNotes(topicId);
     await createNote('первая');
     await archiveNote(notesStore.notes[0]);
+    await createNote('сделано');
+    await toggleDone(notesStore.notes[0]);
     await loadArchived();
+    await loadDone();
     expect(notesStore.notes).toHaveLength(0);
     expect(archivedStore.notes).toHaveLength(1);
+    expect(doneStore.notes).toHaveLength(1);
 
     resetNotes();
 
     expect(notesStore.notes).toHaveLength(0);
     expect(archivedStore.notes).toHaveLength(0);
+    expect(doneStore.notes).toHaveLength(0);
     expect(notesStore.error).toBeNull();
     expect(archivedStore.error).toBeNull();
+    expect(doneStore.error).toBeNull();
   });
 
   it('создаёт заметку в активной папке (folder_id заполнен)', async () => {
@@ -279,6 +352,7 @@ describe('notes store', () => {
     await toggleDone(notesStore.notes[0]);
 
     // Go-сервис MarkDone → ClearReminder: выполненная задача не напоминает.
-    expect(notesStore.notes.find((n) => n.done)?.reminder_at).toBeNull();
+    await loadDone();
+    expect(doneStore.notes[0].reminder_at).toBeNull();
   });
 });

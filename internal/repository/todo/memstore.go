@@ -335,6 +335,22 @@ func (s *MemStore) ListArchived(userID int64) ([]model.Note, error) {
 	return result, nil
 }
 
+// ListDone возвращает выполненные (не архивные) заметки пользователя — все топики.
+func (s *MemStore) ListDone(userID int64) ([]model.Note, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := s.userNotes[userID]
+	result := make([]model.Note, 0, len(ids))
+	for _, id := range ids {
+		n, ok := s.notes[id]
+		if ok && n.Done && !n.Archived {
+			result = append(result, entity.NoteFromRecord(n))
+		}
+	}
+	return result, nil
+}
+
 func (s *MemStore) CountArchived(userID int64) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

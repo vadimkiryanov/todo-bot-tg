@@ -8,10 +8,12 @@
     archiveNote,
     removeNote,
     removeArchivedNote,
+    removeDoneNote,
     setPriority,
     toggleDone,
     togglePin,
     unarchiveNote,
+    undoneNote,
   } from '../stores/notes.svelte';
   import type { Note } from '../types/api';
   import { ui } from '../stores/ui.svelte';
@@ -21,11 +23,13 @@
     note,
     rect,
     archived = false,
+    done = false,
     onClose,
   }: {
     note: Note;
     rect: DOMRect;
     archived?: boolean;
+    done?: boolean;
     onClose: () => void;
   } = $props();
 
@@ -110,7 +114,9 @@
       confirmDelete = false;
       error = '';
     }}
-    onConfirm={() => run(archived ? () => removeArchivedNote(note) : () => removeNote(note))}
+    onConfirm={() =>
+      run(archived ? () => removeArchivedNote(note) : done ? () => removeDoneNote(note) : () => removeNote(note))
+    }
   />
 {:else}
   <!-- Затемнённый фон: тап по нему — закрыть меню -->
@@ -129,7 +135,7 @@
       <p class="px-3 py-1 text-xs text-danger">{error}</p>
     {/if}
 
-    {#if !archived}
+    {#if !archived && !done}
       <button
         type="button"
         role="menuitem"
@@ -144,16 +150,18 @@
       </button>
     {/if}
 
-    <button
-      type="button"
-      role="menuitem"
-      class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
-      disabled={busy}
-      onclick={() => run(() => toggleDone(note))}
-    >
-      <span class="w-6 shrink-0 text-center text-base">{note.done ? '↩️' : '✅'}</span>
-      {note.done ? 'Вернуть' : 'Выполнить'}
-    </button>
+    {#if !done}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+        disabled={busy}
+        onclick={() => run(() => toggleDone(note))}
+      >
+        <span class="w-6 shrink-0 text-center text-base">{note.done ? '↩️' : '✅'}</span>
+        {note.done ? 'Вернуть' : 'Выполнить'}
+      </button>
+    {/if}
 
     {#if archived}
       <button
@@ -165,6 +173,17 @@
       >
         <span class="w-6 shrink-0 text-center text-base">↩️</span>
         Вернуть из архива
+      </button>
+    {:else if done}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+        disabled={busy}
+        onclick={() => run(() => undoneNote(note))}
+      >
+        <span class="w-6 shrink-0 text-center text-base">↩️</span>
+        Вернуть в работу
       </button>
     {:else}
       <button

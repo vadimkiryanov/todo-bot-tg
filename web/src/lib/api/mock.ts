@@ -293,6 +293,9 @@ export async function mockRequest<T>(
     if (search.get('archived') === 'true') {
       return mockListArchived() as T;
     }
+    if (search.get('done') === 'true') {
+      return mockListDone() as T;
+    }
     const topicId = Number(search.get('topic_id'));
     if (!Number.isInteger(topicId)) {
       throw new ApiError(400, 'topic_id обязателен');
@@ -457,9 +460,9 @@ function mockDeleteTopic(topicId: number): void {
 
 function mockListNotes(topicId: number, folderId: number | null): Note[] {
   const user = requireUser();
-  const notes = notesOf(user.id).filter(
-    (n) => n.topic_id === topicId && !n.archived,
-  );
+  // Выполненные скрыты из основного списка — они живут на экране «✅ Выполненные»
+  // (done=true), как на бэкенде.
+  const notes = notesOf(user.id).filter((n) => n.topic_id === topicId && !n.archived && !n.done);
   if (folderId !== null) {
     return sortNotes(notes.filter((n) => n.folder_id === folderId)).map(toNote);
   }
@@ -469,6 +472,12 @@ function mockListNotes(topicId: number, folderId: number | null): Note[] {
 function mockListArchived(): Note[] {
   const user = requireUser();
   const notes = notesOf(user.id).filter((n) => n.archived);
+  return sortNotes(notes).map(toNote);
+}
+
+function mockListDone(): Note[] {
+  const user = requireUser();
+  const notes = notesOf(user.id).filter((n) => n.done && !n.archived);
   return sortNotes(notes).map(toNote);
 }
 

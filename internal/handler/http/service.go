@@ -27,6 +27,7 @@ type TodoService interface {
 	ArchiveNote(userID, noteID int64) error
 	UnarchiveNote(userID, noteID int64) error
 	ListArchived(userID int64) ([]model.Note, error)
+	ListDone(userID int64) ([]model.Note, error)
 	DeleteNote(userID, noteID int64) error
 
 	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error

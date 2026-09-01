@@ -16,14 +16,19 @@ import (
 // listNotes обрабатывает GET /api/v1/notes?topic_id=N&folder_id=X → [Note].
 // topic_id опционален: без него возвращаются заметки без топика.
 // archived=true → архивные заметки пользователя (без фильтра по топику).
+// done=true → выполненные заметки пользователя (без фильтра по топику).
+// В основном списке выполненные заметки скрыты — они «складируются» в done=true.
 func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 
 	var notes []model.Note
 	var err error
-	if r.URL.Query().Get("archived") == "true" {
+	switch {
+	case r.URL.Query().Get("archived") == "true":
 		notes, err = h.svc.ListArchived(userID)
-	} else {
+	case r.URL.Query().Get("done") == "true":
+		notes, err = h.svc.ListDone(userID)
+	default:
 		var topicID int64
 		if q := r.URL.Query().Get("topic_id"); q != "" {
 			id, parseErr := strconv.ParseInt(q, 10, 64)
@@ -43,6 +48,17 @@ func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 			folderID = &id
 		}
 		notes, err = h.svc.ListNotes(userID, topicID, folderID)
+		if err == nil {
+			// Выполненные скрываем из основного списка (только в «done=true»),
+			// как бот скрывает их из списка заметок.
+			active := notes[:0]
+			for _, n := range notes {
+				if !n.Done {
+					active = append(active, n)
+				}
+			}
+			notes = active
+		}
 	}
 	if err != nil {
 		httperr.Write(w, err)

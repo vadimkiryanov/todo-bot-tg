@@ -502,6 +502,28 @@ func (s *PostgresStore) CountArchived(userID int64) (int, error) {
 	return count, nil
 }
 
+// ListDone возвращает выполненные (не архивные) заметки пользователя — все топики.
+func (s *PostgresStore) ListDone(userID int64) ([]model.Note, error) {
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+noteColumns+` FROM notes
+		 WHERE user_id = @user AND done = TRUE AND archived = FALSE
+		 ORDER BY created_at DESC`,
+		pgx.NamedArgs{"user": userID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("чтение выполненных заметок: %w", err)
+	}
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.NoteRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение выполненных заметок: %w", err)
+	}
+	result := make([]model.Note, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.NoteFromRecord(r))
+	}
+	return result, nil
+}
+
 // GetPendingReminders возвращает заметки с просроченными напоминаниями.
 func (s *PostgresStore) GetPendingReminders() ([]model.Note, error) {
 	rows, err := s.pool.Query(context.Background(),

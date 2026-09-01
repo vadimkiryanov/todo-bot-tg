@@ -8,7 +8,7 @@
   import { goto } from '$app/navigation';
   import Modal from './Modal.svelte';
   import ReminderForm from './ReminderForm.svelte';
-  import { createNote, loadArchived } from '../stores/notes.svelte';
+  import { createNote, loadArchived, loadDone } from '../stores/notes.svelte';
   import { logout } from '../stores/session.svelte';
   import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
   import type { Priority, ReminderRepeat } from '../types/api';
@@ -100,6 +100,13 @@
     await goto('/archive');
   }
 
+  async function goDone(): Promise<void> {
+    // Сразу грузим выполненные — экран покажет данные без повторного запроса.
+    closeMenu();
+    await loadDone();
+    await goto('/done');
+  }
+
   async function doLogout(): Promise<void> {
     closeMenu();
     await logout();
@@ -125,6 +132,15 @@
       class="menu-anim absolute bottom-full left-2 z-50 mb-2 flex w-56 flex-col gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl"
       role="menu"
     >
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+        onclick={() => void goDone()}
+      >
+        <span class="w-6 shrink-0 text-center text-base">✅</span>
+        Выполненные
+      </button>
       <button
         type="button"
         role="menuitem"
