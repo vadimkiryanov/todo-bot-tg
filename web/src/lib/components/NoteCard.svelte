@@ -1,11 +1,19 @@
 <script lang="ts">
   // Карточка заметки: превью первой строки (с форматированием), слева — 📌 или эмодзи приоритета.
   // Справа — ⏰ при установленном напоминании. Выполненная — зачёркнута и приглушена.
-  // Тап — открыть оверлей.
+  // Клик — открыть оверлей; долгий тач (или правый клик на десктопе) — дропдаун-меню действий.
   import type { Note } from '../types/api';
   import { firstLineHtml, formatReminderAt } from '../utils/format';
 
-  let { note, onOpen }: { note: Note; onOpen: (note: Note) => void } = $props();
+  let {
+    note,
+    onOpen,
+    onMenu,
+  }: {
+    note: Note;
+    onOpen: (note: Note) => void;
+    onMenu?: (note: Note, rect: DOMRect) => void;
+  } = $props();
 
   const marker = $derived(
     note.pinned
@@ -22,12 +30,92 @@
   const reminder = $derived(
     note.reminder_at !== null ? formatReminderAt(note.reminder_at, note.reminder_repeat) : null,
   );
+
+  // ── Долгий тач ──────────────────────────────────────────────
+  // Удержание 300 мс без движения >10px открывает меню и подавляет
+  // следующий клик (иначе вместе с меню откроется и оверлей).
+  const LONG_PRESS_MS = 300;
+  const MOVE_THRESHOLD = 10;
+
+  let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  let longPressTriggered = false;
+  let startX = 0;
+  let startY = 0;
+
+  function clearPressTimer(): void {
+    if (pressTimer !== null) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+  }
+
+  function onPointerDown(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    // Элемент захватываем сразу: внутри setTimeout у события currentTarget уже null.
+    const el = e.currentTarget as HTMLElement;
+    startX = e.clientX;
+    startY = e.clientY;
+    longPressTriggered = false;
+    clearPressTimer();
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      longPressTriggered = true;
+      suppressNextClick();
+      onMenu?.(note, el.getBoundingClientRect());
+    }, LONG_PRESS_MS);
+  }
+
+  /** Перехватывает один следующий click (capture на window): при отпускании пальца
+      после долгого тача браузер «кликает» по только что открытому меню/подложке
+      и закрыл бы его — гасим этот клик до наших обработчиков. */
+  function suppressNextClick(): void {
+    const handler = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.removeEventListener('click', handler, true);
+    };
+    window.addEventListener('click', handler, true);
+    // Страховка: если click не придёт, слушатель не должен висеть.
+    setTimeout(() => window.removeEventListener('click', handler, true), 1000);
+  }
+
+  function onPointerMove(e: PointerEvent): void {
+    if (pressTimer === null) return;
+    if (
+      Math.abs(e.clientX - startX) > MOVE_THRESHOLD ||
+      Math.abs(e.clientY - startY) > MOVE_THRESHOLD
+    ) {
+      clearPressTimer();
+    }
+  }
+
+  function onCardClick(): void {
+    if (longPressTriggered) {
+      // Клик после долгого тача: меню уже открыто, оверлей не показываем.
+      longPressTriggered = false;
+      return;
+    }
+    onOpen(note);
+  }
+
+  // Android Chrome генерирует contextmenu при долгом таче; на десктопе
+  // правый клик открывает то же меню.
+  function onContextMenu(e: MouseEvent): void {
+    e.preventDefault();
+    if (longPressTriggered) return;
+    onMenu?.(note, (e.currentTarget as HTMLElement).getBoundingClientRect());
+  }
 </script>
 
 <button
   type="button"
-  class="flex w-full select-none items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] active:bg-border/50"
-  onclick={() => onOpen(note)}
+  class="flex w-full touch-manipulation select-none items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] active:bg-border/50 [-webkit-touch-callout:none]"
+  onclick={onCardClick}
+  onpointerdown={onPointerDown}
+  onpointermove={onPointerMove}
+  onpointerup={clearPressTimer}
+  onpointercancel={clearPressTimer}
+  oncontextmenu={onContextMenu}
 >
   {#if marker !== null}
     <span class="w-5 shrink-0 text-center text-sm leading-6">{marker}</span>

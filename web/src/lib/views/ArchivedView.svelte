@@ -6,6 +6,7 @@
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
+  import NoteMenu from '$lib/components/NoteMenu.svelte';
   import {
     archivedStore,
     loadArchived,
@@ -22,6 +23,23 @@
       ? null
       : archivedStore.notes.find((n) => n.id === selectedId) ?? null,
   );
+
+  // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент открытия.
+  let menuNoteId: number | null = $state(null);
+  let menuRect: DOMRect | null = $state(null);
+  const menuNote = $derived(
+    menuNoteId === null ? null : archivedStore.notes.find((n) => n.id === menuNoteId) ?? null,
+  );
+
+  function openMenu(note: Note, rect: DOMRect): void {
+    menuNoteId = note.id;
+    menuRect = rect;
+  }
+
+  function closeMenu(): void {
+    menuNoteId = null;
+    menuRect = null;
+  }
 
   let busy = $state(false);
   let error = $state('');
@@ -106,7 +124,7 @@
       <div class="flex flex-col gap-2 px-3 py-3">
         {#each archivedStore.notes as note, i (note.id)}
           <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
-            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} />
+            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} onMenu={openMenu} />
           </div>
         {/each}
       </div>
@@ -167,4 +185,8 @@
     }}
     onConfirm={() => doDelete(selectedNote)}
   />
+{/if}
+
+{#if menuNote !== null && menuRect !== null}
+  <NoteMenu note={menuNote} rect={menuRect} archived onClose={closeMenu} />
 {/if}

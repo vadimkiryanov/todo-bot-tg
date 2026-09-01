@@ -16,16 +16,17 @@
     toggleDone,
     togglePin,
   } from '../stores/notes.svelte';
-  import type { Note, Priority, ReminderRepeat } from '../types/api';
-  import { formatReminderAt, markdownFromEntities, renderNoteHtml } from '../utils/format';
+  import type { Note, ReminderRepeat } from '../types/api';
+  import {
+    formatReminderAt,
+    markdownFromEntities,
+    nextPriority,
+    priorityEmoji,
+    priorityLabel,
+    renderNoteHtml,
+  } from '../utils/format';
 
   let { note, onClose }: { note: Note; onClose: () => void } = $props();
-
-  const priorities: { value: Priority; emoji: string }[] = [
-    { value: 'high', emoji: '🔴' },
-    { value: 'medium', emoji: '🟡' },
-    { value: 'low', emoji: '🔵' },
-  ];
 
   let editing = $state(false);
   let editText = $state('');
@@ -182,12 +183,12 @@
     }
   }
 
-  async function doSetPriority(priority: Priority): Promise<void> {
+  /** Циклическое переключение приоритета (как в боте: клик по кнопке статуса). */
+  async function doCyclePriority(): Promise<void> {
     busy = true;
     error = '';
     try {
-      // Тап по активному приоритету — снять (none).
-      await setPriority(note, note.priority === priority ? 'none' : priority);
+      await setPriority(note, nextPriority(note.priority));
     } catch (e) {
       error = e instanceof Error ? e.message : 'ошибка';
     } finally {
@@ -299,20 +300,18 @@
             ✅
           </button>
 
-          {#each priorities as p (p.value)}
-            <button
-              type="button"
-              aria-label={`Приоритет ${p.value}`}
-              class="flex h-11 w-11 items-center justify-center rounded-full text-lg transition-transform active:scale-90 {note.priority ===
-              p.value
-                ? 'bg-border/60'
-                : 'bg-background'}"
-              disabled={busy}
-              onclick={() => doSetPriority(p.value)}
-            >
-              {p.emoji}
-            </button>
-          {/each}
+          <button
+            type="button"
+            aria-label={`Приоритет: ${priorityLabel(note.priority)} — нажмите, чтобы изменить`}
+            class="flex h-11 min-w-11 items-center justify-center gap-0.5 rounded-full px-2 text-base transition-transform active:scale-90 {note.priority ===
+            'none'
+              ? 'bg-background opacity-60'
+              : 'bg-background'}"
+            disabled={busy}
+            onclick={doCyclePriority}
+          >
+            🔄{priorityEmoji(note.priority)}
+          </button>
         </div>
 
         <div class="flex items-center justify-between gap-1">

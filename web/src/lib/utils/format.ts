@@ -2,7 +2,7 @@
 // безопасный HTML-рендер. offsets/length — в UTF-16 единицах (как у Telegram),
 // поэтому String.slice (тоже UTF-16) совпадает по позициям.
 
-import type { NoteEntity, ReminderRepeat } from '../types/api';
+import type { NoteEntity, Priority, ReminderRepeat } from '../types/api';
 
 // --- Markdown → entities (зеркало parseMarkdownEntities в Go) ---
 
@@ -267,4 +267,40 @@ export function markdownFromEntities(text: string, entities: NoteEntity[]): stri
   }
   out += text.slice(pos);
   return out;
+}
+
+// --- Приоритет: цикл и отображение (зеркало бота: None→Low→Medium→High→None) ---
+
+export const priorityOrder: Priority[] = ['none', 'low', 'medium', 'high'];
+
+/** Следующий приоритет по циклу бота (клик по переключателю). */
+export function nextPriority(p: Priority): Priority {
+  const i = priorityOrder.indexOf(p);
+  return priorityOrder[(i + 1) % priorityOrder.length];
+}
+
+export function priorityEmoji(p: Priority): string {
+  switch (p) {
+    case 'high':
+      return '🔴';
+    case 'medium':
+      return '🟡';
+    case 'low':
+      return '🔵';
+    default:
+      return '—';
+  }
+}
+
+export function priorityLabel(p: Priority): string {
+  switch (p) {
+    case 'high':
+      return 'высокий';
+    case 'medium':
+      return 'средний';
+    case 'low':
+      return 'низкий';
+    default:
+      return 'нет';
+  }
 }

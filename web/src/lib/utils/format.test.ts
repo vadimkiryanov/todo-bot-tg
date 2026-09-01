@@ -3,7 +3,10 @@ import {
   firstLineHtml,
   formatReminderAt,
   markdownFromEntities,
+  nextPriority,
   parseMarkdown,
+  priorityEmoji,
+  priorityLabel,
   renderNoteHtml,
 } from './format';
 
@@ -112,5 +115,23 @@ describe('formatReminderAt', () => {
     );
     const text = formatReminderAt(tomorrow.toISOString(), 'once');
     expect(text).toMatch(/^завтра, в \d{1,2}:\d{2}$/);
+  });
+});
+
+describe('приоритет', () => {
+  it('цикл как в боте: None→Low→Medium→High→None', () => {
+    expect(nextPriority('none')).toBe('low');
+    expect(nextPriority('low')).toBe('medium');
+    expect(nextPriority('medium')).toBe('high');
+    expect(nextPriority('high')).toBe('none');
+  });
+
+  it('эмодзи и подпись', () => {
+    expect(priorityEmoji('high')).toBe('🔴');
+    expect(priorityEmoji('medium')).toBe('🟡');
+    expect(priorityEmoji('low')).toBe('🔵');
+    expect(priorityEmoji('none')).toBe('—');
+    expect(priorityLabel('high')).toBe('высокий');
+    expect(priorityLabel('none')).toBe('нет');
   });
 });

@@ -98,6 +98,11 @@ html {
   }
 }
 
+/* Дропдаун-меню действий заметки: лёгкий scale+fade */
+.menu-anim {
+  animation: pop-in 0.16s ease-out;
+}
+
 /* Появление карточек списка: stagger через animation-delay на обёртке */
 @keyframes note-in {
   from {
@@ -129,6 +134,7 @@ html {
   .backdrop-out,
   .sheet-anim,
   .sheet-out,
+  .menu-anim,
   .note-enter,
   .empty-bob {
     animation: none !important;

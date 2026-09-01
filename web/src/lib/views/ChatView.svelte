@@ -6,6 +6,7 @@
   import FolderBar from '$lib/components/FolderBar.svelte';
   import InputBar from '$lib/components/InputBar.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
+  import NoteMenu from '$lib/components/NoteMenu.svelte';
   import NoteOverlay from '$lib/components/NoteOverlay.svelte';
   import TopicTabs from '$lib/components/TopicTabs.svelte';
   import { loadFolders } from '$lib/stores/folders.svelte';
@@ -13,6 +14,7 @@
   import { loadArchived, loadNotes, notesStore } from '$lib/stores/notes.svelte';
   import { logout, session } from '$lib/stores/session.svelte';
   import { loadTopics, topicsStore } from '$lib/stores/topics.svelte';
+  import type { Note } from '$lib/types/api';
 
   // Актуальная заметка для оверлея — из store по id (после мутаций объект обновляется).
   let selectedId: number | null = $state(null);
@@ -21,6 +23,23 @@
       ? null
       : notesStore.notes.find((n) => n.id === selectedId) ?? null,
   );
+
+  // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент открытия.
+  let menuNoteId: number | null = $state(null);
+  let menuRect: DOMRect | null = $state(null);
+  const menuNote = $derived(
+    menuNoteId === null ? null : notesStore.notes.find((n) => n.id === menuNoteId) ?? null,
+  );
+
+  function openMenu(note: Note, rect: DOMRect): void {
+    menuNoteId = note.id;
+    menuRect = rect;
+  }
+
+  function closeMenu(): void {
+    menuNoteId = null;
+    menuRect = null;
+  }
 
   async function doLogout(): Promise<void> {
     await logout();
@@ -121,7 +140,7 @@
       <div class="flex flex-col gap-2 px-3 py-3">
         {#each notesStore.notes as note, i (note.id)}
           <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
-            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} />
+            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} onMenu={openMenu} />
           </div>
         {/each}
       </div>
@@ -135,4 +154,8 @@
 
 {#if selectedNote !== null}
   <NoteOverlay note={selectedNote} onClose={() => (selectedId = null)} />
+{/if}
+
+{#if menuNote !== null && menuRect !== null}
+  <NoteMenu note={menuNote} rect={menuRect} onClose={closeMenu} />
 {/if}
