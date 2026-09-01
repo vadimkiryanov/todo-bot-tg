@@ -103,8 +103,10 @@
       <EmptyState emoji="🗄" text="Архив пуст" />
     {:else}
       <div class="flex flex-col gap-2 px-3 py-3">
-        {#each archivedStore.notes as note (note.id)}
-          <NoteCard {note} onOpen={(n) => (selectedId = n.id)} />
+        {#each archivedStore.notes as note, i (note.id)}
+          <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
+            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} />
+          </div>
         {/each}
       </div>
     {/if}
@@ -157,7 +159,7 @@
           <button
             type="button"
             aria-label="Вернуть из архива"
-            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg"
+            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
             disabled={busy}
             onclick={() => doUnarchive(selectedNote)}
           >
@@ -166,7 +168,7 @@
           <button
             type="button"
             aria-label="Удалить"
-            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg"
+            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
             disabled={busy}
             onclick={() => {
               confirmDelete = true;

@@ -122,7 +122,7 @@
     <div class="touch-strip no-scrollbar flex items-center gap-1 overflow-x-auto">
       <button
         type="button"
-        class="flex h-10 shrink-0 items-center rounded-full px-3 text-sm {navigation.activeFolderID ===
+        class="flex h-10 shrink-0 items-center rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] {navigation.activeFolderID ===
         null
           ? 'bg-accent-strong text-white'
           : 'bg-background text-muted'}"
@@ -134,7 +134,7 @@
         <span class="shrink-0 text-muted">›</span>
         <button
           type="button"
-          class="max-w-40 truncate rounded-full px-3 py-2 text-sm {folder.id ===
+          class="max-w-40 truncate rounded-full px-3 py-2 text-sm transition-[background-color,transform] active:scale-[0.97] {folder.id ===
           navigation.activeFolderID
             ? 'bg-accent-strong text-white'
             : 'bg-background text-content'}"
@@ -146,7 +146,7 @@
       <button
         type="button"
         aria-label="Создать папку"
-        class="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-colors active:bg-border"
+        class="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
         onclick={() => {
           createError = '';
           createName = '';
@@ -163,7 +163,7 @@
         {#each children as folder (folder.id)}
           <button
             type="button"
-            class="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-background px-4 text-sm text-content transition-colors active:bg-border"
+            class="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-background px-4 text-sm text-content transition-[background-color,transform] active:scale-[0.97] active:bg-border"
             onpointerdown={() => handlePointerDown(folder.id)}
             onpointerup={cancelLongPress}
             onpointercancel={cancelLongPress}

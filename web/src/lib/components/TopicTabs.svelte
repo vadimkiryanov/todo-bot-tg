@@ -109,7 +109,7 @@
   {#each topicsStore.topics as topic (topic.id)}
     <button
       type="button"
-      class="flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm transition-colors {topic.id === navigation.activeTopicID
+      class="flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm transition-[background-color,transform] active:scale-[0.97] {topic.id === navigation.activeTopicID
         ? 'bg-accent-strong text-white'
         : 'bg-background text-content'}"
       class:active={topic.id === navigation.activeTopicID}
@@ -128,7 +128,7 @@
   <button
     type="button"
     aria-label="Создать топик"
-    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-colors active:bg-border"
+    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
     onclick={() => {
       createError = '';
       createName = '';

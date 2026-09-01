@@ -207,7 +207,7 @@
           <button
             type="button"
             aria-label={note.done ? 'Вернуть в работу' : 'Выполнить'}
-            class="flex h-11 w-11 items-center justify-center rounded-full text-lg {note.done
+            class="flex h-11 w-11 items-center justify-center rounded-full text-lg transition-transform active:scale-90 {note.done
               ? 'bg-border/60'
               : 'bg-background'}"
             disabled={busy}
@@ -220,7 +220,7 @@
             <button
               type="button"
               aria-label={`Приоритет ${p.value}`}
-              class="flex h-11 w-11 items-center justify-center rounded-full text-lg {note.priority ===
+              class="flex h-11 w-11 items-center justify-center rounded-full text-lg transition-transform active:scale-90 {note.priority ===
               p.value
                 ? 'bg-border/60'
                 : 'bg-background'}"
@@ -236,7 +236,7 @@
           <button
             type="button"
             aria-label={note.pinned ? 'Открепить' : 'Закрепить'}
-            class="flex h-11 w-11 items-center justify-center rounded-full text-lg {note.pinned
+            class="flex h-11 w-11 items-center justify-center rounded-full text-lg transition-transform active:scale-90 {note.pinned
               ? 'bg-border/60'
               : 'bg-background'}"
             disabled={busy}

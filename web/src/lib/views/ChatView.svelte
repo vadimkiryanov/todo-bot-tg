@@ -119,8 +119,10 @@
       <EmptyState />
     {:else}
       <div class="flex flex-col gap-2 px-3 py-3">
-        {#each notesStore.notes as note (note.id)}
-          <NoteCard {note} onOpen={(n) => (selectedId = n.id)} />
+        {#each notesStore.notes as note, i (note.id)}
+          <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
+            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} />
+          </div>
         {/each}
       </div>
     {/if}

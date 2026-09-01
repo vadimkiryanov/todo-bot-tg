@@ -36,6 +36,105 @@ html {
   height: 100%;
 }
 
+/* ── Анимации ─────────────────────────────────────────────
+   Шторки/модалки: появление (fade подложки + slide-up панели) и скрытие
+   (классы .*-out с fill: forwards — элементы удерживаются невидимыми,
+   пока родитель не размонтирует модалку). */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes sheet-in {
+  from {
+    transform: translateY(48px);
+    opacity: 0.4;
+  }
+}
+@keyframes sheet-out {
+  to {
+    transform: translateY(48px);
+    opacity: 0;
+  }
+}
+@keyframes pop-in {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+}
+@keyframes pop-out {
+  to {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+}
+
+.backdrop-anim {
+  animation: fade-in 0.2s ease-out;
+}
+.backdrop-out {
+  animation: fade-out 0.16s ease-in forwards;
+}
+.sheet-anim {
+  animation: sheet-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sheet-out {
+  animation: sheet-out 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@media (min-width: 640px) {
+  /* Десктоп: шторка — центрированный диалог, анимация scale+fade */
+  .sheet-anim {
+    animation-name: pop-in;
+  }
+  .sheet-out {
+    animation-name: pop-out;
+  }
+}
+
+/* Появление карточек списка: stagger через animation-delay на обёртке */
+@keyframes note-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.note-enter {
+  animation: note-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Лёгкое покачивание эмодзи на пустых экранах */
+@keyframes empty-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+.empty-bob {
+  display: inline-block;
+  animation: empty-bob 3.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop-anim,
+  .backdrop-out,
+  .sheet-anim,
+  .sheet-out,
+  .note-enter,
+  .empty-bob {
+    animation: none !important;
+  }
+}
+
 /* SvelteKit рендерит layout в div[data-sveltekit-preload-data] с display:contents —
    корневой layout занимает 100% высоты body (класс h-full). */
 

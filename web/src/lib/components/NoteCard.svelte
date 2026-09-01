@@ -21,7 +21,7 @@
 
 <button
   type="button"
-  class="flex w-full items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-colors active:bg-border/50"
+  class="flex w-full select-none items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] active:bg-border/50"
   onclick={() => onOpen(note)}
 >
   {#if marker !== null}
