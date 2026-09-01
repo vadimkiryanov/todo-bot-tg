@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
   import {
@@ -115,70 +116,55 @@
 
 {#if selectedNote !== null}
   <Modal open onClose={() => (selectedId = null)}>
-    {#if confirmDelete}
-      <div class="flex flex-col gap-4 px-1 py-2">
-        <h2 class="text-lg font-semibold">Удалить заметку?</h2>
-        {#if error}
-          <p class="text-sm text-danger">{error}</p>
-        {/if}
-        <div class="flex gap-2">
-          <button
-            type="button"
-            class="h-11 flex-1 rounded-xl border border-border text-sm"
-            onclick={() => {
-              confirmDelete = false;
-              error = '';
-            }}
-          >
-            Отмена
-          </button>
-          <button
-            type="button"
-            class="h-11 flex-1 rounded-xl bg-danger text-sm font-medium text-white disabled:opacity-50"
-            disabled={busy}
-            onclick={() => doDelete(selectedNote)}
-          >
-            Удалить
-          </button>
-        </div>
+    <div class="flex flex-col gap-4 px-1 py-2">
+      <div
+        class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 {selectedNote
+          .done
+          ? 'text-muted line-through'
+          : 'text-content'}"
+      >
+        {@html renderNoteHtml(selectedNote.text, selectedNote.entities)}
       </div>
-    {:else}
-      <div class="flex flex-col gap-4 px-1 py-2">
-        <div
-          class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 {selectedNote
-            .done
-            ? 'text-muted line-through'
-            : 'text-content'}"
+      {#if error}
+        <p class="text-sm text-danger">{error}</p>
+      {/if}
+      <div class="flex items-center justify-between gap-1">
+        <button
+          type="button"
+          aria-label="Вернуть из архива"
+          class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
+          disabled={busy}
+          onclick={() => doUnarchive(selectedNote)}
         >
-          {@html renderNoteHtml(selectedNote.text, selectedNote.entities)}
-        </div>
-        {#if error}
-          <p class="text-sm text-danger">{error}</p>
-        {/if}
-        <div class="flex items-center justify-between gap-1">
-          <button
-            type="button"
-            aria-label="Вернуть из архива"
-            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
-            disabled={busy}
-            onclick={() => doUnarchive(selectedNote)}
-          >
-            ↩️
-          </button>
-          <button
-            type="button"
-            aria-label="Удалить"
-            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
-            disabled={busy}
-            onclick={() => {
-              confirmDelete = true;
-              error = '';
-            }}
-          >
-            🗑
-          </button>
-        </div>
+          ↩️
+        </button>
+        <button
+          type="button"
+          aria-label="Удалить"
+          class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
+          disabled={busy}
+          onclick={() => {
+            confirmDelete = true;
+            error = '';
+          }}
+        >
+          🗑
+        </button>
       </div>
-    {/if}
+    </div>
   </Modal>
+{/if}
+
+{#if selectedNote !== null && confirmDelete}
+  <ConfirmModal
+    title="Удалить заметку?"
+    text="Заметка будет удалена безвозвратно"
+    {busy}
+    {error}
+    onClose={() => {
+      confirmDelete = false;
+      error = '';
+    }}
+    onConfirm={() => doDelete(selectedNote)}
+  />
 {/if}

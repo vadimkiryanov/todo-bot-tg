@@ -1,6 +1,7 @@
 <script lang="ts">
   // Папки под табами топиков: хлебные крошки (навигация вверх) + папки уровня (вход вниз).
   // «＋» — создать папку на текущем уровне; долгий тап по папке — меню (переименовать/удалить).
+  import ConfirmModal from './ConfirmModal.svelte';
   import Modal from './Modal.svelte';
   import {
     createFolder,
@@ -21,6 +22,9 @@
   let menuError = $state('');
   let renameMode = $state(false);
   let renameName = $state('');
+
+  let showDelete = $state(false);
+  let deleteError = $state('');
 
   let busy = $state(false);
   let longPressTimer: number | undefined;
@@ -96,15 +100,16 @@
     }
   }
 
-  async function confirmDelete(): Promise<void> {
+  async function doDelete(): Promise<void> {
     if (menuFolder === null) return;
     busy = true;
-    menuError = '';
+    deleteError = '';
     try {
       await deleteFolder(menuFolder.id);
+      showDelete = false;
       closeMenu();
     } catch (e) {
-      menuError = e instanceof Error ? e.message : 'ошибка';
+      deleteError = e instanceof Error ? e.message : 'ошибка';
     } finally {
       busy = false;
     }
@@ -277,8 +282,8 @@
           type="button"
           class="flex h-12 items-center gap-3 rounded-xl px-2 text-base text-danger"
           onclick={() => {
-            menuError = '';
-            confirmDelete();
+            deleteError = '';
+            showDelete = true;
           }}
         >
           <span>🗑</span> Удалить
@@ -293,6 +298,20 @@
       </div>
     {/if}
   </Modal>
+{/if}
+
+{#if showDelete && menuFolder !== null}
+  <ConfirmModal
+    title="Удалить папку?"
+    text="Вместе с папкой удалятся все вложенные папки и заметки"
+    {busy}
+    error={deleteError}
+    onClose={() => {
+      showDelete = false;
+      deleteError = '';
+    }}
+    onConfirm={doDelete}
+  />
 {/if}
 
 <style>

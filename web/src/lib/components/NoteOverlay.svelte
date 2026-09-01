@@ -2,6 +2,7 @@
   // Оверлей заметки: полный текст + действия.
   // ✅ — выполнить/вернуть, 🔴🟡🔵 — приоритет (тап по активному снимает),
   // ✏️ — редактирование, 🗑 — удаление с подтверждением.
+  import ConfirmModal from './ConfirmModal.svelte';
   import Modal from './Modal.svelte';
   import MoveModal from './MoveModal.svelte';
   import {
@@ -123,34 +124,7 @@
 </script>
 
 <Modal open onClose={onClose}>
-  {#if confirmDelete}
-    <div class="flex flex-col gap-4 px-1 py-2">
-      <h2 class="text-lg font-semibold">Удалить заметку?</h2>
-      {#if error}
-        <p class="text-sm text-danger">{error}</p>
-      {/if}
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="h-11 flex-1 rounded-xl border border-border text-sm"
-          onclick={() => {
-            confirmDelete = false;
-            error = '';
-          }}
-        >
-          Отмена
-        </button>
-        <button
-          type="button"
-          class="h-11 flex-1 rounded-xl bg-danger text-sm font-medium text-white disabled:opacity-50"
-          disabled={busy}
-          onclick={doDelete}
-        >
-          Удалить
-        </button>
-      </div>
-    </div>
-  {:else if editing}
+  {#if editing}
     <form
       class="flex flex-col gap-3"
       onsubmit={(e) => {
@@ -294,6 +268,20 @@
     </div>
   {/if}
 </Modal>
+
+{#if confirmDelete}
+  <ConfirmModal
+    title="Удалить заметку?"
+    text="Заметка будет удалена безвозвратно"
+    {busy}
+    {error}
+    onClose={() => {
+      confirmDelete = false;
+      error = '';
+    }}
+    onConfirm={doDelete}
+  />
+{/if}
 
 {#if showMove}
   <MoveModal
