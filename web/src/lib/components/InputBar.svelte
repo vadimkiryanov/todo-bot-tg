@@ -78,8 +78,8 @@
 
 <div class="relative flex items-end gap-2 px-3 py-2">
   {#if menuOpen}
-    <!-- Прозрачная подложка: тап вне меню — закрыть -->
-    <div class="fixed inset-0 z-40" onclick={closeMenu} aria-hidden="true"></div>
+    <!-- Затемняющая подложка: тап вне меню — закрыть -->
+    <div class="backdrop-anim fixed inset-0 z-40 bg-black/40" onclick={closeMenu} aria-hidden="true"></div>
     <div
       class="menu-anim absolute bottom-full left-2 z-50 mb-2 flex w-56 flex-col gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl"
       role="menu"

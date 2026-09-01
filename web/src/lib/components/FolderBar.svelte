@@ -18,6 +18,13 @@
   let createName = $state('');
   let createError = $state('');
 
+  // Автофокус в инпут при открытии формы создания папки
+  // (autofocus-атрибут в Safari/повторном открытии не срабатывает).
+  let createInput = $state<HTMLInputElement | undefined>();
+  $effect(() => {
+    if (showCreate) createInput?.focus();
+  });
+
   let menuFolder: Folder | null = $state(null);
   let menuError = $state('');
   let renameMode = $state(false);
@@ -194,14 +201,13 @@
       }}
     >
       <h2 class="text-lg font-semibold">Новая папка</h2>
-      <!-- svelte-ignore a11y_autofocus -->
       <input
         type="text"
+        bind:this={createInput}
         bind:value={createName}
         placeholder="Название"
         maxlength="64"
         class="h-11 rounded-xl border border-border bg-background px-4 text-base outline-none focus:border-accent"
-        autofocus
       />
       {#if createError}
         <p class="text-sm text-danger">{createError}</p>
