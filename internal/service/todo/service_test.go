@@ -148,6 +148,28 @@ func TestService_ListNotes_SortByPriority(t *testing.T) {
 	}
 }
 
+func TestService_ListNotes_NewestFirstWithinGroup(t *testing.T) {
+	svc := newTestService(t)
+
+	// Одинаковый приоритет: внутри группы самые свежие созданные — сверху.
+	first, _ := svc.AddNote(1, 0, nil, "Старая", nil, model.PriorityNone)
+	second, _ := svc.AddNote(1, 0, nil, "Свежая", nil, model.PriorityNone)
+
+	notes, err := svc.ListNotes(1, 0, nil)
+	if err != nil {
+		t.Fatalf("ListNotes() error: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("len = %d, want 2", len(notes))
+	}
+	if notes[0].ID != second.ID {
+		t.Errorf("notes[0].ID = %d, want %d (newest must be first)", notes[0].ID, second.ID)
+	}
+	if notes[1].ID != first.ID {
+		t.Errorf("notes[1].ID = %d, want %d (oldest must be second)", notes[1].ID, first.ID)
+	}
+}
+
 func TestService_ListNotes_DoneGoesToEnd(t *testing.T) {
 	svc := newTestService(t)
 

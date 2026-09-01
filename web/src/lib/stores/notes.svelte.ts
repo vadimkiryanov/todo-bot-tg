@@ -18,10 +18,13 @@ export const notesStore = $state<{
   notes: Note[];
   loading: boolean;
   error: string | null;
+  /** ID только что созданной заметки — карточка подсвечивается пару секунд. */
+  highlightedId: number | null;
 }>({
   notes: [],
   loading: false,
   error: null,
+  highlightedId: null,
 });
 
 /** Архивные заметки (все топики). */
@@ -91,7 +94,13 @@ export async function createNote(text: string, opts: CreateNoteOptions = {}): Pr
   const folderId = navigation.activeFolderID;
   const note = await apiCreateNote(topicId, text, folderId, opts);
   notesStore.notes = [...notesStore.notes, note];
+  notesStore.highlightedId = note.id;
   await loadNotes(topicId, folderId, true);
+}
+
+/** Снять подсветку «только что добавленной» заметки. */
+export function clearNoteHighlight(): void {
+  notesStore.highlightedId = null;
 }
 
 /** Перемещение заметки в папку (folderId null — в корень) активного топика. */
@@ -210,6 +219,7 @@ export function resetNotes(): void {
   notesStore.notes = [];
   notesStore.loading = false;
   notesStore.error = null;
+  notesStore.highlightedId = null;
   archivedStore.notes = [];
   archivedStore.loading = false;
   archivedStore.error = null;

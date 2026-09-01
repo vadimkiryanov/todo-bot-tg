@@ -202,6 +202,7 @@ func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, e
 // ListNotes возвращает список заметок пользователя (с фильтрацией по топику и папке).
 // Закреплённые заметки идут первыми, затем активные по приоритету
 // (High > Medium > None > Low). Выполненные заметки идут после всех активных.
+// Внутри каждой группы — самые свежие созданные сверху (id растёт монотонно).
 func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error) {
 	notes, err := s.noteRepo.ListNotes(userID, topicID, folderID)
 	if err != nil {
@@ -218,7 +219,11 @@ func (s *Service) ListNotes(userID, topicID int64, folderID *int64) ([]model.Not
 			return !notes[i].Done
 		}
 		// Внутри группы — по приоритету
-		return notes[i].Priority.SortKey() < notes[j].Priority.SortKey()
+		if notes[i].Priority.SortKey() != notes[j].Priority.SortKey() {
+			return notes[i].Priority.SortKey() < notes[j].Priority.SortKey()
+		}
+		// При равном приоритете — самые свежие сверху
+		return notes[i].ID > notes[j].ID
 	})
 
 	return notes, nil

@@ -2,6 +2,7 @@
   // Экран чата: строка контекста (топик/папка), список заметок, поле ввода снизу.
   // Архив и выход — в бургер-меню нижней панели (InputBar); топики и папки —
   // в шторке строки контекста (ContextStrip, всегда видна).
+  import { onDestroy } from 'svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ContextStrip from '$lib/components/ContextStrip.svelte';
   import InputBar from '$lib/components/InputBar.svelte';
@@ -10,7 +11,7 @@
   import NoteOverlay from '$lib/components/NoteOverlay.svelte';
   import { loadFolders } from '$lib/stores/folders.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { loadNotes, notesStore } from '$lib/stores/notes.svelte';
+  import { clearNoteHighlight, loadNotes, notesStore } from '$lib/stores/notes.svelte';
   import { session } from '$lib/stores/session.svelte';
   import { loadTopics, topicsStore } from '$lib/stores/topics.svelte';
   import type { Note } from '$lib/types/api';
@@ -64,6 +65,27 @@
     if (topicId === null) return;
     void loadNotes(topicId, navigation.activeFolderID);
   });
+
+  // Подсветка «только что добавленной» заметки: держим ~3 сек и снимаем.
+  const HIGHLIGHT_MS = 3000;
+  let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const id = notesStore.highlightedId;
+    if (id === null) return;
+    if (highlightTimer !== null) clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(() => {
+      highlightTimer = null;
+      clearNoteHighlight();
+    }, HIGHLIGHT_MS);
+    return () => {
+      if (highlightTimer !== null) {
+        clearTimeout(highlightTimer);
+        highlightTimer = null;
+      }
+    };
+  });
+  // Уход со экрана чата — подсветку не возобновляем при возврате.
+  onDestroy(() => clearNoteHighlight());
 </script>
 
 <div class="flex h-full flex-col">
@@ -116,7 +138,12 @@
       <div class="flex flex-col gap-2 px-3 py-3">
         {#each notesStore.notes as note, i (note.id)}
           <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
-            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} onMenu={openMenu} />
+            <NoteCard
+              {note}
+              highlighted={notesStore.highlightedId === note.id}
+              onOpen={(n) => (selectedId = n.id)}
+              onMenu={openMenu}
+            />
           </div>
         {/each}
       </div>

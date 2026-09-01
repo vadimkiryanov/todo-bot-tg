@@ -8,6 +8,7 @@ import { setActiveFolder, setActiveTopic } from './navigation.svelte';
 import {
   archivedStore,
   archiveNote,
+  clearNoteHighlight,
   clearReminder,
   createNote,
   loadArchived,
@@ -49,7 +50,24 @@ describe('notes store', () => {
     await createNote('первая');
     await createNote('вторая');
 
-    expect(notesStore.notes.map((n) => n.text)).toEqual(['первая', 'вторая']);
+    // Свежие сверху (серверная сортировка).
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['вторая', 'первая']);
+  });
+
+  it('createNote подсвечивает созданную заметку (highlightedId)', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    // Стор — модульное состояние: сбрасываем подсветку от предыдущих тестов.
+    clearNoteHighlight();
+    expect(notesStore.highlightedId).toBeNull();
+
+    await createNote('новая');
+
+    const created = notesStore.notes[0];
+    expect(notesStore.highlightedId).toBe(created.id);
+
+    clearNoteHighlight();
+    expect(notesStore.highlightedId).toBeNull();
   });
 
   it('выполненная заметка уезжает в конец (серверная сортировка)', async () => {
@@ -58,9 +76,10 @@ describe('notes store', () => {
     await createNote('первая');
     await createNote('вторая');
 
+    // Свежие сверху: notes[0] = 'вторая'.
     await toggleDone(notesStore.notes[0]);
 
-    expect(notesStore.notes.map((n) => n.text)).toEqual(['вторая', 'первая']);
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['первая', 'вторая']);
     expect(notesStore.notes[1].done).toBe(true);
   });
 
@@ -70,9 +89,10 @@ describe('notes store', () => {
     await createNote('обычная');
     await createNote('важная');
 
+    // Свежие сверху: notes = ['важная', 'обычная']; поднимаем 'обычную' → high.
     await setPriority(notesStore.notes[1], 'high');
 
-    expect(notesStore.notes.map((n) => n.text)).toEqual(['важная', 'обычная']);
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['обычная', 'важная']);
     expect(notesStore.notes[0].priority).toBe('high');
   });
 
@@ -110,13 +130,15 @@ describe('notes store', () => {
     await createNote('первая');
     await createNote('вторая');
 
+    // Свежие сверху: notes = ['вторая', 'первая']; закрепляем 'первую'.
     await togglePin(notesStore.notes[1]);
 
-    expect(notesStore.notes.map((n) => n.text)).toEqual(['вторая', 'первая']);
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['первая', 'вторая']);
     expect(notesStore.notes[0].pinned).toBe(true);
 
-    // Открепление возвращает порядок.
+    // Открепление возвращает порядок (свежие сверху).
     await togglePin(notesStore.notes[0]);
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['вторая', 'первая']);
     expect(notesStore.notes[0].pinned).toBe(false);
   });
 
@@ -126,7 +148,8 @@ describe('notes store', () => {
     await createNote('первая');
     await createNote('в архив');
 
-    await archiveNote(notesStore.notes[1]);
+    // Свежие сверху: notes[0] = 'в архив'.
+    await archiveNote(notesStore.notes[0]);
 
     expect(notesStore.notes.map((n) => n.text)).toEqual(['первая']);
 

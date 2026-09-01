@@ -114,6 +114,20 @@ html {
   animation: note-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Подсветка только что добавленной заметки: акцентная заливка карточки,
+   плавно уходящая в цвет поверхности (как «вспышка» нового сообщения). */
+@keyframes note-flash {
+  from {
+    background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-surface));
+  }
+  to {
+    background-color: var(--color-surface);
+  }
+}
+.note-highlight {
+  animation: note-flash 2.8s ease-out both;
+}
+
 /* Лёгкое покачивание эмодзи на пустых экранах */
 @keyframes empty-bob {
   0%,
@@ -138,6 +152,12 @@ html {
   .note-enter,
   .empty-bob {
     animation: none !important;
+  }
+  /* Подсветка без анимации: статичная акцентная заливка на время подсветки
+     (класс снимается таймером, поэтому плавного ухода не требуется). */
+  .note-highlight {
+    animation: none;
+    background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-surface));
   }
 }
 

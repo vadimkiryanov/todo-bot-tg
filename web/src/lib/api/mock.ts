@@ -206,7 +206,8 @@ function toFolder(rec: FolderRecord): Folder {
   };
 }
 
-/** Сортировка как у бота: pinned → High → Medium → None → Low, done в конце. */
+/** Сортировка как у бота: pinned → High → Medium → None → Low, done в конце;
+    внутри группы — самые свежие созданные сверху. */
 function sortNotes(notes: NoteRecord[]): NoteRecord[] {
   const priorityRank: Record<Priority, number> = {
     high: 0,
@@ -220,7 +221,7 @@ function sortNotes(notes: NoteRecord[]): NoteRecord[] {
     const pa = priorityRank[a.priority];
     const pb = priorityRank[b.priority];
     if (pa !== pb) return pa - pb;
-    return a.id - b.id;
+    return b.id - a.id;
   });
 }
 

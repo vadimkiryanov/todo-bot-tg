@@ -9,10 +9,13 @@
     note,
     onOpen,
     onMenu,
+    highlighted = false,
   }: {
     note: Note;
     onOpen: (note: Note) => void;
     onMenu?: (note: Note, rect: DOMRect) => void;
+    /** Только что добавленная заметка — подсветка на пару секунд. */
+    highlighted?: boolean;
   } = $props();
 
   const marker = $derived(
@@ -125,7 +128,9 @@
 
 <button
   type="button"
-  class="flex w-full touch-manipulation select-none items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] active:bg-border/50 [-webkit-touch-callout:none]"
+  class="flex w-full touch-manipulation select-none items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] active:bg-border/50 [-webkit-touch-callout:none] {highlighted
+    ? 'note-highlight'
+    : ''}"
   onclick={onCardClick}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
