@@ -163,6 +163,19 @@ body {
   overscroll-behavior: none;
   /* PWA: страница не должна скроллиться сама, скроллится список заметок */
   overflow: hidden;
+  /* Выделение текста отключено везде: долгий тап по карточке/кнопке не
+     должен выделять соседние элементы (футер, панели). Поля ввода —
+     исключение ниже. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Поля ввода остаются редактируемыми: выделение текста в них включено. */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Скролл-контейнер списка заметок. overscroll-behavior-y: contain не даёт
