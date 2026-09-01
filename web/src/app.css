@@ -32,15 +32,18 @@
   }
 }
 
-html,
-body {
+html {
   height: 100%;
 }
 
 /* SvelteKit рендерит layout в div[data-sveltekit-preload-data] с display:contents —
-   корневой layout сам занимает 100% высоты (класс h-full). */
+   корневой layout занимает 100% высоты body (класс h-full). */
 
 body {
+  /* Динамическая высота вьюпорта: реагирует на показ/скрытие URL-панели
+     и (на Android) клавиатуры. Футер с инпутом всегда остаётся на экране,
+     скроллится только список заметок. */
+  height: 100dvh;
   margin: 0;
   background: var(--color-background);
   color: var(--color-content);

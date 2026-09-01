@@ -155,7 +155,7 @@
         bind:value={createName}
         placeholder="Название"
         maxlength="64"
-        class="h-11 rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-accent"
+        class="h-11 rounded-xl border border-border bg-background px-4 text-base outline-none focus:border-accent"
         autofocus
       />
       {#if createError}
@@ -197,7 +197,7 @@
           type="text"
           bind:value={renameName}
           maxlength="64"
-          class="h-11 rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-accent"
+          class="h-11 rounded-xl border border-border bg-background px-4 text-base outline-none focus:border-accent"
           autofocus
         />
         {#if menuError}

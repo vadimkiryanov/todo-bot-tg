@@ -163,7 +163,7 @@
         bind:value={editText}
         rows="4"
         autofocus
-        class="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-[15px] leading-5 outline-none focus:border-accent"
+        class="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-base leading-5 outline-none focus:border-accent"
       ></textarea>
       <p class="text-xs text-muted">
         **жирный**, *курсив*, `код`, [ссылка](https://…)

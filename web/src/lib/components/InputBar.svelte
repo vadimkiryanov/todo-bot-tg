@@ -48,7 +48,7 @@
     placeholder="Написать заметку…"
     onkeydown={onKeydown}
     oninput={autoResize}
-    class="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-background px-4 py-3 text-[15px] leading-5 outline-none placeholder:text-muted focus:border-accent"
+    class="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-5 outline-none placeholder:text-muted focus:border-accent"
   ></textarea>
   <button
     type="button"
