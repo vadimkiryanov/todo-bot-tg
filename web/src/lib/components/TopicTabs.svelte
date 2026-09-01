@@ -12,16 +12,11 @@
 
   // Автофокус в инпут при открытии формы создания топика
   // (autofocus-атрибут в Safari/повторном открытии не срабатывает).
+  // Подъём шторки над клавиатурой — в Modal (visualViewport).
   let createInput = $state<HTMLInputElement | undefined>();
   $effect(() => {
     if (!showCreate) return;
     createInput?.focus();
-    // Мобильная клавиатура открывается с задержкой и сжимает вьюпорт —
-    // инпут может оказаться под ней; скроллим его в центр уже после.
-    const timer = setTimeout(() => {
-      createInput?.scrollIntoView({ block: 'center' });
-    }, 350);
-    return () => clearTimeout(timer);
   });
 
   let menuTopic: Topic | null = $state(null);

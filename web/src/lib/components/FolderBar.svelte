@@ -14,7 +14,6 @@
   } from '../stores/folders.svelte';
   import { navigation, setActiveFolder } from '../stores/navigation.svelte';
   import type { Folder } from '../types/api';
-  import type { FolderTreeNode } from '../stores/folders.svelte';
 
   let showCreate = $state(false);
   let createName = $state('');
@@ -22,16 +21,11 @@
 
   // Автофокус в инпут при открытии формы создания папки
   // (autofocus-атрибут в Safari/повторном открытии не срабатывает).
+  // Подъём шторки над клавиатурой — в Modal (visualViewport).
   let createInput = $state<HTMLInputElement | undefined>();
   $effect(() => {
     if (!showCreate) return;
     createInput?.focus();
-    // Мобильная клавиатура открывается с задержкой и сжимает вьюпорт —
-    // инпут может оказаться под ней; скроллим его в центр уже после.
-    const timer = setTimeout(() => {
-      createInput?.scrollIntoView({ block: 'center' });
-    }, 350);
-    return () => clearTimeout(timer);
   });
 
   let menuFolder: Folder | null = $state(null);
@@ -132,17 +126,6 @@
   }
 
   const tree = $derived(treeFolders());
-
-  /** Префикс из символов веток: уровни предков (│ или пусто), затем ├──/└──. */
-  function treeGuides(node: FolderTreeNode): string {
-    if (node.depth === 0) return '';
-    let s = '';
-    for (let k = 0; k < node.depth - 1; k++) {
-      s += node.continues[k] ? '│   ' : '    ';
-    }
-    s += node.isLast ? '└── ' : '├── ';
-    return s;
-  }
 </script>
 
 <div class="shrink-0 border-b border-border bg-surface px-3 py-2">
@@ -184,15 +167,13 @@
             navigation.activeFolderID
               ? 'bg-accent-strong text-white'
               : 'bg-background active:bg-border'}"
+            style={node.depth > 0 ? `padding-left: ${12 + node.depth * 16}px` : undefined}
             onpointerdown={() => handlePointerDown(node.folder.id)}
             onpointerup={cancelLongPress}
             onpointercancel={cancelLongPress}
             onpointerleave={cancelLongPress}
             onclick={() => onTap(node.folder.id)}
           >
-            {#if node.depth > 0}
-              <span class="tree-guides shrink-0" aria-hidden="true">{treeGuides(node)}</span>
-            {/if}
             <span class="shrink-0">📁</span>
             <span class="truncate">{node.folder.name}</span>
           </button>
@@ -348,13 +329,6 @@
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
-  }
-  /* Символы веток (│ ├ └ ─) выравниваются только в моноширинном шрифте. */
-  .tree-guides {
-    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-    font-size: 11px;
-    line-height: 1;
-    color: var(--color-border);
   }
   /* Шторка меню папки: долгий тап, открывший меню, может продолжаться уже
      на контенте шторки — выделение текста там не нужно. */
