@@ -121,7 +121,7 @@
     <span class="w-5 shrink-0 text-center text-sm leading-6">{marker}</span>
   {/if}
   <span
-    class="min-w-0 flex-1 text-[15px] leading-6 [&_a]:text-accent [&_a]:underline {note.done
+    class="min-w-0 flex-1 break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline {note.done
       ? 'text-muted line-through'
       : 'text-content'}"
   >
