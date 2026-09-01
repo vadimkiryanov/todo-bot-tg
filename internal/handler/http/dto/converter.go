@@ -37,17 +37,24 @@ func ToNoteResponse(n model.Note) NoteResponse {
 			URL:    e.URL,
 		})
 	}
+	var reminderAt *string
+	if n.ReminderAt != nil {
+		s := n.ReminderAt.Format(time.RFC3339)
+		reminderAt = &s
+	}
 	return NoteResponse{
-		ID:        n.ID,
-		Text:      n.Text,
-		Entities:  entities,
-		Priority:  PriorityString(n.Priority),
-		Done:      n.Done,
-		Pinned:    n.IsPinned(),
-		Archived:  n.Archived,
-		CreatedAt: n.CreatedAt.Format(time.RFC3339),
-		TopicID:   n.TopicID,
-		FolderID:  n.FolderID,
+		ID:             n.ID,
+		Text:           n.Text,
+		Entities:       entities,
+		Priority:       PriorityString(n.Priority),
+		Done:           n.Done,
+		Pinned:         n.IsPinned(),
+		Archived:       n.Archived,
+		CreatedAt:      n.CreatedAt.Format(time.RFC3339),
+		TopicID:        n.TopicID,
+		FolderID:       n.FolderID,
+		ReminderAt:     reminderAt,
+		ReminderRepeat: string(n.ReminderRepeat),
 	}
 }
 

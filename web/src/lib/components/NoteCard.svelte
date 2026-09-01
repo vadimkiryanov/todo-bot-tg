@@ -1,8 +1,9 @@
 <script lang="ts">
   // Карточка заметки: превью первой строки (с форматированием), слева — 📌 или эмодзи приоритета.
-  // Выполненная — зачёркнута и приглушена. Тап — открыть оверлей.
+  // Справа — ⏰ при установленном напоминании. Выполненная — зачёркнута и приглушена.
+  // Тап — открыть оверлей.
   import type { Note } from '../types/api';
-  import { firstLineHtml } from '../utils/format';
+  import { firstLineHtml, formatReminderAt } from '../utils/format';
 
   let { note, onOpen }: { note: Note; onOpen: (note: Note) => void } = $props();
 
@@ -16,6 +17,10 @@
           : note.priority === 'low'
             ? '🔵'
             : null,
+  );
+
+  const reminder = $derived(
+    note.reminder_at !== null ? formatReminderAt(note.reminder_at, note.reminder_repeat) : null,
   );
 </script>
 
@@ -34,4 +39,7 @@
   >
     {@html firstLineHtml(note.text, note.entities)}
   </span>
+  {#if reminder !== null}
+    <span class="shrink-0 text-sm leading-6" title={`⏰ ${reminder}`}>⏰</span>
+  {/if}
 </button>

@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	errs "todo-bot-tg/internal/errors"
 	"todo-bot-tg/internal/handler/http/dto"
@@ -207,4 +208,71 @@ func (h *todoHandler) deleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// setReminder обрабатывает PUT /api/v1/notes/{id}/reminder {at, repeat} → 200 Note.
+// at — ISO 8601 (RFC3339); одноразовое напоминание (once) должно быть в будущем.
+func (h *todoHandler) setReminder(w http.ResponseWriter, r *http.Request) {
+	noteID, err := pathID(r)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+
+	var input dto.ReminderRequest
+	if err := decodeJSON(r, &input); err != nil {
+		httperr.Write(w, errs.ErrInvalidJSON)
+		return
+	}
+
+	at, err := time.Parse(time.RFC3339, input.At)
+	if err != nil {
+		httperr.Write(w, errs.ErrInvalidJSON)
+		return
+	}
+	repeat, err := model.NewReminderRepeat(input.Repeat)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+	// Одноразовое напоминание не может быть в прошлом (как в боте).
+	if repeat == model.ReminderRepeatOnce && !at.After(time.Now().UTC()) {
+		httperr.Write(w, errs.ErrReminderInPast)
+		return
+	}
+
+	userID := middleware.UserID(r.Context())
+	if err := h.svc.SetReminder(userID, noteID, at, repeat); err != nil {
+		httperr.Write(w, err)
+		return
+	}
+
+	n, err := h.svc.GetNote(userID, noteID)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto.ToNoteResponse(n))
+}
+
+// clearReminder обрабатывает DELETE /api/v1/notes/{id}/reminder → 200 Note.
+func (h *todoHandler) clearReminder(w http.ResponseWriter, r *http.Request) {
+	noteID, err := pathID(r)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+
+	userID := middleware.UserID(r.Context())
+	if err := h.svc.ClearReminder(userID, noteID); err != nil {
+		httperr.Write(w, err)
+		return
+	}
+
+	n, err := h.svc.GetNote(userID, noteID)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto.ToNoteResponse(n))
 }

@@ -271,6 +271,14 @@
 
 ---
 
+## Этап 26: Веб — напоминания ⏰ (2026-09-01)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(в коммите)* | **feat: веб — напоминания** — управление напоминаниями в REST и веб-UI; доставка — через Telegram-бота (воркер `internal/worker/reminder` уже работает в `cmd/bot`, новая инфраструктура не нужна). **REST**: `PUT/DELETE /api/v1/notes/{id}/reminder` (`{at, repeat}`; `at` — RFC3339 UTC; `once` в прошлом → 400, как в боте; `DELETE` возвращает актуальную заметку). `NoteResponse` расширен: `reminder_at` (null — нет) и `reminder_repeat` (`once|daily`); `done: true` сбрасывает напоминание (существующий `MarkDone → ClearReminder`). **Фронтенд**: типы `ReminderRepeat`, `api/notes.ts` (`setReminder`/`clearReminder`), мок (PUT/DELETE reminder с валидацией прошлого времени), стор — оптимистичные мутации с откатом (`mutateReminder`, без перезагрузки — сортировку не меняет); UI в `NoteOverlay`: кнопка «⏰ Напомнить» → форма `datetime-local` (клик по полю сразу открывает нативный календарь через `showPicker()`, значение по умолчанию — ближайшие полчаса) + сегмент «Один раз/Ежедневно»; при активном напоминании — строка «⏰ в 14:05» + «Снять» и snooze «+15м/+30м/+1ч» (сдвиг с сохранением repeat); индикатор ⏰ на карточке (`NoteCard`) с подсказкой времени; утилита `formatReminderAt` (сегодня/завтра/дата, ежедневно). Проверки: `go test ./...` ok, `npm run check` 0 ошибок, `npm run build` успешен, `vitest` 35/35 (новые тесты reminder в notes.test.ts, formatReminderAt; Go — `reminders_test.go`) |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
@@ -282,7 +290,7 @@
 | **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML); userID = `users.id` через `UserResolver` |
 | **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
 | **Веб-аккаунты** | `internal/user/`, `internal/session/` | Пользователи (username + bcrypt cost 12 / telegram_id), веб-сессии: токен 32 байта base64url, SHA-256 хеш в БД (`web_sessions`), TTL 30 дней; `MemoryStore` + `PostgresStore` |
-| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes,folders}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes`, `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект), `POST /api/v1/notes/{id}/move`; папки: `GET/POST /api/v1/folders`, `PATCH/DELETE /api/v1/folders/{id}` (`all=true` — все уровни, каскад при удалении); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
+| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes,folders}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes`, `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект), `POST /api/v1/notes/{id}/move`, `PUT/DELETE /api/v1/notes/{id}/reminder` (`reminder_at`/`reminder_repeat`, once в прошлом → 400); папки: `GET/POST /api/v1/folders`, `PATCH/DELETE /api/v1/folders/{id}` (`all=true` — все уровни, каскад при удалении); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
 | **REST-сервис (cmd/api)** | `cmd/api/main.go`, `config/config.go` (`LoadAPI`), `Dockerfile` (target `api`) | Отдельный бинарник `todoapi` без Telegram: ручной DI (PostgresStore/MemStore), `http.Server` + graceful shutdown; `SessionTTL` (cookie + сессия), `AppBaseURL` |
 | **Деплой** | `docker-compose.yml`, `web/Dockerfile`, `web/Caddyfile`, `.env.example`, `deploy.sh` | 4 сервиса (db/api/bot/web), healthchecks, volume `files`; Caddy: статика + прокси `/api` + авто-HTTPS Let's Encrypt по `APP_BASE_URL` |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test`, `topics_test`, `notes_test`, `dto/converter_test` |

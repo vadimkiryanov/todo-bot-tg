@@ -1,15 +1,17 @@
 // Заметки: список активного топика + архив + оптимистичные мутации с откатом.
 // Сортировку не дублируем: после мутаций тихо перезагружаем список — сортирует сервер.
 import {
+  clearReminder as apiClearReminder,
   createNote as apiCreateNote,
   deleteNote as apiDeleteNote,
   listArchivedNotes,
   listNotes,
   moveNote as apiMoveNote,
+  setReminder as apiSetReminder,
   updateNote as apiUpdateNote,
   type NotePatch,
 } from '../api/notes';
-import type { Note, Priority } from '../types/api';
+import type { Note, Priority, ReminderRepeat } from '../types/api';
 import { navigation } from './navigation.svelte';
 
 export const notesStore = $state<{
@@ -176,6 +178,24 @@ export async function removeArchivedNote(note: Note): Promise<void> {
   }
 }
 
+/** Установить/перенести напоминание: оптимистично, откат при ошибке. */
+export async function setReminder(note: Note, at: string, repeat: ReminderRepeat): Promise<void> {
+  await mutateReminder(
+    note,
+    { reminder_at: at, reminder_repeat: repeat },
+    () => apiSetReminder(note.id, at, repeat),
+  );
+}
+
+/** Снять напоминание: оптимистично, откат при ошибке. */
+export async function clearReminder(note: Note): Promise<void> {
+  await mutateReminder(
+    note,
+    { reminder_at: null, reminder_repeat: 'once' },
+    () => apiClearReminder(note.id),
+  );
+}
+
 /** Сброс сторов (выход из аккаунта): активные и архивные заметки. */
 export function resetNotes(): void {
   notesStore.notes = [];
@@ -198,6 +218,24 @@ async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
     if (topicId !== null) {
       await loadNotes(topicId, navigation.activeFolderID, true);
     }
+  } catch (e) {
+    notesStore.notes = previous;
+    throw e;
+  }
+}
+
+/** Общая мутация напоминания: применить → сервер → обновить из ответа (сортировку не меняет). */
+async function mutateReminder(
+  note: Note,
+  patch: Partial<Pick<Note, 'reminder_at' | 'reminder_repeat'>>,
+  apply: () => Promise<Note>,
+): Promise<void> {
+  const previous = notesStore.notes;
+  const optimistic: Note = { ...note, ...patch };
+  notesStore.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+  try {
+    const fromApi = await apply();
+    notesStore.notes = notesStore.notes.map((n) => (n.id === note.id ? fromApi : n));
   } catch (e) {
     notesStore.notes = previous;
     throw e;

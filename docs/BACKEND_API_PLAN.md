@@ -164,16 +164,26 @@ internal/
 ### Notes
 | Метод | Путь | Описание | Тело → Ответ |
 |---|---|---|---|
-| GET | `/api/v1/notes?topic_id=N` | Список заметок топика (сортировка как у бота: pinned → priority → done в конце) | → `[{id, text, priority, done, pinned, created_at}]` |
+| GET | `/api/v1/notes?topic_id=N` | Список заметок топика (сортировка как у бота: pinned → priority → done в конце) | → `[{id, text, priority, done, pinned, created_at, reminder_at, reminder_repeat}]` |
 | POST | `/api/v1/notes` | Создать | `{topic_id, text}` → 201 Note |
-| PATCH | `/api/v1/notes/{id}` | Частичное обновление | `{text?, done?, priority?}` → 200 Note |
+| PATCH | `/api/v1/notes/{id}` | Частичное обновление | `{text?, done?, priority?, pinned?, archived?}` → 200 Note |
 | DELETE | `/api/v1/notes/{id}` | Удалить | — → 204 |
+| POST | `/api/v1/notes/{id}/move` | Переместить в топик/папку | `{topic_id, folder_id?}` → 200 Note |
+| PUT | `/api/v1/notes/{id}/reminder` | Установить/перенести напоминание | `{at, repeat}` → 200 Note |
+| DELETE | `/api/v1/notes/{id}/reminder` | Снять напоминание | — → 200 Note |
 
 - `priority`: строка `"none" | "low" | "medium" | "high"` (конвертер в `model.Priority`).
-- `done`: `true`/`false` (методы `MarkDone`/`MarkUndone`).
+- `done`: `true`/`false` (методы `MarkDone`/`MarkUndone`); `done: true` сбрасывает напоминание.
 - `text` при PATCH: редактирование; `entities` не передаются (MVP) — форматирование сбрасывается
   (см. ограничение в §8).
+- `reminder_at`: ISO 8601 (RFC3339, UTC), `null` — напоминания нет. `reminder_repeat`:
+  `"once" | "daily"` (Value Object `model.ReminderRepeat`).
+- `at` при PUT: ISO 8601 (RFC3339); одноразовое (`once`) напоминание должно быть в будущем —
+  иначе 400 (валидация как в боте). Для `daily` проверки прошлого нет.
+- Снятие напоминания (`DELETE reminder`) возвращает актуальную заметку (не 204).
 - Ответ всегда возвращает актуальный объект (для оптимистичных обновлений на фронте).
+- Доставка напоминаний — через Telegram-бота: воркер `internal/worker/reminder` (интервал 30с)
+  запускается только в `cmd/bot/main.go`, REST-эндпоинты лишь пишут `reminder_at`/`reminder_repeat`.
 
 ## 7. Схема БД (дополнить `schema` в postgres.go)
 

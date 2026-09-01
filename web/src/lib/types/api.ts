@@ -34,7 +34,11 @@ export interface Note {
   created_at: string; // ISO 8601
   topic_id: number;
   folder_id: number | null; // null — в корне топика
+  reminder_at: string | null; // ISO 8601 (UTC); null — без напоминания
+  reminder_repeat: ReminderRepeat; // 'once' | 'daily'
 }
+
+export type ReminderRepeat = 'once' | 'daily';
 
 export interface Folder {
   id: number;

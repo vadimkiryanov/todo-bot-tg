@@ -4,7 +4,7 @@
 // Данные живут в localStorage браузера; в node (тесты) — в MemoryStorage.
 
 import { ApiError } from './error';
-import type { Folder, Note, NoteEntity, Priority, Topic, User } from '../types/api';
+import type { Folder, Note, NoteEntity, Priority, ReminderRepeat, Topic, User } from '../types/api';
 import { parseMarkdown } from '../utils/format';
 
 const AUTH = '/api/v1/auth';
@@ -77,6 +77,8 @@ interface NoteRecord {
   pinned: boolean;
   archived: boolean;
   created_at: string;
+  reminder_at: string | null;
+  reminder_repeat: ReminderRepeat;
 }
 
 interface FolderRecord {
@@ -190,6 +192,8 @@ function toNote(rec: NoteRecord): Note {
     created_at: rec.created_at,
     topic_id: rec.topic_id,
     folder_id: rec.folder_id,
+    reminder_at: rec.reminder_at,
+    reminder_repeat: rec.reminder_repeat,
   };
 }
 
@@ -306,6 +310,13 @@ export async function mockRequest<T>(
   if (noteMatch && method === 'DELETE') {
     mockDeleteNote(Number(noteMatch[1]));
     return undefined as T;
+  }
+  const reminderMatch = /^\/api\/v1\/notes\/(\d+)\/reminder$/.exec(base);
+  if (reminderMatch && method === 'PUT') {
+    return mockSetReminder(Number(reminderMatch[1]), body) as T;
+  }
+  if (reminderMatch && method === 'DELETE') {
+    return mockClearReminder(Number(reminderMatch[1])) as T;
   }
   const noteMoveMatch = /^\/api\/v1\/notes\/(\d+)\/move$/.exec(base);
   if (noteMoveMatch && method === 'POST') {
@@ -492,6 +503,8 @@ function mockCreateNote(body: unknown): Note {
     pinned: false,
     archived: false,
     created_at: new Date().toISOString(),
+    reminder_at: null,
+    reminder_repeat: 'once',
   };
   const all = notesOf(user.id);
   all.push(note);
@@ -549,6 +562,11 @@ function mockUpdateNote(noteId: number, body: unknown): Note {
       throw new ApiError(400, 'done должен быть true/false');
     }
     note.done = patch.done;
+    // Выполненная задача не должна напоминать (как в Go-сервисе).
+    if (patch.done) {
+      note.reminder_at = null;
+      note.reminder_repeat = 'once';
+    }
   }
   if ('priority' in patch) {
     if (!['none', 'low', 'medium', 'high'].includes(patch.priority as string)) {
@@ -580,6 +598,43 @@ function mockDeleteNote(noteId: number): void {
     throw new ApiError(404, 'заметка не найдена');
   }
   writeJSON(K_NOTES(user.id), filtered);
+}
+
+function mockSetReminder(noteId: number, body: unknown): Note {
+  const user = requireUser();
+  const { at, repeat } = asObject(body);
+  if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) {
+    throw new ApiError(400, 'at: ISO 8601 (RFC3339)');
+  }
+  if (repeat !== 'once' && repeat !== 'daily') {
+    throw new ApiError(400, 'некорректный repeat');
+  }
+  // Одноразовое напоминание не может быть в прошлом (как в бэкенде).
+  if (repeat === 'once' && new Date(at).getTime() <= Date.now()) {
+    throw new ApiError(400, 'время напоминания уже прошло');
+  }
+  const all = notesOf(user.id);
+  const note = all.find((n) => n.id === noteId);
+  if (note === undefined) {
+    throw new ApiError(404, 'заметка не найдена');
+  }
+  note.reminder_at = new Date(at).toISOString();
+  note.reminder_repeat = repeat as ReminderRepeat;
+  writeJSON(K_NOTES(user.id), all);
+  return toNote(note);
+}
+
+function mockClearReminder(noteId: number): Note {
+  const user = requireUser();
+  const all = notesOf(user.id);
+  const note = all.find((n) => n.id === noteId);
+  if (note === undefined) {
+    throw new ApiError(404, 'заметка не найдена');
+  }
+  note.reminder_at = null;
+  note.reminder_repeat = 'once';
+  writeJSON(K_NOTES(user.id), all);
+  return toNote(note);
 }
 
 // ---------------------------------------------------------------------------

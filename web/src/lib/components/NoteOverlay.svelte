@@ -1,20 +1,23 @@
 <script lang="ts">
   // Оверлей заметки: полный текст + действия.
   // ✅ — выполнить/вернуть, 🔴🟡🔵 — приоритет (тап по активному снимает),
-  // ✏️ — редактирование, 🗑 — удаление с подтверждением.
+  // ✏️ — редактирование, 🗑 — удаление с подтверждением,
+  // ⏰ — напоминание (выбор даты/времени, once/daily, отложить +15м/+30м/+1ч).
   import ConfirmModal from './ConfirmModal.svelte';
   import Modal from './Modal.svelte';
   import MoveModal from './MoveModal.svelte';
   import {
     archiveNote,
+    clearReminder,
     removeNote,
     saveText,
     setPriority,
+    setReminder,
     toggleDone,
     togglePin,
   } from '../stores/notes.svelte';
-  import type { Note, Priority } from '../types/api';
-  import { markdownFromEntities, renderNoteHtml } from '../utils/format';
+  import type { Note, Priority, ReminderRepeat } from '../types/api';
+  import { formatReminderAt, markdownFromEntities, renderNoteHtml } from '../utils/format';
 
   let { note, onClose }: { note: Note; onClose: () => void } = $props();
 
@@ -30,6 +33,112 @@
   let error = $state('');
   let confirmDelete = $state(false);
   let showMove = $state(false);
+
+  // Напоминание
+  let showReminderForm = $state(false);
+  let reminderInput = $state(''); // datetime-local: локальное время без зоны
+  let reminderRepeat = $state<ReminderRepeat>('once');
+  let reminderError = $state('');
+  let reminderPickerOpen = $state(false);
+  let reminderMin = $state(''); // min нативного пикера: начало текущего дня (локальное время)
+
+  /** datetime-local (локальное время) → ISO 8601 UTC для API. */
+  function reminderToISO(value: string): string {
+    return new Date(value).toISOString();
+  }
+
+  /** ISO 8601 UTC → значение datetime-local (локальное время). */
+  function isoToReminderInput(iso: string): string {
+    const d = new Date(iso);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  }
+
+  /** Начало текущего дня в локальном времени (для min пикера). */
+  function todayStartLocal(): string {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  }
+
+  function openReminderForm(): void {
+    // Заполняем существующим временем или ближайшим получасом.
+    reminderInput =
+      note.reminder_at !== null
+        ? isoToReminderInput(note.reminder_at)
+        : isoToReminderInput(new Date(Date.now() + 30 * 60_000).toISOString());
+    reminderRepeat = note.reminder_at !== null ? note.reminder_repeat : 'once';
+    reminderMin = todayStartLocal();
+    reminderError = '';
+    showReminderForm = true;
+  }
+
+  /** Тоггл нативного календаря: клик открывает, повторный клик закрывает (не переоткрывает). */
+  function toggleReminderPicker(e: MouseEvent & { currentTarget: HTMLInputElement }): void {
+    if (reminderPickerOpen) {
+      e.currentTarget.blur();
+      reminderPickerOpen = false;
+      return;
+    }
+    try {
+      e.currentTarget.showPicker();
+      reminderPickerOpen = true;
+    } catch {
+      // Safari: showPicker() для datetime-local недоступен — остаётся обычный фокус.
+    }
+  }
+
+  function cancelReminderForm(): void {
+    showReminderForm = false;
+    reminderError = '';
+  }
+
+  async function saveReminder(): Promise<void> {
+    if (reminderInput === '') {
+      reminderError = 'выбери дату и время';
+      return;
+    }
+    // Одноразовое напоминание не может быть в прошлом (то же правило, что на сервере).
+    if (reminderRepeat === 'once' && new Date(reminderToISO(reminderInput)).getTime() <= Date.now()) {
+      reminderError = 'время напоминания уже прошло';
+      return;
+    }
+    busy = true;
+    reminderError = '';
+    try {
+      await setReminder(note, reminderToISO(reminderInput), reminderRepeat);
+      showReminderForm = false;
+    } catch (e) {
+      reminderError = e instanceof Error ? e.message : 'ошибка';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function doClearReminder(): Promise<void> {
+    busy = true;
+    error = '';
+    try {
+      await clearReminder(note);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'ошибка';
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Отложить: сдвинуть на N минут, сохраняя тип повторения. */
+  async function snooze(minutes: number): Promise<void> {
+    busy = true;
+    error = '';
+    try {
+      const at = new Date(Date.now() + minutes * 60_000).toISOString();
+      await setReminder(note, at, note.reminder_repeat);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'ошибка';
+    } finally {
+      busy = false;
+    }
+  }
 
   function startEdit(): void {
     // В редакторе показываем разметку (**жирный** и т.п.), восстановленную из entities.
@@ -252,6 +361,118 @@
             🗑
           </button>
         </div>
+
+        {#if !note.done}
+          {#if note.reminder_at !== null}
+            <div class="flex flex-col gap-2 rounded-xl border border-border bg-background p-3">
+              <div class="flex items-center justify-between gap-2">
+                <span class="min-w-0 truncate text-sm" title={note.reminder_at}>
+                  ⏰ {formatReminderAt(note.reminder_at, note.reminder_repeat)}
+                </span>
+                <button
+                  type="button"
+                  class="shrink-0 rounded-lg px-2 py-1 text-xs text-muted transition-colors active:bg-border/60"
+                  disabled={busy}
+                  onclick={doClearReminder}
+                >
+                  Снять
+                </button>
+              </div>
+              <div class="flex gap-2">
+                {#each [15, 30, 60] as minutes (minutes)}
+                  <button
+                    type="button"
+                    class="h-9 flex-1 rounded-lg border border-border bg-background text-xs transition-transform active:scale-95"
+                    disabled={busy}
+                    onclick={() => snooze(minutes)}
+                  >
+                    +{minutes === 60 ? '1ч' : `${minutes}м`}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {:else}
+            <button
+              type="button"
+              class="h-11 rounded-xl border border-border text-sm disabled:opacity-50 {showReminderForm
+                ? 'border-accent bg-accent/10'
+                : ''}"
+              disabled={busy}
+              onclick={() => {
+                if (showReminderForm) {
+                  cancelReminderForm();
+                } else {
+                  openReminderForm();
+                }
+                error = '';
+              }}
+            >
+              ⏰ Напомнить
+            </button>
+          {/if}
+
+          {#if showReminderForm}
+            <form
+              class="flex flex-col gap-2 rounded-xl border border-border bg-background p-3"
+              novalidate
+              onsubmit={(e) => {
+                e.preventDefault();
+                saveReminder();
+              }}
+            >
+              <!-- svelte-ignore a11y_autofocus -->
+              <input
+                type="datetime-local"
+                bind:value={reminderInput}
+                autofocus
+                min={reminderMin}
+                onclick={toggleReminderPicker}
+                onblur={() => {
+                  reminderPickerOpen = false;
+                }}
+                oncancel={() => {
+                  reminderPickerOpen = false;
+                }}
+                class="cursor-pointer rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+              <div class="flex gap-1 rounded-lg bg-border/40 p-1">
+                {#each ['once', 'daily'] as value (value)}
+                  <button
+                    type="button"
+                    class="h-8 flex-1 rounded-md text-xs transition-colors {reminderRepeat ===
+                    value
+                      ? 'bg-surface font-medium shadow-sm'
+                      : 'text-muted'}"
+                    onclick={() => {
+                      reminderRepeat = value as ReminderRepeat;
+                    }}
+                  >
+                    {value === 'once' ? 'Один раз' : 'Ежедневно'}
+                  </button>
+                {/each}
+              </div>
+              {#if reminderError}
+                <p class="text-xs text-danger">{reminderError}</p>
+              {/if}
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="h-10 flex-1 rounded-lg border border-border text-sm"
+                  onclick={cancelReminderForm}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  class="h-10 flex-1 rounded-lg bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+                  disabled={busy || reminderInput === ''}
+                >
+                  Сохранить
+                </button>
+              </div>
+            </form>
+          {/if}
+        {/if}
 
         <button
           type="button"

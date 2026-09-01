@@ -1,5 +1,5 @@
 import { request } from './client';
-import type { Note, Priority } from '../types/api';
+import type { Note, Priority, ReminderRepeat } from '../types/api';
 
 /** Заметки топика. folderId — фильтр по папке (null — все заметки топика). */
 export function listNotes(topicId: number, folderId: number | null = null): Promise<Note[]> {
@@ -46,4 +46,14 @@ export function updateNote(id: number, patch: NotePatch): Promise<Note> {
 
 export function deleteNote(id: number): Promise<void> {
   return request<void>('DELETE', `/api/v1/notes/${id}`);
+}
+
+/** Установка/перенос напоминания. at — ISO 8601 (UTC). */
+export function setReminder(id: number, at: string, repeat: ReminderRepeat): Promise<Note> {
+  return request<Note>('PUT', `/api/v1/notes/${id}/reminder`, { at, repeat });
+}
+
+/** Снятие напоминания. */
+export function clearReminder(id: number): Promise<Note> {
+  return request<Note>('DELETE', `/api/v1/notes/${id}/reminder`);
 }

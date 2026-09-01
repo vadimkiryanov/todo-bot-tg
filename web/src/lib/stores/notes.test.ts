@@ -8,6 +8,7 @@ import { setActiveFolder, setActiveTopic } from './navigation.svelte';
 import {
   archivedStore,
   archiveNote,
+  clearReminder,
   createNote,
   loadArchived,
   loadNotes,
@@ -16,6 +17,7 @@ import {
   removeNote,
   resetNotes,
   setPriority,
+  setReminder,
   toggleDone,
   togglePin,
   unarchiveNote,
@@ -203,5 +205,57 @@ describe('notes store', () => {
 
     // Активная папка != целевой (null) — список перезагружен, заметка ушла.
     expect(notesStore.notes).toHaveLength(0);
+  });
+
+  it('setReminder ставит напоминание (once в будущем)', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить');
+
+    const at = new Date(Date.now() + 3600_000).toISOString();
+    await setReminder(notesStore.notes[0], at, 'once');
+
+    const note = notesStore.notes[0];
+    expect(note.reminder_at).toBe(at);
+    expect(note.reminder_repeat).toBe('once');
+  });
+
+  it('setReminder откатывается при ошибке (once в прошлом)', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить');
+
+    const before = notesStore.notes;
+    const past = new Date(Date.now() - 3600_000).toISOString();
+    await expect(setReminder(notesStore.notes[0], past, 'once')).rejects.toThrow();
+
+    expect(notesStore.notes).toEqual(before);
+    expect(notesStore.notes[0].reminder_at).toBeNull();
+  });
+
+  it('clearReminder снимает напоминание', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить');
+
+    const at = new Date(Date.now() + 3600_000).toISOString();
+    await setReminder(notesStore.notes[0], at, 'daily');
+    await clearReminder(notesStore.notes[0]);
+
+    expect(notesStore.notes[0].reminder_at).toBeNull();
+    expect(notesStore.notes[0].reminder_repeat).toBe('once');
+  });
+
+  it('выполненная заметка сбрасывает напоминание', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить');
+
+    const at = new Date(Date.now() + 3600_000).toISOString();
+    await setReminder(notesStore.notes[0], at, 'once');
+    await toggleDone(notesStore.notes[0]);
+
+    // Go-сервис MarkDone → ClearReminder: выполненная задача не напоминает.
+    expect(notesStore.notes.find((n) => n.done)?.reminder_at).toBeNull();
   });
 });

@@ -45,6 +45,7 @@ func Status(err error) int {
 		errors.Is(err, errs.ErrEmptyFolderName),
 		errors.Is(err, errs.ErrInvalidPriority),
 		errors.Is(err, errs.ErrInvalidReminderRepeat),
+		errors.Is(err, errs.ErrReminderInPast),
 		errors.Is(err, errs.ErrInvalidUsername),
 		errors.Is(err, errs.ErrInvalidPassword),
 		errors.Is(err, errs.ErrInvalidJSON),

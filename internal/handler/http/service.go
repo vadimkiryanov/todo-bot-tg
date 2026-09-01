@@ -1,6 +1,8 @@
 package http
 
 import (
+	"time"
+
 	"todo-bot-tg/internal/model"
 )
 
@@ -25,6 +27,9 @@ type TodoService interface {
 	UnarchiveNote(userID, noteID int64) error
 	ListArchived(userID int64) ([]model.Note, error)
 	DeleteNote(userID, noteID int64) error
+
+	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error
+	ClearReminder(userID, noteID int64) error
 
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)
 

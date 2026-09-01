@@ -39,6 +39,9 @@ type NoteResponse struct {
 	CreatedAt string               `json:"created_at"`
 	TopicID   int64                `json:"topic_id"`
 	FolderID  *int64               `json:"folder_id"` // nil — в корне топика
+	// ReminderAt — ISO 8601 (RFC3339, UTC); nil — без напоминания.
+	ReminderAt     *string `json:"reminder_at"`
+	ReminderRepeat string  `json:"reminder_repeat"` // "once" | "daily"
 }
 
 // FolderResponse — публичное представление папки (контракт фронта).

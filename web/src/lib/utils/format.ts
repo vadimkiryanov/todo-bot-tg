@@ -2,7 +2,7 @@
 // безопасный HTML-рендер. offsets/length — в UTF-16 единицах (как у Telegram),
 // поэтому String.slice (тоже UTF-16) совпадает по позициям.
 
-import type { NoteEntity } from '../types/api';
+import type { NoteEntity, ReminderRepeat } from '../types/api';
 
 // --- Markdown → entities (зеркало parseMarkdownEntities в Go) ---
 
@@ -172,6 +172,30 @@ export function firstLineHtml(text: string, entities: NoteEntity[]): string {
     lineEntities.push({ ...e, length: end - e.offset });
   }
   return renderNoteHtml(line, lineEntities);
+}
+
+// --- Напоминания ---
+
+/** Человекочитаемое время напоминания (локальное): «в 14:05», «завтра, в 9:00»,
+ * «5 сент. в 14:05», «ежедневно в 14:05». */
+export function formatReminderAt(reminderAt: string, repeat: ReminderRepeat): string {
+  const date = new Date(reminderAt);
+  const time = date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  if (repeat === 'daily') {
+    return `ежедневно в ${time}`;
+  }
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((day - startOfToday) / 86_400_000);
+  if (diffDays === 0) return `в ${time}`;
+  if (diffDays === 1) return `завтра, в ${time}`;
+  const dayMonth = date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  return `${dayMonth} в ${time}`;
 }
 
 // --- entities → markdown (для редактора) ---

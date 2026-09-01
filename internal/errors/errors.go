@@ -19,7 +19,8 @@ var (
 
 // Note
 var (
-	ErrNoteNotFound = errors.New("заметка не найдена")
+	ErrNoteNotFound   = errors.New("заметка не найдена")
+	ErrReminderInPast = errors.New("время напоминания уже прошло")
 )
 
 // Value Object

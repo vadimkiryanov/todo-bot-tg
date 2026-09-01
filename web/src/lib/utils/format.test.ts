@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   firstLineHtml,
+  formatReminderAt,
   markdownFromEntities,
   parseMarkdown,
   renderNoteHtml,
@@ -76,5 +77,40 @@ describe('markdownFromEntities', () => {
       { type: 'text_link', offset: 0, length: 4, url: 'https://x.io' },
     ]);
     expect(text).toBe('[сайт](https://x.io)');
+  });
+});
+
+describe('formatReminderAt', () => {
+  it('ежедневное напоминание — только время', () => {
+    const at = '2026-09-05T14:05:00Z';
+    const text = formatReminderAt(at, 'daily');
+    // Время — локальное, поэтому сверяем только префикс и наличие часов.
+    expect(text.startsWith('ежедневно в ')).toBe(true);
+  });
+
+  it('одноразовое сегодня — «в HH:MM»', () => {
+    const now = new Date();
+    const at = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      14,
+      5,
+    ).toISOString();
+    const text = formatReminderAt(at, 'once');
+    expect(text).toMatch(/^в \d{1,2}:\d{2}$/);
+  });
+
+  it('завтра — «завтра, в HH:MM»', () => {
+    const now = new Date();
+    const tomorrow = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      9,
+      0,
+    );
+    const text = formatReminderAt(tomorrow.toISOString(), 'once');
+    expect(text).toMatch(/^завтра, в \d{1,2}:\d{2}$/);
   });
 });
