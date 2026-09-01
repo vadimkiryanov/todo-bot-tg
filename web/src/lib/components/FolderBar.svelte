@@ -1,12 +1,11 @@
 <script lang="ts">
   // Папки под табами топиков: дерево всех папок топика (вложенность —
   // отступ слева, клик — переход в папку, активная подсвечена).
-  // «＋» — создать папку на текущем уровне; долгий тап по папке — меню
-  // (переименовать/удалить).
+  // Долгий тап по папке — меню (переименовать/удалить); создание папки —
+  // долгое нажатие на заметке или пустом месте в чате (CreateFolderModal).
   import ConfirmModal from './ConfirmModal.svelte';
   import Modal from './Modal.svelte';
   import {
-    createFolder,
     deleteFolder,
     foldersStore,
     renameFolder,
@@ -14,19 +13,6 @@
   } from '../stores/folders.svelte';
   import { navigation, setActiveFolder } from '../stores/navigation.svelte';
   import type { Folder } from '../types/api';
-
-  let showCreate = $state(false);
-  let createName = $state('');
-  let createError = $state('');
-
-  // Автофокус в инпут при открытии формы создания папки
-  // (autofocus-атрибут в Safari/повторном открытии не срабатывает).
-  // Подъём шторки над клавиатурой — в Modal (visualViewport).
-  let createInput = $state<HTMLInputElement | undefined>();
-  $effect(() => {
-    if (!showCreate) return;
-    createInput?.focus();
-  });
 
   let menuFolder: Folder | null = $state(null);
   let menuError = $state('');
@@ -66,25 +52,6 @@
       return;
     }
     setActiveFolder(id);
-  }
-
-  async function submitCreate(): Promise<void> {
-    const name = createName.trim();
-    if (name === '') {
-      createError = 'введите название';
-      return;
-    }
-    busy = true;
-    createError = '';
-    try {
-      await createFolder(name);
-      showCreate = false;
-      createName = '';
-    } catch (e) {
-      createError = e instanceof Error ? e.message : 'ошибка';
-    } finally {
-      busy = false;
-    }
   }
 
   function closeMenu(): void {
@@ -132,24 +99,8 @@
   {#if foldersStore.loading && foldersStore.topicId !== navigation.activeTopicID}
     <div class="h-10 animate-pulse rounded-full bg-border/40"></div>
   {:else}
-    <!-- «＋» фиксирован сверху (не скроллится вместе с деревом), во всю
-         ширину; создаёт папку на текущем уровне (в активной папке или в корне) -->
-    <div class="flex flex-col gap-2">
-      <button
-        type="button"
-        aria-label="Создать папку"
-        class="flex h-10 w-full shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-[0.98] active:bg-border"
-        onclick={() => {
-          createError = '';
-          createName = '';
-          showCreate = true;
-        }}
-      >
-        ＋
-      </button>
-
-      <!-- Дерево всех папок топика: вложенность — отступ слева, клик — переход -->
-      <div class="tree no-scrollbar flex max-h-44 flex-col gap-1 overflow-y-auto">
+    <!-- Дерево всех папок топика: вложенность — отступ слева, клик — переход -->
+    <div class="tree no-scrollbar flex max-h-44 flex-col gap-1 overflow-y-auto">
         <button
           type="button"
           class="flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] {navigation.activeFolderID ===
@@ -178,51 +129,9 @@
             <span class="truncate">{node.folder.name}</span>
           </button>
         {/each}
-      </div>
     </div>
   {/if}
 </div>
-
-{#if showCreate}
-  <Modal open onClose={() => (showCreate = false)}>
-    <form
-      class="flex flex-col gap-3"
-      onsubmit={(e) => {
-        e.preventDefault();
-        submitCreate();
-      }}
-    >
-      <h2 class="text-lg font-semibold">Новая папка</h2>
-      <input
-        type="text"
-        bind:this={createInput}
-        bind:value={createName}
-        placeholder="Название"
-        maxlength="64"
-        class="h-11 rounded-xl border border-border bg-background px-4 text-base outline-none focus:border-accent"
-      />
-      {#if createError}
-        <p class="text-sm text-danger">{createError}</p>
-      {/if}
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="h-11 flex-1 rounded-xl border border-border text-sm"
-          onclick={() => (showCreate = false)}
-        >
-          Отмена
-        </button>
-        <button
-          type="submit"
-          class="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
-          disabled={busy}
-        >
-          Создать
-        </button>
-      </div>
-    </form>
-  </Modal>
-{/if}
 
 {#if menuFolder !== null}
   <Modal open onClose={closeMenu}>

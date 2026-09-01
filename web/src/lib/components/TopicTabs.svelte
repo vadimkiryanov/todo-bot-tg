@@ -1,23 +1,12 @@
 <script lang="ts">
-  // Горизонтальные табы топиков: тап — выбор, «＋» — создание, долгий тап — меню (переименовать/удалить).
+  // Горизонтальные табы топиков: тап — выбор, долгий тап — меню
+  // (создать топик / переименовать / удалить).
   import ConfirmModal from './ConfirmModal.svelte';
   import Modal from './Modal.svelte';
   import { navigation, setActiveTopic } from '../stores/navigation.svelte';
-  import { createTopic, deleteTopic, renameTopic, topicsStore } from '../stores/topics.svelte';
+  import { deleteTopic, renameTopic, topicsStore } from '../stores/topics.svelte';
+  import { ui } from '../stores/ui.svelte';
   import type { Topic } from '../types/api';
-
-  let showCreate = $state(false);
-  let createName = $state('');
-  let createError = $state('');
-
-  // Автофокус в инпут при открытии формы создания топика
-  // (autofocus-атрибут в Safari/повторном открытии не срабатывает).
-  // Подъём шторки над клавиатурой — в Modal (visualViewport).
-  let createInput = $state<HTMLInputElement | undefined>();
-  $effect(() => {
-    if (!showCreate) return;
-    createInput?.focus();
-  });
 
   let menuTopic: Topic | null = $state(null);
   let menuError = $state('');
@@ -57,25 +46,6 @@
       return;
     }
     setActiveTopic(id);
-  }
-
-  async function submitCreate(): Promise<void> {
-    const name = createName.trim();
-    if (name === '') {
-      createError = 'введите название';
-      return;
-    }
-    busy = true;
-    createError = '';
-    try {
-      await createTopic(name);
-      showCreate = false;
-      createName = '';
-    } catch (e) {
-      createError = e instanceof Error ? e.message : 'ошибка';
-    } finally {
-      busy = false;
-    }
   }
 
   function closeMenu(): void {
@@ -118,21 +88,8 @@
 </script>
 
 <div class="shrink-0 border-b border-border bg-surface px-3 py-2">
-  <div class="flex flex-col gap-2">
-    <!-- «＋» фиксирован сверху (не скроллится вместе с сеткой), во всю ширину -->
-    <button
-      type="button"
-      aria-label="Создать топик"
-      class="flex h-10 w-full shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-[0.98] active:bg-border"
-      onclick={() => {
-        createError = '';
-        createName = '';
-        showCreate = true;
-      }}
-    >
-      ＋
-    </button>
-    <div class="topic-grid no-scrollbar grid max-h-44 grid-cols-2 gap-2 overflow-y-auto">
+  <!-- Сетка топиков: долгий тап по топику — меню (в т.ч. «Создать топик») -->
+  <div class="topic-grid no-scrollbar grid max-h-44 grid-cols-2 gap-2 overflow-y-auto">
       {#each topicsStore.topics as topic (topic.id)}
         <button
           type="button"
@@ -152,50 +109,8 @@
           {/if}
         </button>
       {/each}
-    </div>
   </div>
 </div>
-
-{#if showCreate}
-  <Modal open onClose={() => (showCreate = false)}>
-    <form
-      class="flex flex-col gap-3"
-      onsubmit={(e) => {
-        e.preventDefault();
-        submitCreate();
-      }}
-    >
-      <h2 class="text-lg font-semibold">Новый топик</h2>
-      <input
-        type="text"
-        bind:this={createInput}
-        bind:value={createName}
-        placeholder="Название"
-        maxlength="64"
-        class="h-11 rounded-xl border border-border bg-background px-4 text-base outline-none focus:border-accent"
-      />
-      {#if createError}
-        <p class="text-sm text-danger">{createError}</p>
-      {/if}
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="h-11 flex-1 rounded-xl border border-border text-sm"
-          onclick={() => (showCreate = false)}
-        >
-          Отмена
-        </button>
-        <button
-          type="submit"
-          class="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
-          disabled={busy}
-        >
-          Создать
-        </button>
-      </div>
-    </form>
-  </Modal>
-{/if}
 
 {#if menuTopic !== null}
   <Modal open onClose={closeMenu}>
@@ -242,6 +157,16 @@
         {#if menuError}
           <p class="px-2 pb-2 text-sm text-danger">{menuError}</p>
         {/if}
+        <button
+          type="button"
+          class="flex h-12 items-center gap-3 rounded-xl px-2 text-base"
+          onclick={() => {
+            closeMenu();
+            ui.topicCreateOpen = true;
+          }}
+        >
+          <span>📚</span> Создать топик
+        </button>
         <button
           type="button"
           class="flex h-12 items-center gap-3 rounded-xl px-2 text-base"

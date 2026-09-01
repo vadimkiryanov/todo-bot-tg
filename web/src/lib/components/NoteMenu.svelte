@@ -14,6 +14,7 @@
     unarchiveNote,
   } from '../stores/notes.svelte';
   import type { Note } from '../types/api';
+  import { ui } from '../stores/ui.svelte';
   import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
 
   let {
@@ -126,6 +127,21 @@
   >
     {#if error}
       <p class="px-3 py-1 text-xs text-danger">{error}</p>
+    {/if}
+
+    {#if !archived}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+        onclick={() => {
+          ui.folderCreateOpen = true;
+          onClose();
+        }}
+      >
+        <span class="w-6 shrink-0 text-center text-base">📁</span>
+        Создать папку
+      </button>
     {/if}
 
     <button

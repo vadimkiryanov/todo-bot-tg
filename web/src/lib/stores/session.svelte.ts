@@ -7,6 +7,7 @@ import { resetFolders } from './folders.svelte';
 import { resetActiveTopic } from './navigation.svelte';
 import { resetNotes } from './notes.svelte';
 import { resetTopics } from './topics.svelte';
+import { resetUi } from './ui.svelte';
 import type { User } from '../types/api';
 
 export type SessionState =
@@ -73,4 +74,5 @@ function applyGuest(): void {
   resetTopics();
   resetFolders();
   resetNotes();
+  resetUi();
 }
