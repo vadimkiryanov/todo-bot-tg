@@ -1,7 +1,8 @@
 <script lang="ts">
   // Дропдаун-меню действий заметки (долгий тач по карточке / правый клик).
   // Позиционируется fixed под карточкой; если снизу мало места — над ней.
-  // Закрывается по тапу вне, скроллу или Escape.
+  // Закрывается по тапу вне или Escape; пока меню открыто, скролл списка
+  // заморожен (уход пальца/скролл-жест не прячет меню и не скроллит список).
   import { onMount } from 'svelte';
   import ConfirmModal from './ConfirmModal.svelte';
   import {
@@ -17,6 +18,7 @@
   } from '../stores/notes.svelte';
   import type { Note } from '../types/api';
   import { ui } from '../stores/ui.svelte';
+  import { lockScroll, unlockScroll } from '../utils/scroll';
   import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
 
   let {
@@ -25,12 +27,15 @@
     archived = false,
     done = false,
     onClose,
+    onEdit,
   }: {
     note: Note;
     rect: DOMRect;
     archived?: boolean;
     done?: boolean;
     onClose: () => void;
+    /** Открыть редактор заметки (пункт «✏️ Редактировать»). */
+    onEdit?: (note: Note) => void;
   } = $props();
 
   let busy = $state(false);
@@ -60,14 +65,15 @@
   });
 
   onMount(() => {
-    const onScroll = () => onClose();
+    // Пока меню открыто — скролл списка заморожен: жест скролла/уход пальца
+    // не должен закрывать меню (пользователь сам выберет пункт или закроет).
+    lockScroll();
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    window.addEventListener('scroll', onScroll, true);
     window.addEventListener('keydown', onKeydown);
     return () => {
-      window.removeEventListener('scroll', onScroll, true);
+      unlockScroll();
       window.removeEventListener('keydown', onKeydown);
     };
   });
@@ -134,6 +140,22 @@
     {#if error}
       <p class="px-3 py-1 text-xs text-danger">{error}</p>
     {/if}
+
+    <button
+      type="button"
+      role="menuitem"
+      class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+      onclick={() => {
+        // Сначала действие с валидной заметкой; закрытие — после. Если закрыть
+        // меню раньше, проп note (живая привязка к derived menuNote родителя)
+        // к моменту onEdit уже будет null.
+        onEdit?.(note);
+        onClose();
+      }}
+    >
+      <span class="w-6 shrink-0 text-center text-base">✏️</span>
+      Редактировать
+    </button>
 
     {#if !archived && !done}
       <button

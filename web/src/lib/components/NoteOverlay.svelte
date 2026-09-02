@@ -6,12 +6,12 @@
   import ConfirmModal from './ConfirmModal.svelte';
   import Modal from './Modal.svelte';
   import MoveModal from './MoveModal.svelte';
+  import NoteEditForm from './NoteEditForm.svelte';
   import ReminderForm from './ReminderForm.svelte';
   import {
     archiveNote,
     clearReminder,
     removeNote,
-    saveText,
     setPriority,
     setReminder,
     toggleDone,
@@ -20,17 +20,25 @@
   import type { Note } from '../types/api';
   import {
     formatReminderAt,
-    markdownFromEntities,
     nextPriority,
     priorityEmoji,
     priorityLabel,
     renderNoteHtml,
   } from '../utils/format';
 
-  let { note, onClose }: { note: Note; onClose: () => void } = $props();
+  let {
+    note,
+    onClose,
+    /** Открыть оверлей сразу в режиме редактирования (пункт «✏️ Редактировать»
+     *  в контекстном меню). Имеет смысл только в момент открытия. */
+    startEditing = false,
+  }: {
+    note: Note;
+    onClose: () => void;
+    startEditing?: boolean;
+  } = $props();
 
-  let editing = $state(false);
-  let editText = $state('');
+  let editing = $state(startEditing);
   let busy = $state(false);
   let error = $state('');
   let confirmDelete = $state(false);
@@ -72,8 +80,6 @@
   }
 
   function startEdit(): void {
-    // В редакторе показываем разметку (**жирный** и т.п.), восстановленную из entities.
-    editText = markdownFromEntities(note.text, note.entities);
     editing = true;
     error = '';
   }
@@ -81,24 +87,6 @@
   function cancelEdit(): void {
     editing = false;
     error = '';
-  }
-
-  async function submitEdit(): Promise<void> {
-    const value = editText.trim();
-    if (value === '') {
-      error = 'текст не может быть пустым';
-      return;
-    }
-    busy = true;
-    error = '';
-    try {
-      await saveText(note, value);
-      editing = false;
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'ошибка';
-    } finally {
-      busy = false;
-    }
   }
 
   async function doToggleDone(): Promise<void> {
@@ -165,47 +153,12 @@
 
 <Modal open onClose={onClose}>
   {#if editing}
-    <form
-      class="flex flex-col gap-3"
-      onsubmit={(e) => {
-        e.preventDefault();
-        submitEdit();
-      }}
-    >
-      <!-- svelte-ignore a11y_autofocus -->
-      <textarea
-        bind:value={editText}
-        rows="4"
-        autofocus
-        class="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-base leading-5 outline-none focus:border-accent"
-      ></textarea>
-      <p class="text-xs text-muted">
-        **жирный**, *курсив*, `код`, [ссылка](https://…)
-      </p>
-      {#if error}
-        <p class="text-sm text-danger">{error}</p>
-      {/if}
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="h-11 flex-1 rounded-xl border border-border text-sm"
-          onclick={cancelEdit}
-        >
-          Отмена
-        </button>
-        <button
-          type="submit"
-          class="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
-          disabled={busy}
-        >
-          Сохранить
-        </button>
-      </div>
-    </form>
+    <h2 class="mb-3 text-lg font-semibold">✏️ Редактировать</h2>
+    <NoteEditForm {note} onCancel={cancelEdit} onSaved={cancelEdit} />
   {:else}
     <div class="flex flex-col gap-4 px-1 py-2">
       <div
-        class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2 {note.done
+        class="whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2 {note.done
           ? 'text-muted line-through'
           : 'text-content'}"
       >

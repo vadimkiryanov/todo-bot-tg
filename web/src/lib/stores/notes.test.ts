@@ -12,14 +12,17 @@ import {
   clearReminder,
   createNote,
   doneStore,
+  isNotesCached,
   loadArchived,
   loadDone,
   loadNotes,
   moveNote,
   notesStore,
+  preloadTopicNeighbors,
   removeDoneNote,
   removeNote,
   resetNotes,
+  saveText,
   setPriority,
   setReminder,
   toggleDone,
@@ -31,6 +34,7 @@ import {
 beforeEach(() => {
   resetMockStore();
   setMockDelay(0);
+  resetNotes();
 });
 
 async function setupTopic(): Promise<number> {
@@ -354,5 +358,85 @@ describe('notes store', () => {
     // Go-сервис MarkDone → ClearReminder: выполненная задача не напоминает.
     await loadDone();
     expect(doneStore.notes[0].reminder_at).toBeNull();
+  });
+
+  it('кеш контекстов: повторное открытие топика показывает список без спиннера', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('первая');
+    expect(notesStore.notes).toHaveLength(1);
+
+    // Уходим в другой топик (тоже загружаем — его кеш пуст).
+    const second = await request<Topic>('POST', '/api/v1/topics', { name: 'Личное' });
+    setActiveTopic(second.id);
+    await loadNotes(second.id);
+    expect(notesStore.notes).toHaveLength(0);
+
+    // Возврат в первый топик: кеш показывается сразу (loading не включается).
+    setActiveTopic(topicId);
+    const p = loadNotes(topicId);
+    expect(notesStore.loading).toBe(false);
+    expect(notesStore.notes).toHaveLength(1);
+    await p;
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['первая']);
+  });
+
+  it('предзагрузка соседей кеширует заметки соседних топиков', async () => {
+    const a = await setupTopic(); // топик 1 (активный)
+    const b = await request<Topic>('POST', '/api/v1/topics', { name: 'B' });
+    const c = await request<Topic>('POST', '/api/v1/topics', { name: 'C' });
+
+    await loadNotes(a);
+    await createNote('в A');
+
+    // Заметка в B (создаётся через активный топик B).
+    setActiveTopic(b.id);
+    await loadNotes(b.id);
+    await createNote('в B');
+
+    // Возврат в A — после этого подгружаем соседей. B уже закеширован
+    // (посещался), C — ещё нет: предзагрузка должна догрузить C.
+    setActiveTopic(a);
+    await loadNotes(a);
+    expect(isNotesCached(b.id)).toBe(true);
+    expect(isNotesCached(c.id)).toBe(false);
+
+    await preloadTopicNeighbors(a, [b.id, c.id]);
+
+    expect(isNotesCached(a)).toBe(true);
+    expect(isNotesCached(b.id)).toBe(true);
+    expect(isNotesCached(c.id)).toBe(true);
+
+    // Кеш B действительно содержит заметки B.
+    setActiveTopic(b.id);
+    await loadNotes(b.id);
+    expect(notesStore.notes.map((n) => n.text)).toEqual(['в B']);
+  });
+
+  it('saveText правит текст в архиве', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('в архив');
+    await archiveNote(notesStore.notes[0]);
+    await loadArchived();
+    const archived = archivedStore.notes[0];
+
+    await saveText(archived, 'исправлено');
+
+    expect(archivedStore.notes[0].text).toBe('исправлено');
+    expect(notesStore.notes).toHaveLength(0);
+  });
+
+  it('saveText правит текст на складе выполненных', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('сделать');
+    await toggleDone(notesStore.notes[0]);
+    await loadDone();
+    const done = doneStore.notes[0];
+
+    await saveText(done, 'сделано с пометкой');
+
+    expect(doneStore.notes[0].text).toBe('сделано с пометкой');
   });
 });

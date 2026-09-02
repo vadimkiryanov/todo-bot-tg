@@ -95,12 +95,14 @@
   const tree = $derived(treeFolders());
 </script>
 
-<div class="shrink-0 border-b border-border bg-surface px-3 py-2">
+<div class="shrink-0 bg-surface px-3 py-2">
   {#if foldersStore.loading && foldersStore.topicId !== navigation.activeTopicID}
     <div class="h-10 animate-pulse rounded-full bg-border/40"></div>
   {:else}
-    <!-- Дерево всех папок топика: вложенность — отступ слева, клик — переход -->
-    <div class="tree no-scrollbar flex max-h-44 flex-col gap-1 overflow-y-auto">
+    <!-- Дерево всех папок топика: вложенность — отступ слева, клик — переход.
+         Высота не ограничена изнутри — длинное дерево раскрывает шторку до
+         85dvh, скроллится сама шторка (Modal). -->
+    <div class="tree flex flex-col gap-1">
         <button
           type="button"
           class="flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] {navigation.activeFolderID ===

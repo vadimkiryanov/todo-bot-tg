@@ -1,5 +1,11 @@
-// Заметки: список активного топика + архив + оптимистичные мутации с откатом.
-// Сортировку не дублируем: после мутаций тихо перезагружаем список — сортирует сервер.
+// Заметки: список активного контекста (топик+папка), архив, выполненные —
+// с оптимистичными мутациями и откатом. Сортировку не дублируем: после
+// мутаций тихо перезагружаем список — сортирует сервер.
+//
+// Кеш контекстов: заметки каждого (топик, папка) хранятся в notesCache.
+// Активный контекст при наличии кеша показывается сразу (stale-while-
+// revalidate), свежесть догружается фоном; соседние топики предзагружаются
+// preloadTopicNeighbors — свайп между топиками не ждёт сеть.
 import {
   clearReminder as apiClearReminder,
   createNote as apiCreateNote,
@@ -50,24 +56,157 @@ export const doneStore = $state<{
   error: null,
 });
 
-/** Загрузка заметок топика. silent — тихая перезагрузка (например, после мутации). */
-export async function loadNotes(topicId: number, folderId: number | null = null, silent = false): Promise<void> {
-  if (!silent) {
+/** Стор с полем notes — любой из трёх списков (активный/архив/выполненные). */
+interface NoteListStore {
+  notes: Note[];
+  error: string | null;
+}
+
+// ── Кеш контекстов ─────────────────────────────────────────────────────────
+// Ключ — «топик:папка» (папка пустая = корень топика, весь топик).
+const ctxKey = (topicId: number, folderId: number | null): string =>
+  `${topicId}:${folderId ?? ''}`;
+
+/** Ограничение размера кеша: старые контексты вытесняются. */
+const CACHE_LIMIT = 60;
+
+const notesCache = new Map<string, Note[]>();
+const cacheLoadedAt = new Map<string, number>();
+/** Идущие запросы (тихая фоновая загрузка не дублирует сетевой вызов). */
+const inFlight = new Map<string, Promise<void>>();
+
+/** Контекст активен? (защита от гонок при быстрых переключениях). */
+function isActiveContext(topicId: number, folderId: number | null): boolean {
+  return navigation.activeTopicID === topicId && navigation.activeFolderID === folderId;
+}
+
+function activeCacheKey(): string | null {
+  const topicId = navigation.activeTopicID;
+  if (topicId === null) return null;
+  return ctxKey(topicId, navigation.activeFolderID);
+}
+
+/** Кеш активного контекста держим в синхроне с показанным списком. */
+function syncActiveCache(): void {
+  const key = activeCacheKey();
+  if (key !== null && notesCache.has(key)) {
+    notesCache.set(key, notesStore.notes);
+  }
+}
+
+function trimCache(): void {
+  while (notesCache.size > CACHE_LIMIT) {
+    const oldest = notesCache.keys().next().value as string | undefined;
+    if (oldest === undefined) return;
+    notesCache.delete(oldest);
+    cacheLoadedAt.delete(oldest);
+  }
+}
+
+/** Заметки контекста (topicId, folderId) есть в кеше и не старше maxAgeMs. */
+export function isNotesCached(
+  topicId: number,
+  folderId: number | null = null,
+  maxAgeMs = 30_000,
+): boolean {
+  const at = cacheLoadedAt.get(ctxKey(topicId, folderId));
+  return at !== undefined && Date.now() - at < maxAgeMs;
+}
+
+/**
+ * Загрузка заметок контекста (топик+папка). silent — тихая фоновая
+ * перезагрузка (после мутации/для предзагрузки). Если активный контекст уже
+ * закеширован и это не фоновая загрузка — показываем кеш сразу, свежесть
+ * догружаем фоном (без загрузочного экрана).
+ */
+export async function loadNotes(
+  topicId: number,
+  folderId: number | null = null,
+  silent = false,
+): Promise<void> {
+  const key = ctxKey(topicId, folderId);
+  const active = isActiveContext(topicId, folderId);
+  const cached = notesCache.get(key);
+
+  // Активный контекст с кешем: показываем сразу, обновление — фоном.
+  if (active && cached !== undefined && !silent) {
+    notesStore.notes = cached;
+    notesStore.error = null;
+    notesStore.loading = false;
+    return loadNotes(topicId, folderId, true);
+  }
+
+  if (active && !silent) {
     notesStore.loading = true;
     notesStore.notes = [];
   }
-  notesStore.error = null;
-  try {
-    const notes = await listNotes(topicId, folderId);
-    // Защита от гонки: применяем, только если топик не успели переключить.
-    if (navigation.activeTopicID === topicId) {
-      notesStore.notes = notes;
-    }
-  } catch (e) {
-    notesStore.error = e instanceof Error ? e.message : 'не удалось загрузить заметки';
-  } finally {
-    if (!silent) {
+  if (active) {
+    notesStore.error = null;
+  }
+
+  const pending = inFlight.get(key);
+  if (pending !== undefined) {
+    // Тот же контекст уже грузится фоном — дожидаемся и применяем его результат.
+    await pending.catch(() => {});
+    if (active && !silent) {
       notesStore.loading = false;
+    }
+    return;
+  }
+
+  const run = (async () => {
+    try {
+      const notes = await listNotes(topicId, folderId);
+      notesCache.set(key, notes);
+      cacheLoadedAt.set(key, Date.now());
+      trimCache();
+      if (isActiveContext(topicId, folderId)) {
+        notesStore.notes = notes;
+        notesStore.error = null;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'не удалось загрузить заметки';
+      // Если показываем кеш — ошибку не выводим на весь экран (список остаётся).
+      if (isActiveContext(topicId, folderId) && !notesCache.has(key)) {
+        notesStore.error = msg;
+      }
+    } finally {
+      inFlight.delete(key);
+      if (active && !silent) {
+        notesStore.loading = false;
+      }
+    }
+  })();
+  inFlight.set(key, run);
+  await run;
+}
+
+/**
+ * Предзагрузка соседних топиков для быстрого свайпа: сначала корень активного
+ * топика, затем ближайшие слева и справа — по очереди (без всплеска запросов).
+ * Кеширует только корневой уровень: переключение топика всегда возвращает в корень.
+ */
+export async function preloadTopicNeighbors(
+  centerId: number,
+  neighbors: number[],
+): Promise<void> {
+  if (!isNotesCached(centerId, null)) {
+    await loadNotes(centerId, null, true);
+  }
+  for (const id of neighbors) {
+    if (!isNotesCached(id, null)) {
+      await loadNotes(id, null, true);
+    }
+  }
+}
+
+/** Сброс кеша удалённого топика (заметки удалены каскадом на сервере). */
+export function pruneNotesCacheForTopic(topicId: number): void {
+  const prefix = `${topicId}:`;
+  for (const key of [...notesCache.keys()]) {
+    if (key.startsWith(prefix)) {
+      notesCache.delete(key);
+      cacheLoadedAt.delete(key);
     }
   }
 }
@@ -124,6 +263,7 @@ export async function createNote(text: string, opts: CreateNoteOptions = {}): Pr
   const folderId = navigation.activeFolderID;
   const note = await apiCreateNote(topicId, text, folderId, opts);
   notesStore.notes = [...notesStore.notes, note];
+  syncActiveCache();
   notesStore.highlightedId = note.id;
   await loadNotes(topicId, folderId, true);
 }
@@ -166,10 +306,12 @@ export async function togglePin(note: Note): Promise<void> {
 export async function archiveNote(note: Note): Promise<void> {
   const previous = notesStore.notes;
   notesStore.notes = previous.filter((n) => n.id !== note.id);
+  syncActiveCache();
   try {
     await apiUpdateNote(note.id, { archived: true });
   } catch (e) {
     notesStore.notes = previous;
+    syncActiveCache();
     throw e;
   }
 }
@@ -186,18 +328,28 @@ export async function unarchiveNote(note: Note): Promise<void> {
   }
 }
 
-/** Сохранить текст (редактирование в оверлее). */
+/**
+ * Сохранить текст заметки (редактирование). Заметка может лежать в любом из
+ * списков (активный/архив/выполненные) — обновляем тот, где она найдена.
+ */
 export async function saveText(note: Note, text: string): Promise<void> {
   const trimmed = text.trim();
   if (trimmed === '' || trimmed === note.text) return;
-  const previous = notesStore.notes;
+  const target = [notesStore, archivedStore, doneStore].find((s) =>
+    s.notes.some((n) => n.id === note.id),
+  );
+  if (target === undefined) return;
+  const previous = target.notes;
   const optimistic: Note = { ...note, text: trimmed };
-  notesStore.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+  target.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+  syncActiveCache();
   try {
     const fromApi = await apiUpdateNote(note.id, { text: trimmed });
-    notesStore.notes = notesStore.notes.map((n) => (n.id === note.id ? fromApi : n));
+    target.notes = target.notes.map((n) => (n.id === note.id ? fromApi : n));
+    syncActiveCache();
   } catch (e) {
-    notesStore.notes = previous;
+    target.notes = previous;
+    syncActiveCache();
     throw e;
   }
 }
@@ -206,10 +358,12 @@ export async function saveText(note: Note, text: string): Promise<void> {
 export async function removeNote(note: Note): Promise<void> {
   const previous = notesStore.notes;
   notesStore.notes = previous.filter((n) => n.id !== note.id);
+  syncActiveCache();
   try {
     await apiDeleteNote(note.id);
   } catch (e) {
     notesStore.notes = previous;
+    syncActiveCache();
     throw e;
   }
 }
@@ -226,7 +380,7 @@ export async function removeArchivedNote(note: Note): Promise<void> {
   }
 }
 
-/** Вернуть в работу с экрана «Выполненные»: убрать из склада, откат при ошибке. */
+/** Вернуть в работу с экрана «Выполненные»: убрать со склада, откат при ошибке. */
 export async function undoneNote(note: Note): Promise<void> {
   const previous = doneStore.notes;
   doneStore.notes = previous.filter((n) => n.id !== note.id);
@@ -268,7 +422,7 @@ export async function clearReminder(note: Note): Promise<void> {
   );
 }
 
-/** Сброс сторов (выход из аккаунта): активные, архивные и выполненные заметки. */
+/** Сброс сторов (выход из аккаунта): активные, архивные, выполненные и кеш. */
 export function resetNotes(): void {
   notesStore.notes = [];
   notesStore.loading = false;
@@ -280,6 +434,9 @@ export function resetNotes(): void {
   doneStore.notes = [];
   doneStore.loading = false;
   doneStore.error = null;
+  notesCache.clear();
+  cacheLoadedAt.clear();
+  inFlight.clear();
 }
 
 /** Общая мутация поля (done/priority): применить → сервер → тихая перезагрузка сортировки. */
@@ -287,15 +444,18 @@ async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
   const previous = notesStore.notes;
   const optimistic: Note = { ...note, ...patch };
   notesStore.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+  syncActiveCache();
   try {
     const fromApi = await apiUpdateNote(note.id, patch);
     notesStore.notes = notesStore.notes.map((n) => (n.id === note.id ? fromApi : n));
+    syncActiveCache();
     const topicId = navigation.activeTopicID;
     if (topicId !== null) {
       await loadNotes(topicId, navigation.activeFolderID, true);
     }
   } catch (e) {
     notesStore.notes = previous;
+    syncActiveCache();
     throw e;
   }
 }
@@ -309,11 +469,14 @@ async function mutateReminder(
   const previous = notesStore.notes;
   const optimistic: Note = { ...note, ...patch };
   notesStore.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+  syncActiveCache();
   try {
     const fromApi = await apply();
     notesStore.notes = notesStore.notes.map((n) => (n.id === note.id ? fromApi : n));
+    syncActiveCache();
   } catch (e) {
     notesStore.notes = previous;
+    syncActiveCache();
     throw e;
   }
 }

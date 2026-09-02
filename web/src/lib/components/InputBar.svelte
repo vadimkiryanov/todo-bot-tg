@@ -1,22 +1,31 @@
 <script lang="ts">
   // Нижняя панель: белая панель с инпутом, где слева от textarea стоит
-  // бургер ☰ (как раньше); кнопка шторки топиков/папок 📚 парит абсолютом
-  // над панелью (над бургером), вне белой заливки. При вводе текста над
-  // инпутом появляется панель действий новой заметки: 🔴🟡🔵 приоритет (цикл),
-  // ⏰ напоминание (модалка), 📌 закрепление.
+  // бургер ☰ (как раньше). Над панелью парит столбик из двух кнопок:
+  // 📁 «Папки» (выше) и 📚 «Топики» (ниже, как раньше) — вне белой заливки,
+  // справа от них видны заметки чата. Каждая открывает свою шторку.
+  // При вводе текста над инпутом появляется панель действий новой заметки:
+  // 🔴🟡🔵 приоритет (цикл), ⏰ напоминание (модалка), 📌 закрепление.
+  // Тап по кнопкам панели/плавающим кнопкам не уводит фокус из поля ввода —
+  // можно нажимать опции и продолжать набор.
   // Enter — отправить, Shift+Enter — новая строка. После отправки поле очищается.
   import { goto } from '$app/navigation';
   import Modal from './Modal.svelte';
   import ReminderForm from './ReminderForm.svelte';
   import { createNote, loadArchived, loadDone } from '../stores/notes.svelte';
+  import { navigation } from '../stores/navigation.svelte';
   import { logout } from '../stores/session.svelte';
   import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
   import type { Priority, ReminderRepeat } from '../types/api';
 
   let {
-    /** Открыть шторку топиков/папок (ContextStrip). */
+    /** Открыть шторку топиков. */
     onOpenTopics,
-  }: { onOpenTopics?: () => void } = $props();
+    /** Открыть шторку папок. */
+    onOpenFolders,
+  }: {
+    onOpenTopics?: () => void;
+    onOpenFolders?: () => void;
+  } = $props();
 
   let text = $state('');
   let sending = $state(false);
@@ -31,6 +40,20 @@
 
   // Бургер-меню: архив и выход (раньше были в шапке).
   let menuOpen = $state(false);
+
+  const folderActive = $derived(navigation.activeFolderID !== null);
+
+  /** Вернуть фокус в поле ввода после тапа по кнопке (панель действий и т.п.):
+      иначе на десктопе кнопка забирает фокус и набор прерывается. */
+  function keepInputFocus(): void {
+    requestAnimationFrame(() => input?.focus({ preventScroll: true }));
+  }
+
+  /** Тап по кнопке, не прерывающий набор: выполнить действие + вернуть фокус. */
+  function press(action: () => void): void {
+    action();
+    keepInputFocus();
+  }
 
   async function send(): Promise<void> {
     const value = text.trim();
@@ -55,6 +78,8 @@
       // При ошибке текст остаётся в поле — пользователь видит и может повторить.
     } finally {
       sending = false;
+      // Сразу можно писать следующую заметку.
+      keepInputFocus();
     }
   }
 
@@ -87,10 +112,12 @@
 
   function toggleMenu(): void {
     menuOpen = !menuOpen;
+    if (!menuOpen) keepInputFocus();
   }
 
   function closeMenu(): void {
     menuOpen = false;
+    keepInputFocus();
   }
 
   async function goArchived(): Promise<void> {
@@ -163,7 +190,13 @@
   {/if}
 
   {#if showReminderForm}
-    <Modal open onClose={() => (showReminderForm = false)}>
+    <Modal
+      open
+      onClose={() => {
+        showReminderForm = false;
+        keepInputFocus();
+      }}
+    >
       <div class="flex flex-col gap-1 px-1 py-2">
         <h2 class="text-center text-sm text-muted">⏰ Напоминание</h2>
         <ReminderForm
@@ -176,29 +209,48 @@
           }}
           onSaved={() => {
             showReminderForm = false;
+            keepInputFocus();
           }}
           onCancel={() => {
             showReminderForm = false;
+            keepInputFocus();
           }}
         />
       </div>
     </Modal>
   {/if}
 
-  <!-- Кнопка шторки топиков/папок: парит над нижней панелью слева (над ☰),
-       вне белой заливки — справа от неё видны заметки чата -->
-  <button
-    type="button"
-    aria-label="Топики и папки"
-    class="absolute bottom-full left-3 mb-2 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
-    onclick={onOpenTopics}
-  >
-    📚
-  </button>
+  <!-- Плавающие кнопки над нижней панелью (слева, вне белой заливки):
+       📁 «Папки» — выше, 📚 «Топики» — ниже (как раньше). Каждая открывает
+       свою шторку; справа от столбика видны заметки чата. Тап не уводит
+       фокус из поля ввода. -->
+  <div class="absolute bottom-full left-3 mb-2 flex flex-col items-center gap-2">
+    <button
+      type="button"
+      aria-label="Папки"
+      aria-expanded={folderActive}
+      title={folderActive ? 'Вы в папке — открыть папки' : 'Открыть папки'}
+      class="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-lg transition-[background-color,transform] active:scale-90 active:bg-border {folderActive
+        ? 'text-accent'
+        : 'text-muted'}"
+      onclick={() => press(() => onOpenFolders?.())}
+    >
+      📁
+    </button>
+    <button
+      type="button"
+      aria-label="Топики"
+      class="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
+      onclick={() => press(() => onOpenTopics?.())}
+    >
+      📚
+    </button>
+  </div>
 
   <div class="flex flex-col gap-1.5">
     {#if text.trim() !== ''}
-      <!-- Панель действий новой заметки (видна при вводе текста) -->
+      <!-- Панель действий новой заметки (видна при вводе текста): тап по
+           кнопке не уводит фокус из поля ввода (press возвращает фокус) -->
       <div class="flex items-center gap-2 px-1">
         <button
           type="button"
@@ -209,7 +261,7 @@
           'none'
             ? 'bg-border/60'
             : 'bg-background'}"
-          onclick={() => (priority = nextPriority(priority))}
+          onclick={() => press(() => (priority = nextPriority(priority)))}
         >
           {priorityEmoji(priority)}
         </button>
@@ -221,7 +273,7 @@
           null
             ? 'bg-border/60'
             : 'bg-background'}"
-          onclick={toggleReminderForm}
+          onclick={() => press(toggleReminderForm)}
         >
           ⏰
         </button>
@@ -232,7 +284,7 @@
           class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 {pinned
             ? 'bg-border/60'
             : 'bg-background'}"
-          onclick={() => (pinned = !pinned)}
+          onclick={() => press(() => (pinned = !pinned))}
         >
           📌
         </button>

@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { request } from '../api/client';
 import { resetMockStore, setMockDelay } from '../api/mock';
-import { loadNotes, notesStore } from './notes.svelte';
+import { loadNotes, notesStore, resetNotes } from './notes.svelte';
 import {
   createFolder,
   deleteFolder,
@@ -20,6 +20,7 @@ import type { Topic } from '../types/api';
 beforeEach(() => {
   resetMockStore();
   setMockDelay(0);
+  resetNotes();
 });
 
 async function setupTopic(): Promise<number> {

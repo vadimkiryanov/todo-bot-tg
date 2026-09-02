@@ -7,6 +7,7 @@
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
+  import NoteEditForm from '$lib/components/NoteEditForm.svelte';
   import NoteMenu from '$lib/components/NoteMenu.svelte';
   import {
     doneStore,
@@ -40,6 +41,20 @@
   function closeMenu(): void {
     menuNoteId = null;
     menuRect = null;
+  }
+
+  // Редактирование из контекстного меню («✏️ Редактировать»): оверлей сразу
+  // в режиме редактирования.
+  let editing = $state(false);
+
+  function requestEdit(note: Note): void {
+    selectedId = note.id;
+    editing = true;
+  }
+
+  function closeOverlay(): void {
+    selectedId = null;
+    editing = false;
   }
 
   let busy = $state(false);
@@ -134,43 +149,55 @@
 </div>
 
 {#if selectedNote !== null}
-  <Modal open onClose={() => (selectedId = null)}>
-    <div class="flex flex-col gap-4 px-1 py-2">
-      <div
-        class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 {selectedNote
-          .done
-          ? 'text-muted line-through'
-          : 'text-content'}"
-      >
-        {@html renderNoteHtml(selectedNote.text, selectedNote.entities)}
-      </div>
-      {#if error}
-        <p class="text-sm text-danger">{error}</p>
-      {/if}
-      <div class="flex items-center justify-between gap-1">
-        <button
-          type="button"
-          aria-label="Вернуть в работу"
-          class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
-          disabled={busy}
-          onclick={() => doUndone(selectedNote)}
+  <Modal open onClose={closeOverlay}>
+    {#if editing}
+      <h2 class="mb-3 text-lg font-semibold">✏️ Редактировать</h2>
+      <NoteEditForm
+        note={selectedNote}
+        onCancel={() => (editing = false)}
+        onSaved={() => {
+          editing = false;
+          closeOverlay();
+        }}
+      />
+    {:else}
+      <div class="flex flex-col gap-4 px-1 py-2">
+        <div
+          class="whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 {selectedNote
+            .done
+            ? 'text-muted line-through'
+            : 'text-content'}"
         >
-          ↩️
-        </button>
-        <button
-          type="button"
-          aria-label="Удалить"
-          class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
-          disabled={busy}
-          onclick={() => {
-            confirmDelete = true;
-            error = '';
-          }}
-        >
-          🗑
-        </button>
+          {@html renderNoteHtml(selectedNote.text, selectedNote.entities)}
+        </div>
+        {#if error}
+          <p class="text-sm text-danger">{error}</p>
+        {/if}
+        <div class="flex items-center justify-between gap-1">
+          <button
+            type="button"
+            aria-label="Вернуть в работу"
+            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
+            disabled={busy}
+            onclick={() => doUndone(selectedNote)}
+          >
+            ↩️
+          </button>
+          <button
+            type="button"
+            aria-label="Удалить"
+            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
+            disabled={busy}
+            onclick={() => {
+              confirmDelete = true;
+              error = '';
+            }}
+          >
+            🗑
+          </button>
+        </div>
       </div>
-    </div>
+    {/if}
   </Modal>
 {/if}
 
@@ -189,5 +216,11 @@
 {/if}
 
 {#if menuNote !== null && menuRect !== null}
-  <NoteMenu note={menuNote} rect={menuRect} done onClose={closeMenu} />
+  <NoteMenu
+    note={menuNote}
+    rect={menuRect}
+    done
+    onClose={closeMenu}
+    onEdit={requestEdit}
+  />
 {/if}

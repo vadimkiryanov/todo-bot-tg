@@ -103,6 +103,59 @@ html {
   animation: pop-in 0.16s ease-out;
 }
 
+/* ── «Островок» табов топиков ────────────────────────────────
+   Плавающая стеклянная панель (как островок в Telegram): полупрозрачный
+   фон с размытием — под ним виден скроллящийся список заметок. */
+.island-glass {
+  background: color-mix(in srgb, var(--color-surface) 74%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+  box-shadow:
+    0 4px 18px rgb(0 0 0 / 0.08),
+    0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+/* Строка текущей папки под островком: чуть менее «стеклянная»,
+   чтобы визуально не спорила с островком. */
+.strip-glass {
+  background: color-mix(in srgb, var(--color-surface) 58%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+/* Въезд списка заметок при переключении топика (свайп/таб): контент едет
+   с той стороны, откуда пришёл топик. */
+@keyframes enter-from-left {
+  from {
+    opacity: 0.3;
+    transform: translateX(-56px);
+  }
+}
+@keyframes enter-from-right {
+  from {
+    opacity: 0.3;
+    transform: translateX(56px);
+  }
+}
+.enter-from-left {
+  animation: enter-from-left 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.enter-from-right {
+  animation: enter-from-right 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Фриз скролла при открытом контекстном меню ──────────────
+   Пока открыто дропдаун-меню (NoteMenu/QuickMenu), список заметок не
+   скроллится: свайп/скролл-жест не закрывает меню и не «утаскивает»
+   список, пока пользователь не выбрал действие или не закрыл меню. */
+body.scroll-locked .scroll-area {
+  overflow-y: hidden !important;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+}
+
 /* Появление карточек списка: stagger через animation-delay на обёртке */
 @keyframes note-in {
   from {
@@ -150,6 +203,8 @@ html {
   .sheet-out,
   .menu-anim,
   .note-enter,
+  .enter-from-left,
+  .enter-from-right,
   .empty-bob {
     animation: none !important;
   }

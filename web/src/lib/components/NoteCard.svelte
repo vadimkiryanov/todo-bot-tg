@@ -3,6 +3,7 @@
   // Справа — ⏰ при установленном напоминании. Выполненная — зачёркнута и приглушена.
   // Клик — открыть оверлей; долгий тач (или правый клик на десктопе) — дропдаун-меню действий.
   import type { Note } from '../types/api';
+  import { suppressNextClick } from '../utils/click';
   import { firstLineHtml, formatReminderAt } from '../utils/format';
 
   let {
@@ -73,20 +74,6 @@
     }, LONG_PRESS_MS);
   }
 
-  /** Перехватывает один следующий click (capture на window): при отпускании пальца
-      после долгого тача браузер «кликает» по только что открытому меню
-      и закрыл бы его — гасим этот клик до наших обработчиков. */
-  function suppressNextClick(): void {
-    const handler = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      window.removeEventListener('click', handler, true);
-    };
-    window.addEventListener('click', handler, true);
-    // Страховка: если click не придёт, слушатель не должен висеть.
-    setTimeout(() => window.removeEventListener('click', handler, true), 1000);
-  }
-
   function onPointerMove(e: PointerEvent): void {
     if (pressTimer === null) return;
     const dx = e.clientX - startX;
@@ -142,9 +129,10 @@
     <span class="w-5 shrink-0 text-center text-sm leading-6">{marker}</span>
   {/if}
   <span
-    class="min-w-0 flex-1 break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline {note.done
+    class="line-clamp-2 min-w-0 flex-1 break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline {note.done
       ? 'text-muted line-through'
       : 'text-content'}"
+    title={note.text.replace(/\s+/g, ' ')}
   >
     {@html firstLineHtml(note.text, note.entities)}
   </span>

@@ -1,8 +1,10 @@
 <script lang="ts">
   // Компактный дропдаун-меню действий: позиционируется fixed около точки
   // долгого нажатия; если снизу мало места — над ней. Закрывается по тапу
-  // вне, скроллу или Escape. Пункт — выполнить action и закрыть меню.
+  // вне или Escape; пока меню открыто, скролл списка заморожен (уход пальца
+  // или скролл-жест не закрывают меню).
   import { onMount } from 'svelte';
+  import { lockScroll, unlockScroll } from '../utils/scroll';
 
   export interface QuickMenuItem {
     emoji?: string;
@@ -38,14 +40,13 @@
   });
 
   onMount(() => {
-    const onScroll = () => onClose();
+    lockScroll();
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    window.addEventListener('scroll', onScroll, true);
     window.addEventListener('keydown', onKeydown);
     return () => {
-      window.removeEventListener('scroll', onScroll, true);
+      unlockScroll();
       window.removeEventListener('keydown', onKeydown);
     };
   });
@@ -56,11 +57,15 @@
   }
 </script>
 
-<div class="backdrop-anim fixed inset-0 z-40 bg-black/40" onclick={onClose} aria-hidden="true"></div>
+<div
+  class="backdrop-anim pointer-events-auto fixed inset-0 z-40 bg-black/40"
+  onclick={onClose}
+  aria-hidden="true"
+></div>
 
 <div
   bind:this={menuEl}
-  class="menu-anim fixed z-50 flex w-56 flex-col gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl"
+  class="menu-anim pointer-events-auto fixed z-50 flex w-56 flex-col gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl"
   style:left={`${left}px`}
   style:top={openUp ? undefined : `${y + MARGIN}px`}
   style:bottom={openUp ? `${Math.max(MARGIN, window.innerHeight - y + MARGIN)}px` : undefined}

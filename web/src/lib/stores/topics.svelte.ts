@@ -7,6 +7,7 @@ import {
 } from '../api/topics';
 import type { Topic } from '../types/api';
 import { navigation, restoreActiveTopic, setActiveTopic } from './navigation.svelte';
+import { pruneNotesCacheForTopic } from './notes.svelte';
 
 export const topicsStore = $state<{
   topics: Topic[];
@@ -48,6 +49,7 @@ export async function renameTopic(id: number, name: string): Promise<void> {
 export async function deleteTopic(id: number): Promise<void> {
   await apiDeleteTopic(id);
   topicsStore.topics = topicsStore.topics.filter((t) => t.id !== id);
+  pruneNotesCacheForTopic(id);
   if (navigation.activeTopicID === id) {
     restoreActiveTopic(topicsStore.topics);
   }
