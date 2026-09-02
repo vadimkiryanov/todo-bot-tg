@@ -373,12 +373,21 @@
     <div class="flex items-end gap-1.5">
       <button
         type="button"
-        aria-label="Меню"
+        aria-label={badgeCount > 0 ? `Меню (${badgeCount} непрочитанных уведомлений)` : 'Меню'}
         aria-expanded={menuOpen}
-        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
+        class="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
         onclick={toggleMenu}
       >
         ☰
+        {#if badgeCount > 0}
+          <!-- Бейдж непрочитанных на самом бургере: видно, что в 🔔 что-то есть -->
+          <span
+            class="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold leading-none text-white"
+            aria-hidden="true"
+          >
+            {badgeCount > 99 ? '99+' : badgeCount}
+          </span>
+        {/if}
       </button>
       <textarea
         bind:this={input}
