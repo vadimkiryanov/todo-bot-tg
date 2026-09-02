@@ -190,10 +190,10 @@ html {
   }
 }
 .enter-from-left {
-  animation: enter-from-left 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: enter-from-left 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .enter-from-right {
-  animation: enter-from-right 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: enter-from-right 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* ── Свайп-сцена переключения топиков (drag-follow) ──────────
@@ -214,7 +214,7 @@ html {
   will-change: transform;
 }
 .swipe-settle .swipe-panel {
-  transition: transform 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+  transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Пока жест горизонтальный, карточки под пальцем не «нажимаются»:
