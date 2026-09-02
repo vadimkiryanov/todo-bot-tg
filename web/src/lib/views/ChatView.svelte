@@ -354,7 +354,7 @@
           {#each inlineFolders as folder (folder.id)}
             <button
               type="button"
-              class="flex w-full touch-manipulation select-none items-center gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] active:bg-border/50 [-webkit-touch-callout:none]"
+              class="glass-card flex w-full touch-manipulation select-none items-center gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none]"
               onclick={() => openFolder(folder.id)}
             >
               <span class="w-5 shrink-0 text-center text-sm leading-6">📁</span>
@@ -389,7 +389,9 @@
     <FolderStrip onOpen={() => (folderSheetOpen = true)} />
   </div>
 
-  <footer class="shrink-0 rounded-t-2xl bg-surface pb-[env(safe-area-inset-bottom)]">
+  <footer
+    class="shrink-0 rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
+  >
     <InputBar
       onOpenTopics={() => (topicSheetOpen = true)}
       onOpenFolders={() => (folderSheetOpen = true)}

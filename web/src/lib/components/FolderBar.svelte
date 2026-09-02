@@ -95,7 +95,7 @@
   const tree = $derived(treeFolders());
 </script>
 
-<div class="shrink-0 bg-surface px-3 py-2">
+<div class="shrink-0 px-3 py-2">
   {#if foldersStore.loading && foldersStore.topicId !== navigation.activeTopicID}
     <div class="h-10 animate-pulse rounded-full bg-border/40"></div>
   {:else}

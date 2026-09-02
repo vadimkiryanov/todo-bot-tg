@@ -125,6 +125,52 @@ html {
   border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
 
+/* ── Стеклянные поверхности отдельных элементов ─────────────
+   Тот же приём, что у островка/строки папки (полупрозрачный фон токена
+   surface + backdrop-blur), для элементов поверх списка. Плотность
+   подобрана под «шумность» подложки и читаемость контента:
+   прозрачнее всего — плавающие кнопки (один символ), плотнее всего —
+   шторки (много текста и форм). */
+
+/* Карточки списка (заметки, строки папок): подложка — плоский фон чата,
+   поэтому достаточно лёгкой полупрозрачности, без backdrop-filter
+   (размывать нечего, а слой на каждой карточке стоил бы скроллу). Нажатие —
+   плотнее, как прежнее active:bg-border/50 (утилита active:bg не сработала
+   бы: unlayered-фон класса перебивает утилиты). */
+.glass-card {
+  background: color-mix(in srgb, var(--color-surface) 74%, transparent);
+}
+.glass-card:active {
+  background: color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+/* Плавающие круглые кнопки над панелью ввода (📁/📚). */
+.glass-fab {
+  background: color-mix(in srgb, var(--color-surface) 62%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+}
+.glass-fab:active {
+  background: color-mix(in srgb, var(--color-border) 50%, transparent);
+}
+
+/* Дропдауны-меню поверх списка (бургер, меню заметки, QuickMenu). */
+.glass-menu {
+  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+}
+
+/* Шторки модалок: поверх затемнения, плотные (текст и формы), но с
+   заметным «морозным» blur. */
+.glass-sheet {
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  backdrop-filter: blur(28px) saturate(1.4);
+}
+
 /* Въезд списка заметок при переключении топика (свайп/таб): контент едет
    с той стороны, откуда пришёл топик. */
 @keyframes enter-from-left {
@@ -168,13 +214,15 @@ body.scroll-locked .scroll-area {
 }
 
 /* Подсветка только что добавленной заметки: акцентная заливка карточки,
-   плавно уходящая в цвет поверхности (как «вспышка» нового сообщения). */
+   плавно уходящая в тон стеклянной карточки (.glass-card: полупрозрачный
+   surface над фоном чата) — иначе в конце вспышки был бы виден сплошной
+   непрозрачный прямоугольник. */
 @keyframes note-flash {
   from {
     background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-surface));
   }
   to {
-    background-color: var(--color-surface);
+    background-color: color-mix(in srgb, var(--color-surface) 74%, var(--color-background));
   }
 }
 .note-highlight {

@@ -130,7 +130,7 @@
 
   <div
     bind:this={menuEl}
-    class="menu-anim fixed z-50 flex flex-col gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl"
+    class="glass-menu menu-anim fixed z-50 flex flex-col gap-1 rounded-2xl p-2 shadow-xl"
     style:left={`${pos.left}px`}
     style:width={`${pos.width}px`}
     style:top={openUp ? undefined : `${pos.top}px`}

@@ -167,7 +167,7 @@
     <!-- Затемняющая подложка: тап вне меню — закрыть -->
     <div class="backdrop-anim fixed inset-0 z-40 bg-black/40" onclick={closeMenu} aria-hidden="true"></div>
     <div
-      class="menu-anim absolute bottom-full left-2 z-50 mb-2 flex w-56 flex-col gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl"
+      class="glass-menu menu-anim absolute bottom-full left-2 z-50 mb-2 flex w-56 flex-col gap-1 rounded-2xl p-2 shadow-xl"
       role="menu"
     >
       <button
@@ -262,7 +262,7 @@
         aria-label="Папки"
         aria-expanded={folderActive}
         title={folderActive ? 'Вы в папке — открыть папки' : 'Открыть папки'}
-        class="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-lg transition-[background-color,transform] active:scale-90 active:bg-border {folderActive
+        class="glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 {folderActive
           ? 'text-accent'
           : 'text-muted'}"
         onclick={() => press(() => onOpenFolders?.())}
@@ -273,7 +273,7 @@
     <button
       type="button"
       aria-label="Топики"
-      class="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
+      class="glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted transition-[background-color,transform] active:scale-90"
       onclick={() => press(() => onOpenTopics?.())}
     >
       📚

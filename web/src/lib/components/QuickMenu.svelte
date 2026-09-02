@@ -65,7 +65,7 @@
 
 <div
   bind:this={menuEl}
-  class="menu-anim pointer-events-auto fixed z-50 flex w-56 flex-col gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl"
+  class="glass-menu menu-anim pointer-events-auto fixed z-50 flex w-56 flex-col gap-1 rounded-2xl p-2 shadow-xl"
   style:left={`${left}px`}
   style:top={openUp ? undefined : `${y + MARGIN}px`}
   style:bottom={openUp ? `${Math.max(MARGIN, window.innerHeight - y + MARGIN)}px` : undefined}

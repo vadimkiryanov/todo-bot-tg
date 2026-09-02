@@ -115,7 +115,7 @@
 
 <button
   type="button"
-  class="flex w-full touch-manipulation select-none items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] active:bg-border/50 [-webkit-touch-callout:none] {highlighted
+  class="glass-card flex w-full touch-manipulation select-none items-start gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none] {highlighted
     ? 'note-highlight'
     : ''}"
   onclick={onCardClick}

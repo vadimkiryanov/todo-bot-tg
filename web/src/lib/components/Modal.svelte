@@ -70,7 +70,7 @@
     role="presentation"
   >
     <div
-      class="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-surface p-4 shadow-xl sm:rounded-2xl {closing ? 'sheet-out' : 'sheet-anim'}"
+      class="glass-sheet max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-2xl p-4 shadow-xl sm:rounded-2xl {closing ? 'sheet-out' : 'sheet-anim'}"
       style={keyboardInset > 0 ? `max-height: ${visualHeight}px` : undefined}
       tabindex="-1"
       role="dialog"
