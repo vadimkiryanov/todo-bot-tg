@@ -138,10 +138,8 @@
       <EmptyState emoji="✅" text="Выполненных нет" />
     {:else}
       <div class="flex flex-col gap-2 px-3 py-3">
-        {#each doneStore.notes as note, i (note.id)}
-          <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
-            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} onMenu={openMenu} />
-          </div>
+        {#each doneStore.notes as note (note.id)}
+          <NoteCard {note} onOpen={(n) => (selectedId = n.id)} onMenu={openMenu} />
         {/each}
       </div>
     {/if}

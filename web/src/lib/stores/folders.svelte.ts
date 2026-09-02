@@ -32,6 +32,14 @@ export function levelFolders(): Folder[] {
   return foldersStore.all.filter((f) => f.parent_folder_id === parent);
 }
 
+/** Все папки топика из кеша без загрузки (undefined — кеша ещё нет).
+    Нужно для превью соседнего топика при свайпе: папки соседа могут быть
+    в кеше (если топик уже открывали), но не в foldersStore (там только
+    активный топик). */
+export function peekCachedFolders(topicId: number): Folder[] | undefined {
+  return foldersByTopic.get(topicId);
+}
+
 /** Узел дерева папок: папка + глубина вложенности (0 — корневая) и ветки. */
 export interface FolderTreeNode {
   folder: Folder;

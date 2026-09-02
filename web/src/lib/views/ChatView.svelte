@@ -25,12 +25,13 @@
   import TopicIsland from '$lib/components/TopicIsland.svelte';
   import TopicMenu from '$lib/components/TopicMenu.svelte';
   import TopicTabs from '$lib/components/TopicTabs.svelte';
-  import { levelFolders, loadFolders } from '$lib/stores/folders.svelte';
+  import { levelFolders, loadFolders, peekCachedFolders } from '$lib/stores/folders.svelte';
   import { navigation, setActiveFolder, setActiveTopic } from '$lib/stores/navigation.svelte';
   import {
     clearNoteHighlight,
     loadNotes,
     notesStore,
+    peekCachedNotes,
     preloadTopicNeighbors,
   } from '$lib/stores/notes.svelte';
   import { session } from '$lib/stores/session.svelte';
@@ -98,11 +99,36 @@
   // закреплённые → папки → остальные заметки. Тап по строке — вход в папку;
   // долгий тач/правый клик — контекстное меню папки (FolderMenu).
   // В режиме «отдельная кнопка» папок в списке нет (только 📁/строка папки).
-  const pinnedNotes = $derived(notesStore.notes.filter((n) => n.pinned));
-  const restNotes = $derived(notesStore.notes.filter((n) => !n.pinned));
   const inlineFolders = $derived(
     settings.foldersMode === 'list' ? levelFolders() : [],
   );
+
+  /** Текущий список, разбитый на закреплённые/остальные (обычный режим). */
+  const normalSplit = $derived(splitNotes(notesStore.notes));
+
+  /** Разбить список заметок на закреплённые и остальные (порядок в списке). */
+  function splitNotes(notes: Note[]): { pinned: Note[]; rest: Note[] } {
+    const pinned: Note[] = [];
+    const rest: Note[] = [];
+    for (const n of notes) (n.pinned ? pinned : rest).push(n);
+    return { pinned, rest };
+  }
+
+  /** Transform панели сцены: база (0 — центр, ±W — сосед) + текущий сдвиг. */
+  function panelShift(side: 'left' | 'center' | 'right'): string {
+    const s = stage;
+    if (s === null) return 'translate3d(0,0,0)';
+    const base = side === 'left' ? -s.W : side === 'right' ? s.W : 0;
+    return `translate3d(${base + s.eff}px,0,0)`;
+  }
+
+  // Панели соседей в сцене не интерактивны (жест ведёт список, клик после
+  // горизонтального движения подавляется) — заглушки, чтобы долгий тач не
+  // открывал меню чужого топика.
+  function noopOpenNote(_note: Note): void {}
+  function noopMenuNote(_note: Note, _rect: DOMRect): void {}
+  function noopOpenFolder(_folder: Folder): void {}
+  function noopMenuFolder(_folder: Folder, _rect: DOMRect): void {}
 
   let mainEl: HTMLElement | undefined;
 
@@ -158,40 +184,266 @@
 
   // ── Горизонтальный свайп по списку: переключение топиков ────────────────
   // touch-action: pan-y на main — вертикальный скролл нативный, горизонтальный
-  // жест достаётся нам (как пролистывание папок в Telegram).
+  // жест достаётся нам. Пока палец ведёт, контент едет за ним (как пролистывание
+  // папок в Telegram): список раскладывается в «сцену» из трёх панелей —
+  // сосед слева / текущая / сосед справа (превью соседей — из кеша корней,
+  // без сети). За границей (соседа нет) — «резинка». После отпускания —
+  // доводка: за порогом/при флинге доезжаем до соседа, иначе — назад в центр.
+  // Если превью соседа ещё не закешировано — сцена не собирается, работает
+  // классический свайп (въезд списка после отпускания).
   interface Swipe {
     startX: number;
     startY: number;
     axis: 'h' | 'v' | null;
+    lastX: number;
+    lastT: number;
+    vx: number; // px/ms, сглаженная скорость по последним движениям
   }
   let swipe: Swipe | null = null;
   const SWIPE_THRESHOLD = 48;
+  /** Флинг: скорость отпускания, при которой листаем даже без порога. */
+  const FLING_PX_MS = 0.5;
+  /** Доля ширины экрана, после которой жест считается «доводкой до соседа». */
+  const SETTLE_FRACTION = 0.3;
+  const AXIS_LOCK_PX = 12;
+
+  // ── Сцена: превью-панель (заметки корня топика из кеша + строки папок).
+  // Панели хранят готовые разбивки (закреплённые/остальные) — при движении
+  // пальца список не пересчитывается, меняется только transform панелей.
+  interface StagePane {
+    topicId: number;
+    pinned: Note[];
+    rest: Note[];
+    folders: Folder[];
+  }
+
+  let stage = $state<{
+    /** Ширина панели (ширина контента main), px. */
+    W: number;
+    /** Текущий сдвиг сцены: 0 — текущий топик в центре, ±W — сосед. */
+    eff: number;
+    left: StagePane | null;
+    center: StagePane;
+    right: StagePane | null;
+    settling: boolean;
+  } | null>(null);
+  /** Куда доводим: 'left'/'right' — сосед, null — вернуться в центр. */
+  let settleTarget: 'left' | 'right' | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Список в стадии drag-follow: замеряем его высоту для сцены. */
+  let listBox = $state<HTMLDivElement | undefined>(undefined);
+  let stageH = $state(0);
+  $effect(() => {
+    const el = listBox;
+    if (el === undefined) return;
+    const update = (): void => {
+      if (stage === null) stageH = el.offsetHeight;
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  // Высота сцены при drag-follow — по САМОЙ высокой панели (текущая и превью
+  // соседей). Если держать высоту текущего списка, превью соседа с длинным
+  // списком обрежется по ней (показывалась бы «полоска» высотой с короткий
+  // топик). Панели абсолютные — замер после сборки сцены.
+  $effect(() => {
+    if (stage === null) return;
+    const box = listBox;
+    if (box === undefined) return;
+    let max = box.offsetHeight;
+    for (const panel of box.querySelectorAll<HTMLElement>('.swipe-panel')) {
+      const h = panel.offsetHeight;
+      if (h > max) max = h;
+    }
+    if (max > 0 && max !== stageH) stageH = max;
+  });
+
+  /** Превью-панель соседнего топика: корень из кеша (undefined — кеша нет). */
+  function neighborPane(topicId: number): StagePane | null {
+    const notes = peekCachedNotes(topicId);
+    if (notes === undefined) return null;
+    let folders: Folder[] = [];
+    if (settings.foldersMode === 'list') {
+      const all = peekCachedFolders(topicId);
+      if (all === undefined) return null;
+      folders = all.filter((f) => f.parent_folder_id === null);
+    }
+    const { pinned, rest } = splitNotes(notes);
+    return { topicId, pinned, rest, folders };
+  }
+
+  /** Свободный ход сцены — на ширину панели в сторону соседа; дальше (или в
+      сторону без соседа) — «резинка»: ход с сопротивлением, как в Telegram. */
+  function clampEff(raw: number): number {
+    const s = stage;
+    if (s === null) return raw;
+    const maxRight = s.left !== null ? s.W : 0;
+    const maxLeft = s.right !== null ? -s.W : 0;
+    if (raw > maxRight) return maxRight + (raw - maxRight) * 0.35;
+    if (raw < maxLeft) return maxLeft + (raw - maxLeft) * 0.35;
+    return raw;
+  }
+
+  /** Собрать сцену в момент блокировки оси (сосед уже закеширован). */
+  function mountStage(): void {
+    const topicId = navigation.activeTopicID;
+    if (topicId === null || mainEl === undefined) return;
+    const list = topicsStore.topics;
+    const index = list.findIndex((t) => t.id === topicId);
+    if (index < 0) return;
+    const notes = notesStore.notes;
+    const folders = settings.foldersMode === 'list' ? levelFolders() : [];
+    if (notes.length === 0 && folders.length === 0) return; // экран-заглушка
+    const left = index > 0 ? neighborPane(list[index - 1].id) : null;
+    const right = index + 1 < list.length ? neighborPane(list[index + 1].id) : null;
+    if (left === null && right === null) return;
+    const W = mainEl.clientWidth;
+    if (W <= 0) return;
+    // Высота сцены = высоте текущего списка (панели абсолютные, в потоке
+    // сцена сама высоты не имеет). Свежий замер, а не только ResizeObserver.
+    const H = listBox?.offsetHeight ?? 0;
+    if (H <= 0) return;
+    stageH = H;
+    const { pinned, rest } = splitNotes(notes);
+    stage = {
+      W,
+      eff: 0,
+      left,
+      center: { topicId, pinned, rest, folders: [...folders] },
+      right,
+      settling: false,
+    };
+  }
+
+  /** Закрыть сцену: commitTopicId — топик, в который доехали (null — откат). */
+  function closeStage(commitTopicId: number | null): void {
+    clearTimeout(settleTimer);
+    settleTimer = undefined;
+    settleTarget = null;
+    if (stage === null) return;
+    stage = null;
+    mainEl?.classList.remove('swiping');
+    if (commitTopicId !== null && commitTopicId !== navigation.activeTopicID) {
+      setActiveTopic(commitTopicId);
+      // Кеш соседа уже есть (сцена из него и собрана) — показываем сразу,
+      // чтобы на кадр не мелькнул список предыдущего топика.
+      void loadNotes(commitTopicId, null);
+    }
+  }
+
+  /** Плавная доводка: едем к соседу (или назад в центр), затем финализируем. */
+  function beginSettle(target: 'left' | 'right' | null): void {
+    const s = stage;
+    if (s === null) return;
+    s.settling = true;
+    settleTarget = target;
+    s.eff = target === 'left' ? s.W : target === 'right' ? -s.W : 0;
+    // prefers-reduced-motion: CSS гасит transition, transitionend не придёт —
+    // финализируем сразу, не держа соседний список статичным 340 мс.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      finalizeSettle();
+      return;
+    }
+    clearTimeout(settleTimer);
+    // Страховка: transitionend может не прийти (прерванный жест) — доводка
+    // завершается по таймеру.
+    settleTimer = setTimeout(finalizeSettle, 340);
+  }
+
+  function finalizeSettle(): void {
+    clearTimeout(settleTimer);
+    settleTimer = undefined;
+    const s = stage;
+    if (s === null) return;
+    const target = settleTarget;
+    settleTarget = null;
+    const commitId =
+      target === 'left' ? s.left?.topicId : target === 'right' ? s.right?.topicId : null;
+    closeStage(commitId ?? null);
+  }
 
   function onMainPointerDown(e: PointerEvent): void {
     if (e.pointerType !== 'touch') return;
+    // Жест начался во время доводки/сцены — завершаем её мгновенно, чтобы
+    // жесты не «склеивались».
+    if (stage !== null) {
+      if (stage.settling) finalizeSettle();
+      else closeStage(null);
+    }
     if (topicsStore.topics.length < 2) return;
     const target = e.target as HTMLElement | null;
     if (target?.closest('textarea, input, a, [data-no-swipe]')) return;
-    swipe = { startX: e.clientX, startY: e.clientY, axis: null };
+    const t = performance.now();
+    swipe = {
+      startX: e.clientX,
+      startY: e.clientY,
+      axis: null,
+      lastX: e.clientX,
+      lastT: t,
+      vx: 0,
+    };
   }
 
   function onMainPointerMove(e: PointerEvent): void {
-    if (!swipe) return;
-    const dx = e.clientX - swipe.startX;
-    const dy = e.clientY - swipe.startY;
-    if (swipe.axis === null) {
-      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.3) {
-        swipe.axis = 'h';
-      } else if (Math.abs(dy) > 12) {
-        swipe.axis = 'v';
+    const s = swipe;
+    if (s === null) return;
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    if (s.axis === null) {
+      if (Math.abs(dx) > AXIS_LOCK_PX && Math.abs(dx) > Math.abs(dy) * 1.3) {
+        s.axis = 'h';
+        // Пока жест горизонтальный, карточки под пальцем не «нажимаются»
+        // (CSS .swiping гасит active-эффекты), список ведём за пальцем.
+        mainEl?.classList.add('swiping');
+        if (stage === null) mountStage();
+      } else if (Math.abs(dy) > AXIS_LOCK_PX) {
+        s.axis = 'v';
       }
+    }
+    if (s.axis !== 'h') return;
+    // Скорость флинга по последним движениям.
+    const now = performance.now();
+    const dt = now - s.lastT;
+    const inst = (e.clientX - s.lastX) / Math.max(dt, 1);
+    s.vx = dt > 48 ? inst : s.vx * 0.6 + inst * 0.4;
+    s.lastX = e.clientX;
+    s.lastT = now;
+    if (stage !== null && !stage.settling) {
+      stage.eff = clampEff(dx);
     }
   }
 
   function onMainPointerUp(e: PointerEvent): void {
     const s = swipe;
     swipe = null;
-    if (!s || s.axis !== 'h') return;
+    if (s === null) return;
+    if (s.axis !== 'h') return;
+    mainEl?.classList.remove('swiping');
+
+    // Сцена собрана — решаем, куда доводим. Жест реально тащил список:
+    // клик отпускания подавляем (иначе после отката/доводки открылся бы
+    // оверлей заметки под пальцем).
+    if (stage !== null && !stage.settling) {
+      suppressNextClick();
+      const W = stage.W;
+      const dx = e.clientX - s.startX;
+      let target: 'left' | 'right' | null = null;
+      if (dx <= -W * SETTLE_FRACTION && stage.right !== null) target = 'right';
+      else if (dx >= W * SETTLE_FRACTION && stage.left !== null) target = 'left';
+      if (target === null) {
+        if (s.vx <= -FLING_PX_MS && stage.right !== null) target = 'right';
+        else if (s.vx >= FLING_PX_MS && stage.left !== null) target = 'left';
+      }
+      beginSettle(target);
+      return;
+    }
+    if (stage !== null) return; // идёт доводка — отпускание второго пальца
+
+    // Классический свайп (превью соседа не закешировано — сцены нет):
+    // отпустили за порогом — въезд списка соседнего топика.
     const dx = e.clientX - s.startX;
     if (Math.abs(dx) < SWIPE_THRESHOLD) return;
 
@@ -207,6 +459,23 @@
     suppressNextClick();
     applySlide(offset > 0);
     setActiveTopic(target.id);
+  }
+
+  function onMainPointerCancel(): void {
+    swipe = null;
+    if (stage !== null) {
+      if (stage.settling) finalizeSettle();
+      else closeStage(null);
+    }
+    mainEl?.classList.remove('swiping');
+  }
+
+  /** Доводка завершена (transitionend с панелей сцены). */
+  function onStageTransitionEnd(e: TransitionEvent): void {
+    if (e.propertyName !== 'transform') return;
+    const t = e.target;
+    if (!(t instanceof Element) || !t.classList.contains('swipe-panel')) return;
+    if (stage !== null && stage.settling) finalizeSettle();
   }
 
   // Долгое нажатие на пустом месте (заметок нет) — дропдаун «Создать папку».
@@ -248,7 +517,9 @@
   });
 
   // Предзагрузка: после активного топика подгружаем корни соседей слева и
-  // справа — свайп на соседний таб не ждёт сеть.
+  // справа — свайп на соседний таб не ждёт сеть. В режиме «папки в списке»
+  // превью-панель сцены показывает и корневые папки соседа — их тоже
+  // кешируем заранее (иначе drag-follow не соберётся до первого визита).
   $effect(() => {
     const list = topicsStore.topics;
     const topicId = navigation.activeTopicID;
@@ -259,6 +530,11 @@
     if (index > 0) neighbors.push(list[index - 1].id);
     if (index + 1 < list.length) neighbors.push(list[index + 1].id);
     void preloadTopicNeighbors(topicId, neighbors);
+    if (settings.foldersMode === 'list') {
+      for (const id of neighbors) {
+        if (peekCachedFolders(id) === undefined) void loadFolders(id, true);
+      }
+    }
   });
 
   // Подсветка «только что добавленной» заметки: держим ~3 сек и снимаем.
@@ -284,6 +560,44 @@
 </script>
 
 <div class="relative flex h-full flex-col">
+  {#snippet noteList(
+    pinned: Note[],
+    rest: Note[],
+    folderRows: Folder[],
+    onOpenNote: (note: Note) => void,
+    onMenuNote: (note: Note, rect: DOMRect) => void,
+    onOpenFolder: (folder: Folder) => void,
+    onMenuFolder: (folder: Folder, rect: DOMRect) => void,
+  )}
+    <!-- Колонка списка: закреплённые → строки папок (режим «в списке») →
+         остальные заметки. Без анимации появления: при перерисовке списка
+         (переключение топиков/папок, закрытие свайп-сцены) каскадный въезд
+         «мигал» карточками. -->
+    <div class="flex flex-col gap-2 px-3 py-3">
+      {#each pinned as note (note.id)}
+        <NoteCard
+          {note}
+          highlighted={notesStore.highlightedId === note.id}
+          onOpen={onOpenNote}
+          onMenu={onMenuNote}
+        />
+      {/each}
+      {#if folderRows.length > 0}
+        {#each folderRows as folder (folder.id)}
+          <FolderRow {folder} onOpen={onOpenFolder} onMenu={onMenuFolder} />
+        {/each}
+      {/if}
+      {#each rest as note (note.id)}
+        <NoteCard
+          {note}
+          highlighted={notesStore.highlightedId === note.id}
+          onOpen={onOpenNote}
+          onMenu={onMenuNote}
+        />
+      {/each}
+    </div>
+  {/snippet}
+
   <main
     bind:this={mainEl}
     class="scroll-area touch-pan-y flex-1 overflow-y-auto"
@@ -293,7 +607,7 @@
     onpointerdown={onMainPointerDown}
     onpointermove={onMainPointerMove}
     onpointerup={onMainPointerUp}
-    onpointercancel={() => (swipe = null)}
+    onpointercancel={onMainPointerCancel}
   >
     {#if topicsStore.loading}
       <EmptyState emoji="⏳" />
@@ -352,42 +666,64 @@
       </div>
     {:else}
       <!-- Общий список: закреплённые → строки папок (режим «в списке») →
-           остальные заметки. Папки уровня — FolderRow (тап — вход в папку,
-           долгий тач — контекстное меню); строки добавляются фронтом,
-           бэкенд отдаёт заметки. -->
-      <div class="flex flex-col gap-2 px-3 py-3">
-        {#each pinnedNotes as note, i (note.id)}
-          <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
-            <NoteCard
-              {note}
-              highlighted={notesStore.highlightedId === note.id}
-              onOpen={(n) => (selectedId = n.id)}
-              onMenu={openMenu}
-            />
+           остальные заметки. Во время drag-follow список раскладывается
+           в сцену: по центру текущий контент, по бокам — превью соседей. -->
+      <div
+        bind:this={listBox}
+        class:swipe-stage={stage !== null}
+        class:swipe-settle={stage !== null && stage.settling}
+        style:height={stage !== null ? `${stageH}px` : undefined}
+        ontransitionend={onStageTransitionEnd}
+      >
+        {#if stage !== null}
+          {#if stage.left !== null}
+            <div class="swipe-panel" style:transform={panelShift('left')}>
+              {@render noteList(
+                stage.left.pinned,
+                stage.left.rest,
+                stage.left.folders,
+                noopOpenNote,
+                noopMenuNote,
+                noopOpenFolder,
+                noopMenuFolder,
+              )}
+            </div>
+          {/if}
+          <div class="swipe-panel" style:transform={panelShift('center')}>
+            {@render noteList(
+              stage.center.pinned,
+              stage.center.rest,
+              stage.center.folders,
+              (n) => (selectedId = n.id),
+              openMenu,
+              (f) => openFolder(f.id),
+              openFolderMenu,
+            )}
           </div>
-        {/each}
-        {#if inlineFolders.length > 0}
-          {#each inlineFolders as folder (folder.id)}
-            <FolderRow
-              {folder}
-              onOpen={(f) => openFolder(f.id)}
-              onMenu={openFolderMenu}
-            />
-          {/each}
+          {#if stage.right !== null}
+            <div class="swipe-panel" style:transform={panelShift('right')}>
+              {@render noteList(
+                stage.right.pinned,
+                stage.right.rest,
+                stage.right.folders,
+                noopOpenNote,
+                noopMenuNote,
+                noopOpenFolder,
+                noopMenuFolder,
+              )}
+            </div>
+          {/if}
+        {:else}
+          {@render noteList(
+            normalSplit.pinned,
+            normalSplit.rest,
+            inlineFolders,
+            (n) => (selectedId = n.id),
+            openMenu,
+            (f) => openFolder(f.id),
+            openFolderMenu,
+          )}
         {/if}
-        {#each restNotes as note, j (note.id)}
-          <div
-            class="note-enter"
-            style="animation-delay: {Math.min((pinnedNotes.length + j) * 24, 300)}ms"
-          >
-            <NoteCard
-              {note}
-              highlighted={notesStore.highlightedId === note.id}
-              onOpen={(n) => (selectedId = n.id)}
-              onMenu={openMenu}
-            />
-          </div>
-        {/each}
       </div>
     {/if}
   </main>

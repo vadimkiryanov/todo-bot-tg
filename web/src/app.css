@@ -196,6 +196,35 @@ html {
   animation: enter-from-right 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* ── Свайп-сцена переключения топиков (drag-follow) ──────────
+   Сцена — контейнер высотой как у текущего списка; внутри три абсолютных
+   панели (текущий список по центру, превью соседей слева/справа — из кеша),
+   каждая шириной в контейнер. Пока палец ведёт, панели едут за ним
+   (transform выставляется из JS на каждый pointermove); .swipe-settle
+   включает плавную доводку панелей после отпускания. */
+.swipe-stage {
+  position: relative;
+  overflow: hidden;
+}
+.swipe-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  will-change: transform;
+}
+.swipe-settle .swipe-panel {
+  transition: transform 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+/* Пока жест горизонтальный, карточки под пальцем не «нажимаются»:
+   гасим сжатие и подложку active, чтобы список не моргал при drag. */
+.swiping .glass-card,
+.swiping .glass-card:active {
+  transform: none !important;
+  background: color-mix(in srgb, var(--color-surface) 74%, transparent);
+}
+
 /* ── Фриз скролла при открытом контекстном меню ──────────────
    Пока открыто дропдаун-меню (NoteMenu/QuickMenu), список заметок не
    скроллится: свайп/скролл-жест не закрывает меню и не «утаскивает»
@@ -204,17 +233,6 @@ body.scroll-locked .scroll-area {
   overflow-y: hidden !important;
   overscroll-behavior: none;
   -webkit-overflow-scrolling: auto;
-}
-
-/* Появление карточек списка: stagger через animation-delay на обёртке */
-@keyframes note-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-}
-.note-enter {
-  animation: note-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Подсветка только что добавленной заметки: акцентная заливка карточки,
@@ -254,7 +272,6 @@ body.scroll-locked .scroll-area {
   .sheet-anim,
   .sheet-out,
   .menu-anim,
-  .note-enter,
   .enter-from-left,
   .enter-from-right,
   .empty-bob {
@@ -265,6 +282,10 @@ body.scroll-locked .scroll-area {
   .note-highlight {
     animation: none;
     background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-surface));
+  }
+  /* Доводка свайпа — мгновенно. */
+  .swipe-settle .swipe-panel {
+    transition: none !important;
   }
 }
 

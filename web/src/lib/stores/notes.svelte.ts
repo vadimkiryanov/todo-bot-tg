@@ -113,6 +113,16 @@ export function isNotesCached(
   return at !== undefined && Date.now() - at < maxAgeMs;
 }
 
+/** Заметки контекста из кеша без загрузки (undefined — нет в кеше).
+    Нужно для превью соседнего топика при свайпе: читаем готовый список,
+    не трогая сеть и не «переключая» контекст. */
+export function peekCachedNotes(
+  topicId: number,
+  folderId: number | null = null,
+): Note[] | undefined {
+  return notesCache.get(ctxKey(topicId, folderId));
+}
+
 /**
  * Загрузка заметок контекста (топик+папка). silent — тихая фоновая
  * перезагрузка (после мутации/для предзагрузки). Если активный контекст уже

@@ -137,10 +137,8 @@
       <EmptyState emoji="🗄" text="Архив пуст" />
     {:else}
       <div class="flex flex-col gap-2 px-3 py-3">
-        {#each archivedStore.notes as note, i (note.id)}
-          <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
-            <NoteCard {note} onOpen={(n) => (selectedId = n.id)} onMenu={openMenu} />
-          </div>
+        {#each archivedStore.notes as note (note.id)}
+          <NoteCard {note} onOpen={(n) => (selectedId = n.id)} onMenu={openMenu} />
         {/each}
       </div>
     {/if}
