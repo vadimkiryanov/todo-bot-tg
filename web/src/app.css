@@ -8,6 +8,11 @@
 @theme {
   --color-background: #e7ebee;
   --color-surface: #ffffff;
+  /* Карточки списка (заметки, строки папок): в светлой теме совпадают с
+     surface, в тёмной — светлее, чтобы карточки выделялись на фоне чата. */
+  --color-card: #ffffff;
+  /* Панель ввода (футер): в тёмной теме темнее surface, в тон фону чата */
+  --color-bar: #ffffff;
   --color-content: #0f0f0f;
   --color-muted: #707579;
   --color-border: #dfe3e8;
@@ -23,6 +28,10 @@
   :root {
     --color-background: #0f1115;
     --color-surface: #1b1e24;
+    /* Карточки списка: светлее поверхности, чтобы читались на тёмном фоне */
+    --color-card: #292e37;
+    /* Панель ввода: темнее карточек и поверхности, ближе к фону чата */
+    --color-bar: #161a20;
     --color-content: #e8e8e8;
     --color-muted: #8d9199;
     --color-border: #2a2e35;
@@ -142,7 +151,7 @@ html {
    плотнее, как прежнее active:bg-border/50 (утилита active:bg не сработала
    бы: unlayered-фон класса перебивает утилиты). */
 .glass-card {
-  background: color-mix(in srgb, var(--color-surface) 74%, transparent);
+  background: color-mix(in srgb, var(--color-card) 74%, transparent);
 }
 .glass-card:active {
   background: color-mix(in srgb, var(--color-border) 55%, transparent);
@@ -222,7 +231,7 @@ html {
 .swiping .glass-card,
 .swiping .glass-card:active {
   transform: none !important;
-  background: color-mix(in srgb, var(--color-surface) 74%, transparent);
+  background: color-mix(in srgb, var(--color-card) 74%, transparent);
 }
 
 /* Пока идёт горизонтальный свайп (класс .swiping вешается на сам main —
@@ -250,10 +259,10 @@ body.scroll-locked .scroll-area {
    непрозрачный прямоугольник. */
 @keyframes note-flash {
   from {
-    background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-surface));
+    background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-card));
   }
   to {
-    background-color: color-mix(in srgb, var(--color-surface) 74%, var(--color-background));
+    background-color: color-mix(in srgb, var(--color-card) 74%, var(--color-background));
   }
 }
 .note-highlight {
@@ -290,7 +299,7 @@ body.scroll-locked .scroll-area {
      (класс снимается таймером, поэтому плавного ухода не требуется). */
   .note-highlight {
     animation: none;
-    background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-surface));
+    background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-card));
   }
   /* Доводка свайпа — мгновенно. */
   .swipe-settle .swipe-panel {

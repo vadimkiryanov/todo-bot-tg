@@ -879,7 +879,7 @@
   </div>
 
   <footer
-    class="shrink-0 rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
+    class="shrink-0 rounded-t-2xl border-t border-border bg-bar pb-[env(safe-area-inset-bottom)]"
   >
     <InputBar
       onOpenTopics={() => (topicSheetOpen = true)}
