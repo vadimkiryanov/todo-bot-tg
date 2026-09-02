@@ -13,6 +13,8 @@
   import CreateFolderModal from '$lib/components/CreateFolderModal.svelte';
   import CreateTopicModal from '$lib/components/CreateTopicModal.svelte';
   import FolderBar from '$lib/components/FolderBar.svelte';
+  import FolderMenu from '$lib/components/FolderMenu.svelte';
+  import FolderRow from '$lib/components/FolderRow.svelte';
   import FolderStrip from '$lib/components/FolderStrip.svelte';
   import InputBar from '$lib/components/InputBar.svelte';
   import Modal from '$lib/components/Modal.svelte';
@@ -35,7 +37,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { loadTopics, topicsStore } from '$lib/stores/topics.svelte';
   import { ui } from '$lib/stores/ui.svelte';
-  import type { Note } from '$lib/types/api';
+  import type { Folder, Note } from '$lib/types/api';
   import { suppressNextClick } from '$lib/utils/click';
 
   // Актуальная заметка для оверлея — из store по id (после мутаций объект обновляется).
@@ -63,6 +65,18 @@
     menuRect = null;
   }
 
+  // Контекстное меню строки папки в списке (режим «в списке»): папка +
+  // позиция строки в момент открытия (долгий тач/правый клик — FolderRow).
+  let folderMenu: { folder: Folder; rect: DOMRect } | null = $state(null);
+
+  function openFolderMenu(folder: Folder, rect: DOMRect): void {
+    folderMenu = { folder, rect };
+  }
+
+  function closeFolderMenu(): void {
+    folderMenu = null;
+  }
+
   // Редактирование из контекстного меню заметки (пункт «✏️ Редактировать»):
   // открываем оверлей заметки сразу в режиме редактирования.
   let editRequestId: number | null = $state(null);
@@ -81,7 +95,8 @@
   // ── Инлайн-папки (режим «в списке», как в боте) ─────────────────────────
   // Включается в настройках (⚙️ → формат папок): папки текущего уровня
   // показываются строками в общем списке заметок — порядок как у бота:
-  // закреплённые → папки → остальные заметки. Тап по строке — вход в папку.
+  // закреплённые → папки → остальные заметки. Тап по строке — вход в папку;
+  // долгий тач/правый клик — контекстное меню папки (FolderMenu).
   // В режиме «отдельная кнопка» папок в списке нет (только 📁/строка папки).
   const pinnedNotes = $derived(notesStore.notes.filter((n) => n.pinned));
   const restNotes = $derived(notesStore.notes.filter((n) => !n.pinned));
@@ -337,8 +352,9 @@
       </div>
     {:else}
       <!-- Общий список: закреплённые → строки папок (режим «в списке») →
-           остальные заметки. Папки уровня — кнопки-карточки с 📁, тап —
-           вход в папку (строки добавляются фронтом; бэкенд отдаёт заметки). -->
+           остальные заметки. Папки уровня — FolderRow (тап — вход в папку,
+           долгий тач — контекстное меню); строки добавляются фронтом,
+           бэкенд отдаёт заметки. -->
       <div class="flex flex-col gap-2 px-3 py-3">
         {#each pinnedNotes as note, i (note.id)}
           <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
@@ -352,14 +368,11 @@
         {/each}
         {#if inlineFolders.length > 0}
           {#each inlineFolders as folder (folder.id)}
-            <button
-              type="button"
-              class="glass-card flex w-full touch-manipulation select-none items-center gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none]"
-              onclick={() => openFolder(folder.id)}
-            >
-              <span class="w-5 shrink-0 text-center text-sm leading-6">📁</span>
-              <span class="min-w-0 flex-1 truncate text-[15px] leading-6 text-content">{folder.name}</span>
-            </button>
+            <FolderRow
+              {folder}
+              onOpen={(f) => openFolder(f.id)}
+              onMenu={openFolderMenu}
+            />
           {/each}
         {/if}
         {#each restNotes as note, j (note.id)}
@@ -417,6 +430,10 @@
     onClose={closeMenu}
     onEdit={requestEdit}
   />
+{/if}
+
+{#if folderMenu !== null}
+  <FolderMenu folder={folderMenu.folder} rect={folderMenu.rect} onClose={closeFolderMenu} />
 {/if}
 
 {#if emptyMenu !== null}
