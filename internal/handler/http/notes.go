@@ -17,6 +17,7 @@ import (
 // topic_id опционален: без него возвращаются заметки без топика.
 // archived=true → архивные заметки пользователя (без фильтра по топику).
 // done=true → выполненные заметки пользователя (без фильтра по топику).
+// timers=true → заметки с установленным напоминанием (без фильтра по топику).
 // В основном списке выполненные заметки скрыты — они «складируются» в done=true.
 func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
@@ -28,6 +29,8 @@ func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 		notes, err = h.svc.ListArchived(userID)
 	case r.URL.Query().Get("done") == "true":
 		notes, err = h.svc.ListDone(userID)
+	case r.URL.Query().Get("timers") == "true":
+		notes, err = h.svc.ListTimers(userID)
 	default:
 		var topicID int64
 		if q := r.URL.Query().Get("topic_id"); q != "" {
@@ -70,6 +73,24 @@ func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 		resp = append(resp, dto.ToNoteResponse(n))
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// getNote обрабатывает GET /api/v1/notes/{id} → 200 Note.
+// Нужен, когда фронт держит только id заметки (например, из уведомления)
+// и хочет открыть её целиком.
+func (h *todoHandler) getNote(w http.ResponseWriter, r *http.Request) {
+	noteID, err := pathID(r)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+
+	n, err := h.svc.GetNote(middleware.UserID(r.Context()), noteID)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto.ToNoteResponse(n))
 }
 
 // createNote обрабатывает POST /api/v1/notes {topic_id, folder_id?, text} → 201 Note.

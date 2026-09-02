@@ -198,6 +198,25 @@ export function formatReminderAt(reminderAt: string, repeat: ReminderRepeat): st
   return `${dayMonth} в ${time}`;
 }
 
+/** Время «прихода» уведомления: «сегодня в 14:05», «вчера в 14:05»,
+ *  «2 сент. в 14:05» — для журнала 🔔 (событие всегда в прошлом). */
+export function formatFiredAt(iso: string): string {
+  const date = new Date(iso);
+  const time = date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((startOfToday - day) / 86_400_000);
+  if (diffDays === 0) return `сегодня в ${time}`;
+  if (diffDays === 1) return `вчера в ${time}`;
+  const dayMonth = date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  return `${dayMonth} в ${time}`;
+}
+
 // --- entities → markdown (для редактора) ---
 
 interface Marker {

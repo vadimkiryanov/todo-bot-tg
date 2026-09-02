@@ -12,48 +12,54 @@ import (
 
 // MemStore — in-memory реализация репозитория.
 type MemStore struct {
-	mu           sync.RWMutex
-	topics       map[int64]entity.TopicRecord
-	notes        map[int64]entity.NoteRecord
-	folders      map[int64]entity.FolderRecord
-	attachments  map[int64]entity.AttachmentRecord
-	settings     map[int64]entity.SettingsRecord
-	nextTopicID  int64
-	nextNoteID   int64
-	nextFolderID int64
-	nextAttID    int64
-	userTopics   map[int64][]int64 // userID → []topicID
-	userNotes    map[int64][]int64 // userID → []noteID
-	userFolders  map[int64][]int64 // userID → []folderID
-	noteAtts     map[int64][]int64 // noteID → []attachmentID
-	quickTopics  map[int64][]int64 // userID → []topicID (выбранные для быстрых кнопок)
-	users        map[int64]entity.UserRecord
-	usernameIdx  map[string]int64 // username (lowercase) → userID
-	telegramIdx  map[int64]int64  // telegram_id → userID
-	nextUserID   int64
+	mu            sync.RWMutex
+	topics        map[int64]entity.TopicRecord
+	notes         map[int64]entity.NoteRecord
+	folders       map[int64]entity.FolderRecord
+	attachments   map[int64]entity.AttachmentRecord
+	settings      map[int64]entity.SettingsRecord
+	notifications map[int64]entity.NotificationRecord
+	nextTopicID   int64
+	nextNoteID    int64
+	nextFolderID  int64
+	nextAttID     int64
+	nextNotifID   int64
+	userTopics    map[int64][]int64 // userID → []topicID
+	userNotes     map[int64][]int64 // userID → []noteID
+	userFolders   map[int64][]int64 // userID → []folderID
+	noteAtts      map[int64][]int64 // noteID → []attachmentID
+	userNotifs    map[int64][]int64 // userID → []notificationID
+	quickTopics   map[int64][]int64 // userID → []topicID (выбранные для быстрых кнопок)
+	users         map[int64]entity.UserRecord
+	usernameIdx   map[string]int64 // username (lowercase) → userID
+	telegramIdx   map[int64]int64  // telegram_id → userID
+	nextUserID    int64
 }
 
 // NewMemStore создаёт новый MemStore.
 func NewMemStore() *MemStore {
 	return &MemStore{
-		topics:       make(map[int64]entity.TopicRecord),
-		notes:        make(map[int64]entity.NoteRecord),
-		folders:      make(map[int64]entity.FolderRecord),
-		attachments:  make(map[int64]entity.AttachmentRecord),
-		settings:     make(map[int64]entity.SettingsRecord),
-		userTopics:   make(map[int64][]int64),
-		userNotes:    make(map[int64][]int64),
-		userFolders:  make(map[int64][]int64),
-		noteAtts:     make(map[int64][]int64),
-		quickTopics:  make(map[int64][]int64),
-		users:        make(map[int64]entity.UserRecord),
-		usernameIdx:  make(map[string]int64),
-		telegramIdx:  make(map[int64]int64),
-		nextTopicID:  1,
-		nextNoteID:   1,
-		nextFolderID: 1,
-		nextAttID:    1,
-		nextUserID:   1,
+		topics:        make(map[int64]entity.TopicRecord),
+		notes:         make(map[int64]entity.NoteRecord),
+		folders:       make(map[int64]entity.FolderRecord),
+		attachments:   make(map[int64]entity.AttachmentRecord),
+		settings:      make(map[int64]entity.SettingsRecord),
+		notifications: make(map[int64]entity.NotificationRecord),
+		userTopics:    make(map[int64][]int64),
+		userNotes:     make(map[int64][]int64),
+		userFolders:   make(map[int64][]int64),
+		noteAtts:      make(map[int64][]int64),
+		userNotifs:    make(map[int64][]int64),
+		quickTopics:   make(map[int64][]int64),
+		users:         make(map[int64]entity.UserRecord),
+		usernameIdx:   make(map[string]int64),
+		telegramIdx:   make(map[int64]int64),
+		nextTopicID:   1,
+		nextNoteID:    1,
+		nextFolderID:  1,
+		nextAttID:     1,
+		nextNotifID:   1,
+		nextUserID:    1,
 	}
 }
 

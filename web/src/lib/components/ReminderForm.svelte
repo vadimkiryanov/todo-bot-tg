@@ -1,7 +1,8 @@
 <script lang="ts">
   // Компактная форма напоминания: datetime-local + once/daily + Отмена/Сохранить.
-  // Используется в оверлее заметки и в панели создания заметки (InputBar).
+  // Используется в странице заметки и в панели создания заметки (InputBar).
   // Валидация как на сервере: одноразовое напоминание не может быть в прошлом.
+  import Spinner from './Spinner.svelte';
   import type { ReminderRepeat } from '../types/api';
 
   let {
@@ -134,10 +135,14 @@
     </button>
     <button
       type="submit"
-      class="h-10 flex-1 rounded-lg bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+      class="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
       disabled={busy || value === ''}
     >
-      Сохранить
+      {#if busy}
+        <Spinner size="15px" />
+      {:else}
+        Сохранить
+      {/if}
     </button>
   </div>
 </form>

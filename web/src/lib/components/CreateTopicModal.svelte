@@ -3,6 +3,7 @@
   // дропдаун долгого нажатия на строке контекста, кнопка «Создать» на пустом
   // экране) — флаг в ui-сторе, форма одна.
   import Modal from './Modal.svelte';
+  import Spinner from './Spinner.svelte';
   import { ui } from '../stores/ui.svelte';
   import { createTopic } from '../stores/topics.svelte';
 
@@ -74,10 +75,14 @@
         </button>
         <button
           type="submit"
-          class="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+          class="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
           disabled={busy}
         >
-          Создать
+          {#if busy}
+            <Spinner size="16px" />
+          {:else}
+            Создать
+          {/if}
         </button>
       </div>
     </form>

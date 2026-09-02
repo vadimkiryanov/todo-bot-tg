@@ -66,6 +66,14 @@ type SettingsRepository interface {
 	SaveSettings(settings model.UserSettings) error
 }
 
+// NotificationRepository — интерфейс журнала уведомлений (определён потребителем — сервисом).
+type NotificationRepository interface {
+	AddNotification(n model.Notification) (model.Notification, error)
+	ListNotifications(userID int64) ([]model.Notification, error)
+	// MarkNotificationsRead помечает уведомления прочитанными; пустой ids — все.
+	MarkNotificationsRead(userID int64, ids []int64) error
+}
+
 // FileStore — порт файлового хранилища (внешняя инфраструктура, ACL).
 type FileStore interface {
 	Save(userID, noteID int64, ext string, data []byte) (string, error)
@@ -81,11 +89,12 @@ type Service struct {
 	folderRepo   FolderRepository
 	attRepo      AttachmentRepository
 	settingsRepo SettingsRepository
+	notifRepo    NotificationRepository
 	fileStore    FileStore
 }
 
 // NewService создаёт новый сервис.
-func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo FolderRepository, attRepo AttachmentRepository, settingsRepo SettingsRepository, fileStore FileStore) *Service {
+func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo FolderRepository, attRepo AttachmentRepository, settingsRepo SettingsRepository, notifRepo NotificationRepository, fileStore FileStore) *Service {
 	return &Service{
 		locks:        newUserLocks(),
 		noteRepo:     noteRepo,
@@ -93,6 +102,7 @@ func NewService(noteRepo NoteRepository, topicRepo TopicRepository, folderRepo F
 		folderRepo:   folderRepo,
 		attRepo:      attRepo,
 		settingsRepo: settingsRepo,
+		notifRepo:    notifRepo,
 		fileStore:    fileStore,
 	}
 }
@@ -519,10 +529,34 @@ func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
 			return nil, err
 		}
 		unlock()
+
+		// Журнал «пришедших уведомлений»: сработавшее напоминание пишется в БД,
+		// чтобы веб показал его в 🔔 даже когда пользователь не в Telegram.
+		// Ошибка записи не роняет обработку (напоминание уже обработано).
+		if _, err := s.notifRepo.AddNotification(model.Notification{
+			UserID:  current.UserID,
+			NoteID:  current.ID,
+			Text:    current.Text,
+			FiredAt: time.Now().UTC(),
+		}); err != nil {
+			slog.Error("запись уведомления о напоминании", "note_id", current.ID, "error", err)
+		}
+
 		due = append(due, current)
 	}
 
 	return due, nil
+}
+
+// ListNotifications возвращает последние уведомления пользователя.
+func (s *Service) ListNotifications(userID int64) ([]model.Notification, error) {
+	return s.notifRepo.ListNotifications(userID)
+}
+
+// MarkNotificationsRead помечает уведомления пользователя прочитанными.
+// ids пустой — прочитать все.
+func (s *Service) MarkNotificationsRead(userID int64, ids []int64) error {
+	return s.notifRepo.MarkNotificationsRead(userID, ids)
 }
 
 // ListTimers возвращает все заметки пользователя с установленным таймером

@@ -51,3 +51,12 @@ type FolderResponse struct {
 	ParentFolderID *int64 `json:"parent_folder_id"` // nil — папка в корне топика
 	Name           string `json:"name"`
 }
+
+// NotificationResponse — запись журнала «пришедших уведомлений» (контракт фронта).
+type NotificationResponse struct {
+	ID      int64  `json:"id"`
+	NoteID  int64  `json:"note_id"` // заметка, на которую сработало напоминание
+	Text    string `json:"text"`    // снапшот текста заметки на момент срабатывания
+	FiredAt string `json:"fired_at"` // ISO 8601 (RFC3339, UTC)
+	Read    bool   `json:"read"`
+}

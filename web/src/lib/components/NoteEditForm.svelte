@@ -3,13 +3,25 @@
   // выделенный фрагмент markdown-маркерами (**жирный**, *курсив*, `код`,
   // [ссылка](url)) — теми, что понимает сервер (parseMarkdownEntities).
   // Сохранение — через notes store (saveText находит список, где лежит заметка:
-  // активный/архив/выполненные).
+  // активный/архив/выполненные/таймеры). saveOverride — для заметок, которых
+  // нет в загруженных списках (страница открыта из уведомления).
   import { saveText } from '../stores/notes.svelte';
   import { markdownFromEntities } from '../utils/format';
   import type { Note } from '../types/api';
+  import Spinner from './Spinner.svelte';
 
-  let { note, onSaved, onCancel }: { note: Note; onSaved: () => void; onCancel: () => void } =
-    $props();
+  let {
+    note,
+    onSaved,
+    onCancel,
+    saveOverride,
+  }: {
+    note: Note;
+    onSaved: () => void;
+    onCancel: () => void;
+    /** Сохранение вместо store.saveText (заметка не в списках). */
+    saveOverride?: (text: string) => Promise<void>;
+  } = $props();
 
   // В редакторе показываем разметку (**жирный** и т.п.), восстановленную из entities.
   let editText = $state(markdownFromEntities(note.text, note.entities));
@@ -79,7 +91,11 @@
     busy = true;
     error = '';
     try {
-      await saveText(note, value);
+      if (saveOverride) {
+        await saveOverride(value);
+      } else {
+        await saveText(note, value);
+      }
       onSaved();
     } catch (e) {
       error = e instanceof Error ? e.message : 'ошибка';
@@ -184,10 +200,14 @@
     </button>
     <button
       type="submit"
-      class="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+      class="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
       disabled={busy}
     >
-      Сохранить
+      {#if busy}
+        <Spinner size="16px" />
+      {:else}
+        Сохранить
+      {/if}
     </button>
   </div>
 </form>

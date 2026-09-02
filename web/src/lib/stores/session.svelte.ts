@@ -6,6 +6,7 @@ import { login as apiLogin, logout as apiLogout, me, register as apiRegister } f
 import { resetFolders } from './folders.svelte';
 import { resetActiveTopic } from './navigation.svelte';
 import { resetNotes } from './notes.svelte';
+import { resetNotifications } from './notifications.svelte';
 import { resetTopics } from './topics.svelte';
 import { resetUi } from './ui.svelte';
 import type { User } from '../types/api';
@@ -74,5 +75,6 @@ function applyGuest(): void {
   resetTopics();
   resetFolders();
   resetNotes();
+  resetNotifications();
   resetUi();
 }

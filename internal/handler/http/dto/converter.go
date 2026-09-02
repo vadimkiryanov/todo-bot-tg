@@ -68,6 +68,17 @@ func ToFolderResponse(f model.Folder) FolderResponse {
 	}
 }
 
+// ToNotificationResponse конвертирует запись журнала уведомлений в DTO.
+func ToNotificationResponse(n model.Notification) NotificationResponse {
+	return NotificationResponse{
+		ID:      n.ID,
+		NoteID:  n.NoteID,
+		Text:    n.Text,
+		FiredAt: n.FiredAt.Format(time.RFC3339),
+		Read:    n.Read,
+	}
+}
+
 // PriorityString сериализует приоритет в строку контракта API.
 func PriorityString(p model.Priority) string {
 	switch p {

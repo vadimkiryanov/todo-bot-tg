@@ -28,6 +28,7 @@ type TodoService interface {
 	UnarchiveNote(userID, noteID int64) error
 	ListArchived(userID int64) ([]model.Note, error)
 	ListDone(userID int64) ([]model.Note, error)
+	ListTimers(userID int64) ([]model.Note, error)
 	DeleteNote(userID, noteID int64) error
 
 	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error
@@ -41,6 +42,9 @@ type TodoService interface {
 	RenameFolder(userID, folderID int64, name string) (model.Folder, error)
 	DeleteFolder(userID, folderID int64) error
 	MoveNote(userID, noteID int64, topicID int64, folderID *int64) error
+
+	ListNotifications(userID int64) ([]model.Notification, error)
+	MarkNotificationsRead(userID int64, ids []int64) error
 }
 
 // todoHandler — обработчики эндпоинтов топиков и заметок (§6).

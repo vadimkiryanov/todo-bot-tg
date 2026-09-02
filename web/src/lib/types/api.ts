@@ -47,6 +47,15 @@ export interface Folder {
   name: string;
 }
 
+/** Запись журнала «пришедших уведомлений» (сработавшие напоминания). */
+export interface NotificationItem {
+  id: number;
+  note_id: number; // заметка, на которую сработало напоминание
+  text: string; // снапшот текста заметки на момент срабатывания
+  fired_at: string; // ISO 8601 (UTC)
+  read: boolean;
+}
+
 /** Тело ответа auth-эндпоинтов: `{ user: ... }` */
 export interface UserResponse {
   user: User;

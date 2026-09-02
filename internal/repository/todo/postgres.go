@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS web_sessions (
     expires_at TIMESTAMPTZ NOT NULL
 );
 
+-- Журнал «пришедших уведомлений»: сработавшие напоминания заметок.
+-- Запись не удаляется вместе с заметкой (текст — снапшот на момент срабатывания).
+CREATE TABLE IF NOT EXISTS notifications (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    note_id BIGINT NOT NULL,
+    text TEXT NOT NULL,
+    fired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    read BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_at TIMESTAMPTZ;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_repeat TEXT NOT NULL DEFAULT 'once';
@@ -114,6 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id);
 CREATE INDEX IF NOT EXISTS idx_quick_topics_user ON user_quick_topics(user_id);
 CREATE INDEX IF NOT EXISTS idx_web_sessions_user ON web_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id);
 `
 
 // PostgresStore — реализация репозитория на PostgreSQL (pgxpool).

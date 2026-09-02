@@ -1,29 +1,29 @@
 <script lang="ts">
-  // Экран архива (URL /archive): заметки из всех топиков. Действия — вернуть / удалить.
+  // Экран архива (URL /archive): заметки из всех топиков.
+  // Открытие заметки — полноэкранная «страница» (NotePage): вернуть из архива /
+  // удалить. Возврат на главный экран — стрелка в шапке.
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import ConfirmModal from '$lib/components/ConfirmModal.svelte';
-  import Modal from '$lib/components/Modal.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
-  import NoteEditForm from '$lib/components/NoteEditForm.svelte';
   import NoteMenu from '$lib/components/NoteMenu.svelte';
-  import {
-    archivedStore,
-    loadArchived,
-    removeArchivedNote,
-    unarchiveNote,
-  } from '$lib/stores/notes.svelte';
+  import NotePage from '$lib/components/NotePage.svelte';
+  import { archivedStore, loadArchived } from '$lib/stores/notes.svelte';
   import { logout } from '$lib/stores/session.svelte';
   import type { Note } from '$lib/types/api';
-  import { renderNoteHtml } from '$lib/utils/format';
 
+  // Открытая заметка: кэш объекта — заметка может исчезнуть из списка
+  // (вернуть из архива/удалить) раньше, чем доиграет закрытие страницы.
   let selectedId: number | null = $state(null);
-  const selectedNote = $derived(
-    selectedId === null
-      ? null
-      : archivedStore.notes.find((n) => n.id === selectedId) ?? null,
-  );
+  let selectedCache: Note | null = $state(null);
+  $effect(() => {
+    if (selectedId === null) {
+      selectedCache = null;
+      return;
+    }
+    const found = archivedStore.notes.find((n) => n.id === selectedId);
+    if (found) selectedCache = found;
+  });
 
   // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент открытия.
   let menuNoteId: number | null = $state(null);
@@ -42,23 +42,19 @@
     menuRect = null;
   }
 
-  // Редактирование из контекстного меню («✏️ Редактировать»): оверлей сразу
+  // Редактирование из контекстного меню («✏️ Редактировать»): страница сразу
   // в режиме редактирования.
-  let editing = $state(false);
+  let editRequestId: number | null = $state(null);
 
   function requestEdit(note: Note): void {
+    editRequestId = note.id;
     selectedId = note.id;
-    editing = true;
   }
 
-  function closeOverlay(): void {
+  function closePage(): void {
     selectedId = null;
-    editing = false;
+    editRequestId = null;
   }
-
-  let busy = $state(false);
-  let error = $state('');
-  let confirmDelete = $state(false);
 
   onMount(() => {
     void loadArchived();
@@ -67,32 +63,6 @@
   async function doLogout(): Promise<void> {
     await logout();
     await goto('/login');
-  }
-
-  async function doUnarchive(note: Note): Promise<void> {
-    busy = true;
-    error = '';
-    try {
-      await unarchiveNote(note);
-      selectedId = null;
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'ошибка';
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function doDelete(note: Note): Promise<void> {
-    busy = true;
-    error = '';
-    try {
-      await removeArchivedNote(note);
-      selectedId = null;
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'ошибка';
-    } finally {
-      busy = false;
-    }
   }
 </script>
 
@@ -145,70 +115,11 @@
   </main>
 </div>
 
-{#if selectedNote !== null}
-  <Modal open onClose={closeOverlay}>
-    {#if editing}
-      <h2 class="mb-3 text-lg font-semibold">✏️ Редактировать</h2>
-      <NoteEditForm
-        note={selectedNote}
-        onCancel={closeOverlay}
-        onSaved={() => {
-          editing = false;
-          closeOverlay();
-        }}
-      />
-    {:else}
-      <div class="flex flex-col gap-4 px-1 py-2">
-        <div
-          class="whitespace-pre-wrap break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 {selectedNote
-            .done
-            ? 'text-muted line-through'
-            : 'text-content'}"
-        >
-          {@html renderNoteHtml(selectedNote.text, selectedNote.entities)}
-        </div>
-        {#if error}
-          <p class="text-sm text-danger">{error}</p>
-        {/if}
-        <div class="flex items-center justify-between gap-1">
-          <button
-            type="button"
-            aria-label="Вернуть из архива"
-            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
-            disabled={busy}
-            onclick={() => doUnarchive(selectedNote)}
-          >
-            ↩️
-          </button>
-          <button
-            type="button"
-            aria-label="Удалить"
-            class="flex h-11 w-11 items-center justify-center rounded-full bg-background text-lg transition-transform active:scale-90"
-            disabled={busy}
-            onclick={() => {
-              confirmDelete = true;
-              error = '';
-            }}
-          >
-            🗑
-          </button>
-        </div>
-      </div>
-    {/if}
-  </Modal>
-{/if}
-
-{#if selectedNote !== null && confirmDelete}
-  <ConfirmModal
-    title="Удалить заметку?"
-    text="Заметка будет удалена безвозвратно"
-    {busy}
-    {error}
-    onClose={() => {
-      confirmDelete = false;
-      error = '';
-    }}
-    onConfirm={() => doDelete(selectedNote)}
+{#if selectedCache !== null}
+  <NotePage
+    note={selectedCache}
+    startEditing={editRequestId === selectedCache.id}
+    onClose={closePage}
   />
 {/if}
 

@@ -13,6 +13,7 @@ import {
   listArchivedNotes,
   listDoneNotes,
   listNotes,
+  listTimerNotes,
   moveNote as apiMoveNote,
   setReminder as apiSetReminder,
   updateNote as apiUpdateNote,
@@ -56,7 +57,18 @@ export const doneStore = $state<{
   error: null,
 });
 
-/** Стор с полем notes — любой из трёх списков (активный/архив/выполненные). */
+/** Заметки с установленным напоминанием (все топики) — экран «⏰ Таймеры». */
+export const timersStore = $state<{
+  notes: Note[];
+  loading: boolean;
+  error: string | null;
+}>({
+  notes: [],
+  loading: false,
+  error: null,
+});
+
+/** Стор с полем notes — любой из списков (активный/архив/выполненные/таймеры). */
 interface NoteListStore {
   notes: Note[];
   error: string | null;
@@ -257,6 +269,24 @@ export async function loadDone(silent = false): Promise<void> {
   }
 }
 
+/** Загрузка заметок с таймерами (напоминаниями). silent — тихая перезагрузка. */
+export async function loadTimers(silent = false): Promise<void> {
+  if (!silent) {
+    timersStore.loading = true;
+    timersStore.notes = [];
+  }
+  timersStore.error = null;
+  try {
+    timersStore.notes = await listTimerNotes();
+  } catch (e) {
+    timersStore.error = e instanceof Error ? e.message : 'не удалось загрузить таймеры';
+  } finally {
+    if (!silent) {
+      timersStore.loading = false;
+    }
+  }
+}
+
 /** Опции создания заметки из панели ввода (приоритет, закрепление, напоминание). */
 export interface CreateNoteOptions {
   done?: boolean;
@@ -312,15 +342,22 @@ export async function togglePin(note: Note): Promise<void> {
   await mutateNote(note, { pinned: !note.pinned });
 }
 
-/** В архив: убрать из активного списка, откат при ошибке. */
+/** В архив: убрать из активного списка/таймеров сразу, откат при ошибке. */
 export async function archiveNote(note: Note): Promise<void> {
-  const previous = notesStore.notes;
-  notesStore.notes = previous.filter((n) => n.id !== note.id);
+  const lists = allNoteLists().filter((l) =>
+    l.store.notes.some((n) => n.id === note.id),
+  );
+  const previous = lists.map((l) => ({ list: l, notes: l.store.notes }));
+  for (const { list } of previous) {
+    list.store.notes = list.store.notes.filter((n) => n.id !== note.id);
+  }
   syncActiveCache();
   try {
     await apiUpdateNote(note.id, { archived: true });
   } catch (e) {
-    notesStore.notes = previous;
+    for (const { list, notes } of previous) {
+      list.store.notes = notes;
+    }
     syncActiveCache();
     throw e;
   }
@@ -340,42 +377,31 @@ export async function unarchiveNote(note: Note): Promise<void> {
 
 /**
  * Сохранить текст заметки (редактирование). Заметка может лежать в любом из
- * списков (активный/архив/выполненные) — обновляем тот, где она найдена.
+ * списков (активный/архив/выполненные/таймеры) — обновляем тот, где найдена.
  */
 export async function saveText(note: Note, text: string): Promise<void> {
   const trimmed = text.trim();
   if (trimmed === '' || trimmed === note.text) return;
-  const target = [notesStore, archivedStore, doneStore].find((s) =>
-    s.notes.some((n) => n.id === note.id),
-  );
-  if (target === undefined) return;
-  const previous = target.notes;
+  const owner = noteOwner(note.id);
+  if (owner === null) return;
+  const previous = owner.store.notes;
   const optimistic: Note = { ...note, text: trimmed };
-  target.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+  owner.store.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
   syncActiveCache();
   try {
     const fromApi = await apiUpdateNote(note.id, { text: trimmed });
-    target.notes = target.notes.map((n) => (n.id === note.id ? fromApi : n));
+    owner.store.notes = owner.store.notes.map((n) => (n.id === note.id ? fromApi : n));
     syncActiveCache();
   } catch (e) {
-    target.notes = previous;
+    owner.store.notes = previous;
     syncActiveCache();
     throw e;
   }
 }
 
-/** Удалить: оптимистично, откат при ошибке. */
+/** Удалить заметку из любого списка: оптимистично, откат при ошибке. */
 export async function removeNote(note: Note): Promise<void> {
-  const previous = notesStore.notes;
-  notesStore.notes = previous.filter((n) => n.id !== note.id);
-  syncActiveCache();
-  try {
-    await apiDeleteNote(note.id);
-  } catch (e) {
-    notesStore.notes = previous;
-    syncActiveCache();
-    throw e;
-  }
+  await removeNoteFromAll(note.id, () => apiDeleteNote(note.id));
 }
 
 /** Удалить из архива: оптимистично, откат при ошибке. */
@@ -395,7 +421,10 @@ export async function undoneNote(note: Note): Promise<void> {
   const previous = doneStore.notes;
   doneStore.notes = previous.filter((n) => n.id !== note.id);
   try {
-    await apiUpdateNote(note.id, { done: false });
+    const fromApi = await apiUpdateNote(note.id, { done: false });
+    // Вернулась в работу — вернуть её в кеш активного контекста не нужно:
+    // список перечитается при показе. Из таймеров тоже убираем.
+    void fromApi;
   } catch (e) {
     doneStore.notes = previous;
     throw e;
@@ -432,7 +461,7 @@ export async function clearReminder(note: Note): Promise<void> {
   );
 }
 
-/** Сброс сторов (выход из аккаунта): активные, архивные, выполненные и кеш. */
+/** Сброс сторов (выход из аккаунта): активные, архивные, выполненные, таймеры и кеш. */
 export function resetNotes(): void {
   notesStore.notes = [];
   notesStore.loading = false;
@@ -444,48 +473,145 @@ export function resetNotes(): void {
   doneStore.notes = [];
   doneStore.loading = false;
   doneStore.error = null;
+  timersStore.notes = [];
+  timersStore.loading = false;
+  timersStore.error = null;
   notesCache.clear();
   cacheLoadedAt.clear();
   inFlight.clear();
 }
 
-/** Общая мутация поля (done/priority): применить → сервер → тихая перезагрузка сортировки. */
-async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
-  const previous = notesStore.notes;
-  const optimistic: Note = { ...note, ...patch };
-  notesStore.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+// ── Owner-aware мутации ─────────────────────────────────────────────────────
+// Заметка может лежать в одном из загруженных списков: активный (notesStore),
+// выполненные (doneStore), архив (archivedStore), таймеры (timersStore).
+// Мутации находят список, где заметка сейчас, и обновляют именно его; после
+// смены состояния (done/archived/снятие напоминания) заметку убирают из
+// списков, где ей больше не место.
+
+type NoteListKind = 'active' | 'done' | 'archived' | 'timers';
+
+interface NoteListRef {
+  store: NoteListStore;
+  kind: NoteListKind;
+}
+
+/** Все списки заметок в порядке приоритета поиска. */
+function allNoteLists(): NoteListRef[] {
+  return [
+    { store: notesStore, kind: 'active' },
+    { store: doneStore, kind: 'done' },
+    { store: archivedStore, kind: 'archived' },
+    { store: timersStore, kind: 'timers' },
+  ];
+}
+
+/** Список, где сейчас лежит заметка (null — ни в одном из загруженных). */
+function noteOwner(noteId: number): NoteListRef | null {
+  return allNoteLists().find((l) => l.store.notes.some((n) => n.id === noteId)) ?? null;
+}
+
+/** Заметка загружена в одном из списков (активный/архив/выполненные/таймеры)?
+    NotePage по этому флагу выбирает store-мутации или прямые API-вызовы. */
+export function hasLoadedNote(noteId: number): boolean {
+  return noteOwner(noteId) !== null;
+}
+
+/** Убрать заметку из ВСЕХ списков (done/archived/удаление). */
+function hideNoteEverywhere(noteId: number): void {
+  for (const l of allNoteLists()) {
+    if (l.store.notes.some((n) => n.id === noteId)) {
+      l.store.notes = l.store.notes.filter((n) => n.id !== noteId);
+    }
+  }
+}
+
+/** Удаление заметки: оптимистично убрать из всех списков, откат при ошибке. */
+async function removeNoteFromAll(
+  noteId: number,
+  apply: () => Promise<unknown>,
+): Promise<void> {
+  const previous = allNoteLists().map((l) => ({ list: l, notes: l.store.notes }));
+  hideNoteEverywhere(noteId);
   syncActiveCache();
   try {
-    const fromApi = await apiUpdateNote(note.id, patch);
-    notesStore.notes = notesStore.notes.map((n) => (n.id === note.id ? fromApi : n));
-    syncActiveCache();
-    const topicId = navigation.activeTopicID;
-    if (topicId !== null) {
-      await loadNotes(topicId, navigation.activeFolderID, true);
-    }
+    await apply();
   } catch (e) {
-    notesStore.notes = previous;
+    for (const { list, notes } of previous) {
+      list.store.notes = notes;
+    }
     syncActiveCache();
     throw e;
   }
 }
 
-/** Общая мутация напоминания: применить → сервер → обновить из ответа (сортировку не меняет). */
+/**
+ * Общая мутация поля (done/priority/pinned/archived): применить → сервер →
+ * обновить список, где лежит заметка. done/archived скрывают заметку из
+ * списков (активный список/таймеры перечитываются тихо — сортирует сервер).
+ */
+async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
+  const owner = noteOwner(note.id);
+  if (owner === null) return;
+  const previous = owner.store.notes;
+  const optimistic: Note = { ...note, ...patch };
+  owner.store.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+  syncActiveCache();
+  try {
+    const fromApi = await apiUpdateNote(note.id, patch);
+    owner.store.notes = owner.store.notes.map((n) => (n.id === note.id ? fromApi : n));
+    if (fromApi.done || fromApi.archived) {
+      // Выполненная/архивная заметка не показывается ни в активном списке,
+      // ни в таймерах; на «склад»/в архив она попадёт при своём заходе.
+      hideNoteEverywhere(fromApi.id);
+    }
+    syncActiveCache();
+    // Тихая перезагрузка активного контекста: сортирует и скрывает done
+    // сам сервер (список в кеше не должен расходиться с серверным).
+    const topicId = navigation.activeTopicID;
+    if (topicId !== null) {
+      await loadNotes(topicId, navigation.activeFolderID, true);
+    }
+  } catch (e) {
+    owner.store.notes = previous;
+    syncActiveCache();
+    throw e;
+  }
+}
+
+/**
+ * Общая мутация напоминания: применить → сервер → обновить список, где лежит
+ * заметка. Снятое напоминание убирает заметку из списка таймеров.
+ */
 async function mutateReminder(
   note: Note,
   patch: Partial<Pick<Note, 'reminder_at' | 'reminder_repeat'>>,
   apply: () => Promise<Note>,
 ): Promise<void> {
-  const previous = notesStore.notes;
+  const owner = noteOwner(note.id);
+  if (owner === null) return;
+  const previous = owner.store.notes;
   const optimistic: Note = { ...note, ...patch };
-  notesStore.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
+  owner.store.notes = previous.map((n) => (n.id === note.id ? optimistic : n));
   syncActiveCache();
   try {
     const fromApi = await apply();
-    notesStore.notes = notesStore.notes.map((n) => (n.id === note.id ? fromApi : n));
+    owner.store.notes = owner.store.notes.map((n) => (n.id === note.id ? fromApi : n));
+    if (owner.kind === 'timers') {
+      if (fromApi.reminder_at === null) {
+        owner.store.notes = owner.store.notes.filter((n) => n.id !== note.id);
+      } else {
+        owner.store.notes = [...owner.store.notes].sort((a, b) =>
+          a.reminder_at !== null && b.reminder_at !== null
+            ? a.reminder_at < b.reminder_at
+              ? -1
+              : 1
+            : 0,
+        );
+      }
+    }
     syncActiveCache();
   } catch (e) {
-    notesStore.notes = previous;
+    owner.store.notes = previous;
     syncActiveCache();
     throw e;
   }

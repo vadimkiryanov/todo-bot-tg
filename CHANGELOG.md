@@ -427,18 +427,30 @@
 
 ---
 
+## Этап 43: Веб — уведомления 🔔, таймеры ⏰, страница заметки и лоадеры (2026-09-02)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(в коммите)* | **🔔 Уведомления в вебе**: серверный журнал сработавших напоминаний — таблица `notifications` (Postgres + MemStore), запись при прозвоне (`ProcessPendingReminders` → `AddNotification`, снапшот текста), REST `GET /api/v1/notifications` и `POST /api/v1/notifications/read` (пустой `ids` — все); фронт: поллинг каждые 30 с + по `visibilitychange` (`+layout.svelte`), пункт 🔔 в бургер-меню с бейджем непрочитанных, экран `/notifications` (открытие экрана помечает всё прочитанным; тап по записи открывает заметку — если она удалена, показывается снапшот) |
+| — | *(в коммите)* | **⏰ Таймеры в вебе**: экран `/timers` (пункт в бургер-меню) — все заметки с напоминанием, как `/timers` в боте: эмодзи статуса + превью + время и режим (🔂 разовый / 🔁 ежедневный). Бэкенд: `GET /api/v1/notes?timers=true` → `ListTimers` (уже был в сервисе) |
+| — | *(в коммите)* | **Заметка «страницей» как чат**: полноэкранный `NotePage.svelte` вместо шторки-оверлея — въезд слайдом справа, закрытие стрелкой/свайпом вправо по всей площади (страница едет за пальцем), шапка как у чата. Действия по состоянию (активная/✅ выполнена/🗄 архив), owner-aware мутации: заметка обновляется в том списке, откуда открыта (активный/архив/выполненные/таймеры), а открытая из уведомления (её нет в списках) — прямыми API-вызовами. Заменены все шторки: `ChatView`, `DoneView`, `ArchivedView`. Новый REST `GET /api/v1/notes/{id}` для открытия по id |
+| — | *(в коммите)* | **Лоадеры на busy-кнопках**: `Spinner.svelte` (цвет — `currentColor`); спиннер в кнопке ➤ отправки заметки, «Сохранить» (редактор, напоминание), «Создать» (топик/папка) и на активной кнопке действий страницы заметки |
+| — | *(в коммите)* | Тесты: Go — журнал уведомлений (запись/дубли/прочтение/изоляция), таймеры-листинг, заметка по id; фронт — `npm run check` 0 ошибок, vitest 50/50 |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |
 |------|-------|---------------------|
-| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go` | Note (Entities — форматирование, Done, Pinned/PinnedUntil, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки, QuickTopicsCount, QuickTopicIDs) |
-| **Сервис** | `service/todo/service.go` | CRUD (с entities), приоритеты, архивация, выполненные, закрепление (Pin/PinUntil/Unpin, `ProcessExpiredPins`), напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders`, `ListTimers`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
-| **Репозиторий** | `repository/todo/{memstore,postgres}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами (entities — JSON), `GetPendingReminders`, `GetExpiredPins`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`) |
+| **Модель** | `model/note.go`, `model/folder.go`, `model/topic.go`, `model/attachment.go`, `model/settings.go`, `model/notification.go` | Note (Entities — форматирование, Done, Pinned/PinnedUntil, Priority, ReminderAt, ReminderRepeat, PriorityEmoji), Folder (вложенность), Topic, Attachment (8 типов медиа, валидация), UserSettings (персистентные настройки, QuickTopicsCount, QuickTopicIDs), Notification (журнал сработавших напоминаний) |
+| **Сервис** | `service/todo/service.go` | CRUD (с entities), приоритеты, архивация, выполненные, закрепление (Pin/PinUntil/Unpin, `ProcessExpiredPins`), напоминания, сортировка, перемещение, `SeedDefaults`, `ProcessPendingReminders` (пишет журнал уведомлений), `ListTimers`, `ListNotifications`/`MarkNotificationsRead`, `AddAttachment`/`ListAttachments`/`GetAttachment`/`DeleteAttachment`, `GetSettings`/`SaveSettings` |
+| **Репозиторий** | `repository/todo/{memstore,postgres,notifications}.go` + `entity/` | In-memory + PostgreSQL, Entity Records с конвертерами (entities — JSON), `GetPendingReminders`, `GetExpiredPins`, `MoveNote`, `CountDoneNotes`, CRUD вложений с каскадным удалением, UPSERT `user_settings`, быстрые топики (`user_quick_topics`), журнал `notifications` (add/list/mark-read) |
 | **Хранилище файлов** | `storage/fs/store.go` | `Save`/`Delete`/`AbsPath` (защита от path traversal), структура `files/<userID>/<noteID>/` |
 | **Handler** | `handler/telegram/{handler,callbacks,commands,navigation,attachments,reminders,renderer,state,entities}.go` | Inline-кнопки, SwitchInlineQuery, reply-клавиатура, хлебные крошки, FSM-состояния, календарь напоминаний, схлопывание папок, `/timers`, режим прикрепления, скачивание/отправка вложений, закрепление 📌, форматирование (entities → HTML); userID = `users.id` через `UserResolver` |
 | **Воркер** | `worker/reminder/reminder.go`, `worker/pin/pin.go` | Фоновый опрос просроченных напоминаний (порт `NotificationSender`) и просроченных закреплений (`ProcessExpiredPins`), оба не зависят от Telegram API |
 | **Веб-аккаунты** | `internal/user/`, `internal/session/` | Пользователи (username + bcrypt cost 12 / telegram_id), веб-сессии: токен 32 байта base64url, SHA-256 хеш в БД (`web_sessions`), TTL 30 дней; `MemoryStore` + `PostgresStore` |
-| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes,folders}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes` (`?archived=true` — архив, `?done=true` — выполненные, основной список без выполненных), `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект), `POST /api/v1/notes/{id}/move`, `PUT/DELETE /api/v1/notes/{id}/reminder` (`reminder_at`/`reminder_repeat`, once в прошлом → 400); папки: `GET/POST /api/v1/folders`, `PATCH/DELETE /api/v1/folders/{id}` (`all=true` — все уровни, каскад при удалении); интерфейс `TodoService`, конвертеры Domain ↔ DTO |
+| **Веб-API (REST)** | `internal/handler/http/{service,topics,notes,folders,notifications}.go` + `dto/` | CRUD топиков и заметок для веб-фронта: `GET/POST /api/v1/topics`, `PATCH/DELETE /api/v1/topics/{id}` (с `note_count`), `GET/POST /api/v1/notes` (`?archived=true` — архив, `?done=true` — выполненные, `?timers=true` — заметки с напоминанием, основной список без выполненных), `GET /api/v1/notes/{id}` (заметка по id), `PATCH/DELETE /api/v1/notes/{id}` (`priority` none/low/medium/high, PATCH — только переданные поля, ответ — актуальный объект), `POST /api/v1/notes/{id}/move`, `PUT/DELETE /api/v1/notes/{id}/reminder` (`reminder_at`/`reminder_repeat`, once в прошлом → 400); папки: `GET/POST /api/v1/folders`, `PATCH/DELETE /api/v1/folders/{id}` (`all=true` — все уровни, каскад при удалении); уведомления: `GET /api/v1/notifications`, `POST /api/v1/notifications/read`; интерфейс `TodoService`, конвертеры Domain ↔ DTO |
 | **REST-сервис (cmd/api)** | `cmd/api/main.go`, `config/config.go` (`LoadAPI`), `Dockerfile` (target `api`) | Отдельный бинарник `todoapi` без Telegram: ручной DI (PostgresStore/MemStore), `http.Server` + graceful shutdown; `SessionTTL` (cookie + сессия), `AppBaseURL` |
 | **Деплой** | `docker-compose.yml`, `web/Dockerfile`, `web/Caddyfile`, `.env.example`, `deploy.sh` | 4 сервиса (db/api/bot/web), healthchecks, volume `files`; Caddy: статика + прокси `/api` + авто-HTTPS Let's Encrypt по `APP_BASE_URL` |
 | **Тесты** | `*_test.go` (во всех слоях) | `renderer_test`, `service_test`, `memstore_test`, `converter_test`, `state_test`, `store_test` (fs), `user_test`, `session_test`, `auth_test` (E2E), `router_test`, `topics_test`, `notes_test`, `dto/converter_test` |
@@ -453,17 +465,17 @@ cmd/api/main.go          — REST API: отдельный сервис (todoapi)
 config/config.go         — загрузка .env (Load — бот, LoadAPI — REST: SessionTTL, AppBaseURL)
 internal/
   errors/errors.go       — sentinel-ошибки
-  model/                 — Note, Folder, Topic, Attachment, UserSettings (агрегаты с бизнес-логикой)
+  model/                 — Note, Folder, Topic, Attachment, Notification (журнал), UserSettings (агрегаты с бизнес-логикой)
   service/todo/          — сервис-оркестратор (интерфейсы репозиториев здесь)
   repository/todo/       — MemStore + PostgresStore + Entity Records (+ users: CreateUser/FindOrCreateByTelegramID)
   storage/fs/            — файловое хранилище вложений
   handler/telegram/      — Telegram Bot API handler + renderer + FSM-состояния (userID = users.id)
-  handler/http/          — REST API (router, healthz, auth: register/login/logout/me; topics/notes CRUD: service.go + topics.go + notes.go + dto)
+  handler/http/          — REST API (router, healthz, auth: register/login/logout/me; topics/notes/folders/notifications: service.go + topics.go + notes.go + folders.go + notifications.go + dto)
   httperr/               — единый формат ошибок {"error": "..."} и маппинг статусов
   middleware/            — Logging (slog) + Recover (panic → 500) + RequireAuth (cookie-сессии)
   user/                  — пользователи: валидация username/пароля, bcrypt cost 12
   session/               — веб-сессии: токен 32 байта base64url, SHA-256 хеш в хранилище, TTL (SessionTTL)
-web/                     — веб-фронтенд: SvelteKit (SPA, adapter-static, ssr=false) + Svelte 5 + Tailwind v4 (PWA); маршруты /login, /, /archive, /done с guard'ами в load; Dockerfile (node → Caddy), Caddyfile (прокси /api + авто-HTTPS)
+web/                     — веб-фронтенд: SvelteKit (SPA, adapter-static, ssr=false) + Svelte 5 + Tailwind v4 (PWA); маршруты /login, /, /archive, /done, /timers, /notifications с guard'ами в load; NotePage (полноэкранная заметка со слайдом), Spinner (лоадеры); Dockerfile (node → Caddy), Caddyfile (прокси /api + авто-HTTPS)
 Dockerfile               — multi-stage: bot + api (golang:1.25-alpine → alpine:3.20)
 docker-compose.yml       — 4 сервиса: db + api + bot + web
 deploy.sh                — установка Docker/git, docker compose up -d --build

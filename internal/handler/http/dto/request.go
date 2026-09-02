@@ -62,3 +62,9 @@ type FolderRequest struct {
 	ParentFolderID *int64 `json:"parent_folder_id"` // nil — папка в корне топика
 	Name           string `json:"name"`
 }
+
+// NotificationsReadRequest — тело POST /api/v1/notifications/read.
+// Ids пустой/отсутствует — пометить прочитанными все уведомления.
+type NotificationsReadRequest struct {
+	Ids []int64 `json:"ids"`
+}

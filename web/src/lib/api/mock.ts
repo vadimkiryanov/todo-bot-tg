@@ -4,13 +4,23 @@
 // Данные живут в localStorage браузера; в node (тесты) — в MemoryStorage.
 
 import { ApiError } from './error';
-import type { Folder, Note, NoteEntity, Priority, ReminderRepeat, Topic, User } from '../types/api';
+import type {
+  Folder,
+  Note,
+  NoteEntity,
+  NotificationItem,
+  Priority,
+  ReminderRepeat,
+  Topic,
+  User,
+} from '../types/api';
 import { parseMarkdown } from '../utils/format';
 
 const AUTH = '/api/v1/auth';
 const TOPICS = '/api/v1/topics';
 const NOTES = '/api/v1/notes';
 const FOLDERS = '/api/v1/folders';
+const NOTIFICATIONS = '/api/v1/notifications';
 
 // ---------------------------------------------------------------------------
 // Хранилище (localStorage в браузере, MemoryStorage в тестах)
@@ -88,14 +98,25 @@ interface FolderRecord {
   name: string;
 }
 
+/** Запись журнала уведомлений мока (сработавшие напоминания). */
+interface NotificationRecord {
+  id: number;
+  note_id: number;
+  text: string;
+  fired_at: string;
+  read: boolean;
+}
+
 const K_USERS = 'todo.mock.users';
 const K_SESSION = 'todo.mock.session';
 const K_TOPICS = (userId: number) => `todo.mock.topics.${userId}`;
 const K_NOTES = (userId: number) => `todo.mock.notes.${userId}`;
 const K_FOLDERS = (userId: number) => `todo.mock.folders.${userId}`;
+const K_NOTIFS = (userId: number) => `todo.mock.notifs.${userId}`;
 const K_TOPIC_SEQ = (userId: number) => `todo.mock.seq.topics.${userId}`;
 const K_NOTE_SEQ = (userId: number) => `todo.mock.seq.notes.${userId}`;
 const K_FOLDER_SEQ = (userId: number) => `todo.mock.seq.folders.${userId}`;
+const K_NOTIF_SEQ = (userId: number) => `todo.mock.seq.notifs.${userId}`;
 
 // ---------------------------------------------------------------------------
 // Вспомогательное
@@ -166,6 +187,10 @@ function foldersOf(userId: number): FolderRecord[] {
   return readJSON<FolderRecord[]>(K_FOLDERS(userId), []);
 }
 
+function notifsOf(userId: number): NotificationRecord[] {
+  return readJSON<NotificationRecord[]>(K_NOTIFS(userId), []);
+}
+
 function seq(key: string): number {
   const value = readJSON<number>(key, 0);
   writeJSON(key, value + 1);
@@ -203,6 +228,16 @@ function toFolder(rec: FolderRecord): Folder {
     topic_id: rec.topic_id,
     parent_folder_id: rec.parent_folder_id,
     name: rec.name,
+  };
+}
+
+function toNotification(rec: NotificationRecord): NotificationItem {
+  return {
+    id: rec.id,
+    note_id: rec.note_id,
+    text: rec.text,
+    fired_at: rec.fired_at,
+    read: rec.read,
   };
 }
 
@@ -296,6 +331,9 @@ export async function mockRequest<T>(
     if (search.get('done') === 'true') {
       return mockListDone() as T;
     }
+    if (search.get('timers') === 'true') {
+      return mockListTimers() as T;
+    }
     const topicId = Number(search.get('topic_id'));
     if (!Number.isInteger(topicId)) {
       throw new ApiError(400, 'topic_id обязателен');
@@ -308,6 +346,9 @@ export async function mockRequest<T>(
     return mockCreateNote(body) as T;
   }
   const noteMatch = /^\/api\/v1\/notes\/(\d+)$/.exec(base);
+  if (noteMatch && method === 'GET') {
+    return mockGetNote(Number(noteMatch[1])) as T;
+  }
   if (noteMatch && method === 'PATCH') {
     return mockUpdateNote(Number(noteMatch[1]), body) as T;
   }
@@ -325,6 +366,20 @@ export async function mockRequest<T>(
   const noteMoveMatch = /^\/api\/v1\/notes\/(\d+)\/move$/.exec(base);
   if (noteMoveMatch && method === 'POST') {
     return mockMoveNote(Number(noteMoveMatch[1]), body) as T;
+  }
+
+  // --- notifications ---
+  if (base === NOTIFICATIONS && method === 'GET') {
+    const user = requireUser();
+    mockFireReminders(user.id);
+    return notifsOf(user.id)
+      .slice()
+      .sort((a, b) => b.id - a.id)
+      .map(toNotification) as T;
+  }
+  if (base === `${NOTIFICATIONS}/read` && method === 'POST') {
+    mockMarkNotificationsRead(body);
+    return { ok: true } as T;
   }
 
   // --- folders ---
@@ -479,6 +534,71 @@ function mockListDone(): Note[] {
   const user = requireUser();
   const notes = notesOf(user.id).filter((n) => n.done && !n.archived);
   return sortNotes(notes).map(toNote);
+}
+
+/** Заметки с установленным напоминанием (все топики), по времени таймера. */
+function mockListTimers(): Note[] {
+  const user = requireUser();
+  return notesOf(user.id)
+    .filter((n) => n.reminder_at !== null)
+    .sort((a, b) => (a.reminder_at! < b.reminder_at! ? -1 : 1))
+    .map(toNote);
+}
+
+/** Заметка по id (для открытия из уведомления). */
+function mockGetNote(noteId: number): Note {
+  const user = requireUser();
+  const note = notesOf(user.id).find((n) => n.id === noteId);
+  if (note === undefined) {
+    throw new ApiError(404, 'заметка не найдена');
+  }
+  return toNote(note);
+}
+
+/**
+ * Симуляция reminder-воркера для разработки: при запросе журнала «прозванивает»
+ * просроченные напоминания локальных заметок — одноразовые снимает, ежедневные
+ * переносит на 24 часа, каждое срабатывание пишет в журнал.
+ */
+function mockFireReminders(userId: number): void {
+  const all = notesOf(userId);
+  const now = Date.now();
+  const fired: NotificationRecord[] = [];
+  for (const n of all) {
+    if (n.archived || n.done) continue;
+    if (n.reminder_at === null || new Date(n.reminder_at).getTime() > now) continue;
+    fired.push({
+      id: seq(K_NOTIF_SEQ(userId)),
+      note_id: n.id,
+      text: n.text,
+      fired_at: new Date().toISOString(),
+      read: false,
+    });
+    if (n.reminder_repeat === 'daily') {
+      n.reminder_at = new Date(new Date(n.reminder_at).getTime() + 24 * 3600_000).toISOString();
+    } else {
+      n.reminder_at = null;
+      n.reminder_repeat = 'once';
+    }
+  }
+  if (fired.length > 0) {
+    writeJSON(K_NOTES(userId), all);
+    writeJSON(K_NOTIFS(userId), [...notifsOf(userId), ...fired]);
+  }
+}
+
+/** Пометить уведомления прочитанными. ids отсутствует/пуст — все. */
+function mockMarkNotificationsRead(body: unknown): void {
+  const user = requireUser();
+  const { ids } = asObject(body);
+  const all = notifsOf(user.id);
+  const target = Array.isArray(ids) && (ids as unknown[]).length > 0 ? new Set(ids as number[]) : null;
+  for (const rec of all) {
+    if (target === null || target.has(rec.id)) {
+      rec.read = true;
+    }
+  }
+  writeJSON(K_NOTIFS(user.id), all);
 }
 
 function mockCreateNote(body: unknown): Note {

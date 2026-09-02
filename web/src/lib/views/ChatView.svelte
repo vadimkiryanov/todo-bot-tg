@@ -23,7 +23,7 @@
   import Modal from '$lib/components/Modal.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
   import NoteMenu from '$lib/components/NoteMenu.svelte';
-  import NoteOverlay from '$lib/components/NoteOverlay.svelte';
+  import NotePage from '$lib/components/NotePage.svelte';
   import QuickMenu from '$lib/components/QuickMenu.svelte';
   import TopicIsland from '$lib/components/TopicIsland.svelte';
   import TopicMenu from '$lib/components/TopicMenu.svelte';
@@ -44,13 +44,19 @@
   import type { Folder, Note } from '$lib/types/api';
   import { suppressNextClick } from '$lib/utils/click';
 
-  // Актуальная заметка для оверлея — из store по id (после мутаций объект обновляется).
+  // Актуальная заметка для «страницы» (NotePage). Кэш последнего объекта:
+  // заметка может исчезнуть из списка (done/архив) раньше, чем доиграет
+  // анимация закрытия страницы — держим объект до явного onClose.
   let selectedId: number | null = $state(null);
-  const selectedNote = $derived(
-    selectedId === null
-      ? null
-      : notesStore.notes.find((n) => n.id === selectedId) ?? null,
-  );
+  let selectedCache: Note | null = $state(null);
+  $effect(() => {
+    if (selectedId === null) {
+      selectedCache = null;
+      return;
+    }
+    const found = notesStore.notes.find((n) => n.id === selectedId);
+    if (found) selectedCache = found;
+  });
 
   // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент открытия.
   let menuNoteId: number | null = $state(null);
@@ -82,7 +88,7 @@
   }
 
   // Редактирование из контекстного меню заметки (пункт «✏️ Редактировать»):
-  // открываем оверлей заметки сразу в режиме редактирования.
+  // открываем страницу заметки сразу в режиме редактирования.
   let editRequestId: number | null = $state(null);
 
   function requestEdit(note: Note): void {
@@ -496,7 +502,9 @@
     s.lastX = e.clientX;
     s.lastT = now;
     if (stage !== null && !stage.settling) {
-      stage.eff = clampEff(dx);
+      // Округляем до целых пикселей: эмодзи-глифы не умеют дробное
+      // позиционирование, при субпиксельном transform они «дрожат».
+      stage.eff = Math.round(clampEff(dx));
     }
   }
 
@@ -888,10 +896,10 @@
   </footer>
 </div>
 
-{#if selectedNote !== null}
-  <NoteOverlay
-    note={selectedNote}
-    startEditing={editRequestId === selectedNote.id}
+{#if selectedCache !== null}
+  <NotePage
+    note={selectedCache}
+    startEditing={editRequestId === selectedCache.id}
     onClose={() => {
       selectedId = null;
       editRequestId = null;

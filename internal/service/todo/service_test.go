@@ -19,7 +19,7 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
-	return NewService(store, store, store, store, store, fileStore)
+	return NewService(store, store, store, store, store, store, fileStore)
 }
 
 // --- Topics ---
@@ -654,6 +654,69 @@ func TestService_ProcessPendingReminders(t *testing.T) {
 	got, _ := svc.GetNote(1, note2.ID)
 	if got.ReminderAt != nil {
 		t.Error("ReminderAt not cleared after processing")
+	}
+}
+
+func TestService_NotificationsJournal(t *testing.T) {
+	svc := newTestService(t)
+
+	past := time.Now().Add(-time.Hour).UTC()
+	note, _ := svc.AddNote(1, 1, nil, "Напомни", nil, 0)
+	if err := svc.SetReminder(1, note.ID, past, model.ReminderRepeatOnce); err != nil {
+		t.Fatalf("SetReminder() error: %v", err)
+	}
+
+	if _, err := svc.ProcessPendingReminders(); err != nil {
+		t.Fatalf("ProcessPendingReminders() error: %v", err)
+	}
+
+	items, err := svc.ListNotifications(1)
+	if err != nil {
+		t.Fatalf("ListNotifications() error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len = %d, want 1", len(items))
+	}
+	if items[0].NoteID != note.ID || items[0].Text != "Напомни" || items[0].Read {
+		t.Errorf("запись журнала не совпадает: %+v", items[0])
+	}
+	if items[0].FiredAt.IsZero() {
+		t.Error("FiredAt not set")
+	}
+
+	// Повторный прозвон новых записей не даёт (once сброшено)
+	if _, err := svc.ProcessPendingReminders(); err != nil {
+		t.Fatalf("ProcessPendingReminders() error: %v", err)
+	}
+	items, _ = svc.ListNotifications(1)
+	if len(items) != 1 {
+		t.Errorf("len = %d, want 1 (без дублей)", len(items))
+	}
+
+	// Прочитать все → read=true
+	if err := svc.MarkNotificationsRead(1, nil); err != nil {
+		t.Fatalf("MarkNotificationsRead() error: %v", err)
+	}
+	items, _ = svc.ListNotifications(1)
+	if !items[0].Read {
+		t.Error("уведомление не помечено прочитанным")
+	}
+}
+
+func TestService_Notifications_OtherUser(t *testing.T) {
+	svc := newTestService(t)
+
+	past := time.Now().Add(-time.Hour).UTC()
+	note, _ := svc.AddNote(2, 1, nil, "Чужое", nil, 0)
+	_ = svc.SetReminder(2, note.ID, past, model.ReminderRepeatOnce)
+	_, _ = svc.ProcessPendingReminders()
+
+	items, err := svc.ListNotifications(1)
+	if err != nil {
+		t.Fatalf("ListNotifications() error: %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("len = %d, want 0 (чужой пользователь)", len(items))
 	}
 }
 

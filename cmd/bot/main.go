@@ -48,6 +48,7 @@ func main() {
 	var folderRepo todo.FolderRepository
 	var attRepo todo.AttachmentRepository
 	var settingsRepo todo.SettingsRepository
+	var notifRepo todo.NotificationRepository
 	var usersRepo usersRepository
 	var sessionStore session.Store
 
@@ -62,6 +63,7 @@ func main() {
 		folderRepo = pgStore
 		attRepo = pgStore
 		settingsRepo = pgStore
+		notifRepo = pgStore
 		usersRepo = pgStore
 		sessionStore = session.NewPostgresStore(pgStore.Pool())
 		log.Println("Хранилище: PostgreSQL")
@@ -72,6 +74,7 @@ func main() {
 		folderRepo = memStore
 		attRepo = memStore
 		settingsRepo = memStore
+		notifRepo = memStore
 		usersRepo = memStore
 		sessionStore = session.NewMemoryStore()
 		log.Println("Хранилище: in-memory (DATABASE_URL не задан)")
@@ -84,7 +87,7 @@ func main() {
 	}
 
 	// 3. Сервис
-	svc := todo.NewService(noteRepo, topicRepo, folderRepo, attRepo, settingsRepo, fileStore)
+	svc := todo.NewService(noteRepo, topicRepo, folderRepo, attRepo, settingsRepo, notifRepo, fileStore)
 
 	// 4. Handler (реализует порт reminder.NotificationSender)
 	h, err := telegram.NewHandler(cfg.Token, svc, svc, svc, svc, svc, usersRepo)

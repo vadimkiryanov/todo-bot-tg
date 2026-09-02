@@ -12,7 +12,9 @@
   import Modal from './Modal.svelte';
   import ReminderForm from './ReminderForm.svelte';
   import SettingsSheet from './SettingsSheet.svelte';
-  import { createNote, loadArchived, loadDone } from '../stores/notes.svelte';
+  import Spinner from './Spinner.svelte';
+  import { createNote, loadArchived, loadDone, loadTimers } from '../stores/notes.svelte';
+  import { loadNotifications, unreadCount } from '../stores/notifications.svelte';
   import { navigation } from '../stores/navigation.svelte';
   import { logout } from '../stores/session.svelte';
   import { settings } from '../stores/settings.svelte';
@@ -138,6 +140,23 @@
     await goto('/done');
   }
 
+  async function goNotifications(): Promise<void> {
+    // Сразу грузим журнал — экран покажет данные без повторного запроса.
+    closeMenu();
+    await loadNotifications();
+    await goto('/notifications');
+  }
+
+  async function goTimers(): Promise<void> {
+    // Сразу грузим таймеры — экран покажет данные без повторного запроса.
+    closeMenu();
+    await loadTimers();
+    await goto('/timers');
+  }
+
+  // Бейдж непрочитанных уведомлений на пункте 🔔 меню.
+  const badgeCount = $derived(unreadCount());
+
   async function doLogout(): Promise<void> {
     closeMenu();
     await logout();
@@ -170,6 +189,33 @@
       class="glass-menu menu-anim absolute bottom-full left-2 z-50 mb-2 flex w-56 flex-col gap-1 rounded-2xl p-2 shadow-xl"
       role="menu"
     >
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+        onclick={() => void goNotifications()}
+      >
+        <span class="relative w-6 shrink-0 text-center text-base">
+          🔔
+          {#if badgeCount > 0}
+            <span
+              class="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold leading-none text-white"
+            >
+              {badgeCount > 99 ? '99+' : badgeCount}
+            </span>
+          {/if}
+        </span>
+        Уведомления
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+        onclick={() => void goTimers()}
+      >
+        <span class="w-6 shrink-0 text-center text-base">⏰</span>
+        Таймеры
+      </button>
       <button
         type="button"
         role="menuitem"
@@ -346,11 +392,15 @@
       <button
         type="button"
         aria-label="Отправить"
-        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-strong text-xl text-white transition-[opacity,transform] active:scale-90 disabled:opacity-40"
+        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-strong text-white transition-[opacity,transform] active:scale-90 disabled:opacity-40"
         disabled={sending || text.trim() === ''}
         onclick={send}
       >
-        ➤
+        {#if sending}
+          <Spinner size="20px" />
+        {:else}
+          <span class="text-xl leading-none">➤</span>
+        {/if}
       </button>
     </div>
   </div>

@@ -200,3 +200,27 @@ func UserFromRecord(r UserRecord) user.User {
 		TelegramID:   r.TelegramID,
 	}
 }
+
+// NotificationToRecord конвертирует доменную модель уведомления в persistence-record.
+func NotificationToRecord(n model.Notification) NotificationRecord {
+	return NotificationRecord{
+		ID:      n.ID,
+		UserID:  n.UserID,
+		NoteID:  n.NoteID,
+		Text:    n.Text,
+		FiredAt: n.FiredAt,
+		Read:    n.Read,
+	}
+}
+
+// NotificationFromRecord конвертирует persistence-record в доменную модель уведомления.
+func NotificationFromRecord(r NotificationRecord) model.Notification {
+	return model.Notification{
+		ID:      r.ID,
+		UserID:  r.UserID,
+		NoteID:  r.NoteID,
+		Text:    r.Text,
+		FiredAt: r.FiredAt,
+		Read:    r.Read,
+	}
+}

@@ -71,3 +71,13 @@ type UserRecord struct {
 	PasswordHash string `db:"password_hash"`
 	TelegramID   *int64 `db:"telegram_id"`
 }
+
+// NotificationRecord — persistence-модель для записи журнала уведомлений.
+type NotificationRecord struct {
+	ID      int64     `db:"id"`
+	UserID  int64     `db:"user_id"`
+	NoteID  int64     `db:"note_id"`
+	Text    string    `db:"text"`
+	FiredAt time.Time `db:"fired_at"`
+	Read    bool      `db:"read"`
+}

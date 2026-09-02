@@ -20,6 +20,16 @@ export function listDoneNotes(): Promise<Note[]> {
   return request<Note[]>('GET', '/api/v1/notes?done=true');
 }
 
+/** Заметки с установленным напоминанием (все топики) — экран «⏰ Таймеры». */
+export function listTimerNotes(): Promise<Note[]> {
+  return request<Note[]>('GET', '/api/v1/notes?timers=true');
+}
+
+/** Заметка по id (например, открытие из уведомления). */
+export function getNote(id: number): Promise<Note> {
+  return request<Note>('GET', `/api/v1/notes/${id}`);
+}
+
 /** Опциональные атрибуты новой заметки (панель создания). */
 export interface CreateNoteOptions {
   done?: boolean;

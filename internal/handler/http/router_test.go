@@ -19,7 +19,7 @@ func newTestRouter(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
-	svc := todo.NewService(store, store, store, store, store, fileStore)
+	svc := todo.NewService(store, store, store, store, store, store, fileStore)
 	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, true, "test-bot-token")
 }
 
@@ -31,7 +31,7 @@ func newTestRouterCookieSecure(t *testing.T, cookieSecure bool) http.Handler {
 	if err != nil {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
-	svc := todo.NewService(store, store, store, store, store, fileStore)
+	svc := todo.NewService(store, store, store, store, store, store, fileStore)
 	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, cookieSecure, "test-bot-token")
 }
 
@@ -43,7 +43,7 @@ func newTestRouterTgDisabled(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("fs.NewStore() error: %v", err)
 	}
-	svc := todo.NewService(store, store, store, store, store, fileStore)
+	svc := todo.NewService(store, store, store, store, store, store, fileStore)
 	return NewRouter(store, session.NewMemoryStore(), svc, session.TTL, true, "")
 }
 

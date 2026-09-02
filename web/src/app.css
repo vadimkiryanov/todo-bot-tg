@@ -138,6 +138,12 @@ html {
   border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
 
+/* Вошли в папку (строка показывает путь из корня): лёгкая акцентная
+   обводка — видно, что список заметок сейчас из папки, а не из корня. */
+.strip-glass.in-folder {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
 /* ── Стеклянные поверхности отдельных элементов ─────────────
    Тот же приём, что у островка/строки папки (полупрозрачный фон токена
    surface + backdrop-blur), для элементов поверх списка. Плотность
@@ -220,7 +226,10 @@ html {
   top: 0;
   left: 0;
   width: 100%;
-  will-change: transform;
+  /* will-change: transform здесь убран: он промоутит содержимое панелей
+     (включая эмодзи-глифы) на композитный слой, где на macOS глифы на время
+     рендерятся запасным шрифтом другого размера. Без will-change браузер
+     сам решает, нужен ли слой — артефакта нет. */
 }
 .swipe-settle .swipe-panel {
   transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
@@ -282,6 +291,24 @@ body.scroll-locked .scroll-area {
 .empty-bob {
   display: inline-block;
   animation: empty-bob 3.2s ease-in-out infinite;
+}
+
+/* ── Лоадер (спиннер) на кнопках ─────────────────────────────
+   Цвет — currentColor: подстраивается под кнопку (белый на акцентной,
+   токен текста на нейтральной). */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinner {
+  display: inline-block;
+  border-radius: 9999px;
+  border-style: solid;
+  border-color: currentColor;
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
