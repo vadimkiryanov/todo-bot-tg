@@ -151,7 +151,7 @@
       <h2 class="mb-3 text-lg font-semibold">✏️ Редактировать</h2>
       <NoteEditForm
         note={selectedNote}
-        onCancel={() => (editing = false)}
+        onCancel={closeOverlay}
         onSaved={() => {
           editing = false;
           closeOverlay();
