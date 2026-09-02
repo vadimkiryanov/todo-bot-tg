@@ -66,7 +66,6 @@
         Корень
       {/if}
     </span>
-    <span class="shrink-0 text-xs">▾</span>
   </button>
 {/if}
 
