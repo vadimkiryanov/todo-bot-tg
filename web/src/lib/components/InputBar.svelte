@@ -11,9 +11,11 @@
   import { goto } from '$app/navigation';
   import Modal from './Modal.svelte';
   import ReminderForm from './ReminderForm.svelte';
+  import SettingsSheet from './SettingsSheet.svelte';
   import { createNote, loadArchived, loadDone } from '../stores/notes.svelte';
   import { navigation } from '../stores/navigation.svelte';
   import { logout } from '../stores/session.svelte';
+  import { settings } from '../stores/settings.svelte';
   import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
   import type { Priority, ReminderRepeat } from '../types/api';
 
@@ -38,8 +40,10 @@
   let reminderRepeat = $state<ReminderRepeat>('once');
   let showReminderForm = $state(false);
 
-  // Бургер-меню: архив и выход (раньше были в шапке).
+  // Бургер-меню: выполненные, архив, настройки и выход.
   let menuOpen = $state(false);
+  // Шторка настроек: открывается из бургер-меню (⚙️ Настройки).
+  let settingsOpen = $state(false);
 
   const folderActive = $derived(navigation.activeFolderID !== null);
 
@@ -140,6 +144,13 @@
     await goto('/login');
   }
 
+  /** Открыть настройки: бургер закрываем без возврата фокуса в инпут
+      (иначе на мобильных над шторкой вылезет клавиатура). */
+  function openSettings(): void {
+    menuOpen = false;
+    settingsOpen = true;
+  }
+
   // Escape закрывает бургер-меню.
   $effect(() => {
     if (!menuOpen) return;
@@ -176,6 +187,15 @@
       >
         <span class="w-6 shrink-0 text-center text-base">🗄</span>
         Архив
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+        onclick={openSettings}
+      >
+        <span class="w-6 shrink-0 text-center text-base">⚙️</span>
+        Настройки
       </button>
       <button
         type="button"
@@ -220,23 +240,36 @@
     </Modal>
   {/if}
 
+  {#if settingsOpen}
+    <SettingsSheet
+      open
+      onClose={() => {
+        settingsOpen = false;
+        keepInputFocus();
+      }}
+    />
+  {/if}
+
   <!-- Плавающие кнопки над нижней панелью (слева, вне белой заливки):
-       📁 «Папки» — выше, 📚 «Топики» — ниже (как раньше). Каждая открывает
-       свою шторку; справа от столбика видны заметки чата. Тап не уводит
-       фокус из поля ввода. -->
+       📚 «Топики» — шторка топиков. 📁 «Папки» показываем только в режиме
+       «Отдельная кнопка»: в режиме «в списке» папки видны строками прямо
+       в списке заметок, отдельная кнопка не нужна (строка текущей папки
+       над списком остаётся в обоих режимах). Тап не уводит фокус из ввода. -->
   <div class="absolute bottom-full left-3 mb-2 flex flex-col items-center gap-2">
-    <button
-      type="button"
-      aria-label="Папки"
-      aria-expanded={folderActive}
-      title={folderActive ? 'Вы в папке — открыть папки' : 'Открыть папки'}
-      class="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-lg transition-[background-color,transform] active:scale-90 active:bg-border {folderActive
-        ? 'text-accent'
-        : 'text-muted'}"
-      onclick={() => press(() => onOpenFolders?.())}
-    >
-      📁
-    </button>
+    {#if settings.foldersMode === 'button'}
+      <button
+        type="button"
+        aria-label="Папки"
+        aria-expanded={folderActive}
+        title={folderActive ? 'Вы в папке — открыть папки' : 'Открыть папки'}
+        class="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-lg transition-[background-color,transform] active:scale-90 active:bg-border {folderActive
+          ? 'text-accent'
+          : 'text-muted'}"
+        onclick={() => press(() => onOpenFolders?.())}
+      >
+        📁
+      </button>
+    {/if}
     <button
       type="button"
       aria-label="Топики"

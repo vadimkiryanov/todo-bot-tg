@@ -23,8 +23,8 @@
   import TopicIsland from '$lib/components/TopicIsland.svelte';
   import TopicMenu from '$lib/components/TopicMenu.svelte';
   import TopicTabs from '$lib/components/TopicTabs.svelte';
-  import { loadFolders } from '$lib/stores/folders.svelte';
-  import { navigation, setActiveTopic } from '$lib/stores/navigation.svelte';
+  import { levelFolders, loadFolders } from '$lib/stores/folders.svelte';
+  import { navigation, setActiveFolder, setActiveTopic } from '$lib/stores/navigation.svelte';
   import {
     clearNoteHighlight,
     loadNotes,
@@ -32,6 +32,7 @@
     preloadTopicNeighbors,
   } from '$lib/stores/notes.svelte';
   import { session } from '$lib/stores/session.svelte';
+  import { settings } from '$lib/stores/settings.svelte';
   import { loadTopics, topicsStore } from '$lib/stores/topics.svelte';
   import { ui } from '$lib/stores/ui.svelte';
   import type { Note } from '$lib/types/api';
@@ -76,6 +77,28 @@
   // автоматически при выборе — только вручную (тап вне / Escape).
   let topicSheetOpen = $state(false);
   let folderSheetOpen = $state(false);
+
+  // ── Инлайн-папки (режим «в списке», как в боте) ─────────────────────────
+  // Включается в настройках (⚙️ → формат папок): папки текущего уровня
+  // показываются строками в общем списке заметок — порядок как у бота:
+  // закреплённые → папки → остальные заметки. Тап по строке — вход в папку.
+  // В режиме «отдельная кнопка» папок в списке нет (только 📁/строка папки).
+  const pinnedNotes = $derived(notesStore.notes.filter((n) => n.pinned));
+  const restNotes = $derived(notesStore.notes.filter((n) => !n.pinned));
+  const inlineFolders = $derived(
+    settings.foldersMode === 'list' ? levelFolders() : [],
+  );
+
+  let mainEl: HTMLElement | undefined;
+
+  /** Вход в папку по строке списка: переключение уровня + скролл вверх
+      (список сменился — показываем его начало). */
+  function openFolder(id: number): void {
+    setActiveFolder(id);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => mainEl?.scrollTo({ top: 0 }));
+    });
+  }
 
   // ── Верхний «островок» + строка папки (overlay над списком) ─────────────
   // Островок и строка фиксированы: main получает верхний паддинг, равный
@@ -247,6 +270,7 @@
 
 <div class="relative flex h-full flex-col">
   <main
+    bind:this={mainEl}
     class="scroll-area touch-pan-y flex-1 overflow-y-auto"
     style:padding-top={`${topPad}px`}
     class:enter-from-left={slideCls === 'enter-from-left'}
@@ -296,7 +320,7 @@
           Повторить
         </button>
       </div>
-    {:else if notesStore.notes.length === 0}
+    {:else if notesStore.notes.length === 0 && inlineFolders.length === 0}
       <!-- Пустое место: долгое нажатие — дропдаун «Создать папку» -->
       <div
         role="group"
@@ -312,9 +336,37 @@
         </div>
       </div>
     {:else}
+      <!-- Общий список: закреплённые → строки папок (режим «в списке») →
+           остальные заметки. Папки уровня — кнопки-карточки с 📁, тап —
+           вход в папку (строки добавляются фронтом; бэкенд отдаёт заметки). -->
       <div class="flex flex-col gap-2 px-3 py-3">
-        {#each notesStore.notes as note, i (note.id)}
+        {#each pinnedNotes as note, i (note.id)}
           <div class="note-enter" style="animation-delay: {Math.min(i * 24, 300)}ms">
+            <NoteCard
+              {note}
+              highlighted={notesStore.highlightedId === note.id}
+              onOpen={(n) => (selectedId = n.id)}
+              onMenu={openMenu}
+            />
+          </div>
+        {/each}
+        {#if inlineFolders.length > 0}
+          {#each inlineFolders as folder (folder.id)}
+            <button
+              type="button"
+              class="flex w-full touch-manipulation select-none items-center gap-2.5 rounded-2xl bg-surface px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] active:bg-border/50 [-webkit-touch-callout:none]"
+              onclick={() => openFolder(folder.id)}
+            >
+              <span class="w-5 shrink-0 text-center text-sm leading-6">📁</span>
+              <span class="min-w-0 flex-1 truncate text-[15px] leading-6 text-content">{folder.name}</span>
+            </button>
+          {/each}
+        {/if}
+        {#each restNotes as note, j (note.id)}
+          <div
+            class="note-enter"
+            style="animation-delay: {Math.min((pinnedNotes.length + j) * 24, 300)}ms"
+          >
             <NoteCard
               {note}
               highlighted={notesStore.highlightedId === note.id}
