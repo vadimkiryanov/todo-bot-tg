@@ -225,6 +225,15 @@ html {
   background: color-mix(in srgb, var(--color-surface) 74%, transparent);
 }
 
+/* Пока идёт горизонтальный свайп (класс .swiping вешается на сам main —
+   скролл-контейнер списка), вертикальный скролл списка заморожен: нативный
+   pan-y не должен посреди свайпа прокручивать заметки вверх/вниз и «резинить»
+   у краёв. Пока палец ведёт сцену, список не скроллится. */
+.scroll-area.swiping {
+  overflow-y: hidden !important;
+  overscroll-behavior: none;
+}
+
 /* ── Фриз скролла при открытом контекстном меню ──────────────
    Пока открыто дропдаун-меню (NoteMenu/QuickMenu), список заметок не
    скроллится: свайп/скролл-жест не закрывает меню и не «утаскивает»
@@ -335,10 +344,12 @@ textarea {
   user-select: text;
 }
 
-/* Скролл-контейнер списка заметок. overscroll-behavior-y: contain не даёт
-   жесту на границе списка «утащить» за собой страницу (rubber-band на iOS,
-   pull-to-refresh на Android): приложение остаётся на месте. */
+/* Скролл-контейнер списка заметок. overscroll-behavior: none убирает у списка
+   и «резинку» на его границах (bounce/rubber-band на iOS — жёст на краю не
+   «растягивает» список), и цепочку прокрутки дальше (жест на границе не
+   утаскивает приложение; body и так закреплён position: fixed, а на десктопе
+   это гасит scroll-chaining). Вертикальный скролл остаётся нативным. */
 .scroll-area {
-  overscroll-behavior-y: contain;
+  overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
 }

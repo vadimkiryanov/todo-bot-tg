@@ -567,6 +567,49 @@
     mainEl?.classList.remove('swiping');
   }
 
+  // ── Ранний захват горизонтального жеста ────────────────────────────────
+  // touch-action: pan-y на main отдаёт браузеру «вертикальные» жесты, а
+  // границу браузер проводит сам — по первым пикселям движения. Начинаешь
+  // свайп с лёгким уходом вверх/вниз — браузер решает, что жест вертикальный,
+  // уводит его в нативный скролл (pointercancel, список едет или «резинит»
+  // в вертикаль), хотя палец вёл вбок. Дублируем определение оси на
+  // cancelable touchmove раньше браузерного pan-y: как только смещение с
+  // самого начала горизонтальное (меньший порог, чем у pointermove), берём
+  // жест себе и preventDefault'ом не даём нативному скроллу стартовать.
+  // Пока ось захвачена горизонтально, каждый touchmove гасится — даже
+  // вертикальные колебания пальца посреди свайпа не прокрутят список.
+  const EARLY_AXIS_PX = 7;
+
+  function onMainTouchMove(e: TouchEvent): void {
+    if (e.touches.length !== 1) return;
+    const s = swipe;
+    if (s === null) return;
+    if (s.axis === 'h') {
+      e.preventDefault(); // держим вертикаль замороженной на время свайпа
+      return;
+    }
+    if (s.axis === 'v') return; // скролл отдан браузеру
+    const t = e.touches[0];
+    const dx = t.clientX - s.startX;
+    const dy = t.clientY - s.startY;
+    const ax = Math.abs(dx);
+    const ay = Math.abs(dy);
+    if (ax > EARLY_AXIS_PX && ax > ay * 1.3) {
+      s.axis = 'h';
+      mainEl?.classList.add('swiping');
+      if (stage === null) mountStage();
+      e.preventDefault();
+    }
+  }
+
+  $effect(() => {
+    const el = mainEl;
+    if (el === undefined) return;
+    // passive: false — иначе preventDefault на touchmove не сработает.
+    el.addEventListener('touchmove', onMainTouchMove, { passive: false });
+    return () => el.removeEventListener('touchmove', onMainTouchMove);
+  });
+
   /** Доводка завершена (transitionend с панелей сцены). */
   function onStageTransitionEnd(e: TransitionEvent): void {
     if (e.propertyName !== 'transform') return;
