@@ -291,6 +291,9 @@
   // События свайпера: свайп/таб → стор; реальный drag → гасим «клик
   // отпускания» (иначе после свайпа открылся бы оверлей заметки под пальцем);
   // пересборка слайдов (удаление/добавление топиков) → синхронизация.
+  // Доводка после отпускания пальца — своя пружина (см. slideToWithSpring):
+  // заводская CSS-transition стартует с нулевой/произвольной скорости —
+  // «смена скорости» в момент отпускания, как было у свайпа из папки.
   $effect(() => {
     const el = swiperEl;
     const sw = el?.swiper;
@@ -303,24 +306,163 @@
         setActiveTopic(id);
       }
     };
+
+    // Скорость горизонтального драга (px/ms, сглаженная по последним
+    // движениям) — доводка-пружина стартует со скорости пальца.
+    let lastMoveT = 0;
+    let lastMoveX = 0;
+    let swipeVx = 0;
     const onSliderMove = (): void => {
       dragMoved = true;
+      const now = performance.now();
+      const x = sw.touches.currentX;
+      const dt = now - lastMoveT;
+      if (lastMoveT > 0 && dt > 0) {
+        const inst = (x - lastMoveX) / dt;
+        swipeVx = dt > 48 ? inst : swipeVx * 0.6 + inst * 0.4;
+      }
+      lastMoveX = x;
+      lastMoveT = now;
+    };
+
+    // ── Доводка после отпускания — критически демпфированная пружина ─────
+    // После touchEnd Swiper зовёт slideTo(index) — тот ставит CSS-transition
+    // с easing, стартующим с нулевой скорости: слайд ехал за пальцем и в
+    // момент отпускания «тормозит-разгоняется» (рывок). Заменяем доводку на
+    // пружину на requestAnimationFrame (та же, что у свайпа-«назад» из папки):
+    // translate пишется напрямую (sw.setTranslate) без реактивного рендера на
+    // каждый кадр; когда пружина пришла к цели — мгновенный slideTo(index, 0):
+    // Swiper синхронно обновляет активный слайд и эмитит slideChange уже
+    // ПОСЛЕ остановки — контент/стор переключаются на неподвижном экране.
+    type SlideToFn = (
+      index?: number,
+      speed?: number,
+      runCallbacks?: boolean,
+      internal?: boolean,
+      initial?: boolean,
+    ) => boolean;
+    const origSlideTo = sw.slideTo.bind(sw) as SlideToFn;
+    const K = 400; // ω²
+    const C = 40; // 2ω — критическое демпфирование
+    let springRaf: number | undefined;
+    let springIndex: number | null = null;
+    /** Отпускание пальца: скорость для подхвата + момент (свежесть проверяет
+        slideToWithSpring — программный slideTo не подхватит старый жест). */
+    let springPending: { vx: number; at: number } | null = null;
+    /** Пружина отменена новым касанием (слайд пойман на полпути). */
+    let springHalted = false;
+
+    const cancelSpring = (): void => {
+      if (springRaf !== undefined) cancelAnimationFrame(springRaf);
+      springRaf = undefined;
+    };
+
+    /** Довести wrapper пружиной до слайда index. v0 — px/с (скорость пальца). */
+    const runSpring = (index: number, v0: number): void => {
+      cancelSpring();
+      const target = -sw.snapGrid[Math.min(index, sw.snapGrid.length - 1)];
+      const finish = (): void => {
+        springIndex = null;
+        springRaf = undefined;
+        // Мгновенный slideTo: translate уже у цели — Swiper обновит индекс,
+        // классы и эмитит slideChange (runCallbacks=true, как в slideTo).
+        origSlideTo(index, 0, true);
+      };
+      let x = sw.translate;
+      let v = v0;
+      sw.setTransition(0); // снять возможный CSS-transition от прошлого перехода
+      if (Math.abs(target - x) < 0.5 && Math.abs(v) < 1) {
+        sw.setTranslate(target);
+        finish();
+        return;
+      }
+      let prev = performance.now();
+      const step = (now: number): void => {
+        if (springRaf === undefined) return; // пружина отменена (новый жест)
+        const dt = Math.min((now - prev) / 1000, 0.032);
+        prev = now;
+        const dx = target - x;
+        if (Math.abs(dx) < 0.5 && Math.abs(v) < 1) {
+          sw.setTranslate(target);
+          finish();
+          return;
+        }
+        v += (K * dx - C * v) * dt;
+        x += v * dt;
+        // Округление только на записи в DOM (субпиксельный transform
+        // «дрожит»), x остаётся непрерывным — иначе пружина застревает
+        // в пикселе от цели и не достигает условия остановки.
+        sw.setTranslate(Math.round(x));
+        springRaf = requestAnimationFrame(step);
+      };
+      springIndex = index;
+      springRaf = requestAnimationFrame(step);
+    };
+
+    /** Обёртка slideTo: жестовый вызов (из touchEnd свайпера) — пружина;
+        программный (тап по табу, эффекты) — оригинальный slideTo. */
+    const slideToWithSpring = (
+      index: number,
+      speed?: number,
+      runCallbacks = true,
+      internal?: boolean,
+      initial?: boolean,
+    ): boolean => {
+      const pending = springPending;
+      springPending = null;
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (
+        reduced ||
+        speed === 0 ||
+        pending === null ||
+        performance.now() - pending.at > 250
+      ) {
+        return origSlideTo(index, reduced && speed !== 0 ? 0 : speed, runCallbacks, internal, initial);
+      }
+      runSpring(index, pending.vx * 1000);
+      return true;
+    };
+    sw.slideTo = slideToWithSpring as typeof sw.slideTo;
+
+    const onTouchStart = (): void => {
+      // Новое касание ловит слайд на полпути доводки: пружину гасим, свайпер
+      // поведёт от текущей позиции; если касание окажется тапом (движения не
+      // было) — доводку возобновим в touchEnd.
+      if (springRaf !== undefined) {
+        springHalted = true;
+        cancelSpring();
+      }
+      lastMoveT = 0;
+      springPending = null;
     };
     const onTouchEnd = (): void => {
       if (dragMoved) {
         dragMoved = false;
         suppressNextClick();
       }
+      // Скорость отпускания для доводки (свежесть — в slideToWithSpring).
+      springPending = { vx: swipeVx, at: performance.now() };
+      if (springHalted && springIndex !== null && !sw.touchEventsData.isMoved) {
+        // Тап (без движения) во время доводки — доезжаем к прежней цели.
+        springHalted = false;
+        runSpring(springIndex, 0);
+      } else {
+        springHalted = false;
+      }
     };
     const onSlidesChanged = (): void => alignToActive(false);
 
     sw.on('slideChange', onSlideChange);
     sw.on('sliderMove', onSliderMove);
+    sw.on('touchStart', onTouchStart);
     sw.on('touchEnd', onTouchEnd);
     sw.on('slidesLengthChange', onSlidesChanged);
     return () => {
+      cancelSpring();
+      sw.slideTo = origSlideTo;
       sw.off('slideChange', onSlideChange);
       sw.off('sliderMove', onSliderMove);
+      sw.off('touchStart', onTouchStart);
       sw.off('touchEnd', onTouchEnd);
       sw.off('slidesLengthChange', onSlidesChanged);
     };
