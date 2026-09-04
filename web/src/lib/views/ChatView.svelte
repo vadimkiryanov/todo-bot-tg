@@ -529,6 +529,12 @@
     const sw = el?.swiper;
     if (el === undefined || sw === undefined) return;
 
+    // Без «пружины» resistance на крайних слайдах (первый/последний топик):
+    // при возврате драга за точку старта слайд иначе едет за пальцем не 1:1 —
+    // видимый «стык», слайд будто встаёт на место. Жёсткое следование,
+    // при отпускании слайд вернёт штатная доводка.
+    sw.params.resistance = false;
+
     const onSlideChange = (): void => {
       const id = slideTopicId(sw, sw.activeIndex);
       if (!Number.isNaN(id) && id !== navigation.activeTopicID) {
@@ -766,6 +772,10 @@
     const el = levelSwiperEl;
     const sw = el?.swiper;
     if (el === undefined || sw === undefined) return;
+
+    // То же, что у внешнего свайпера: без «пружины» resistance на крайних
+    // слайдах уровней (корень/глубина) при возврате драга за точку старта.
+    sw.params.resistance = false;
 
     const onSlideChange = (): void => {
       const level = folderLevels[sw.activeIndex];
