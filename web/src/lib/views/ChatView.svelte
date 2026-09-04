@@ -199,19 +199,46 @@
     return previews.get(topicId);
   }
 
-  /** Слайды рядом с активным (сам + соседи ±1): у них рендерим контент или
-      превью. Дальние слайды — пустые оболочки (ленивость): при многих
-      топиках в DOM не висят сотни карточек, контент появляется, когда слайд
-      приблизился к активному (переключение слайда = смена activeTopicID). */
+  /** Слайд в фокусе свайпера (видимый сейчас / цель доводки / программного
+      переезда). Может опережать стор-активный: при быстрых свайпах целевой
+      слайд едет и виден ДО slideChange, который в пружинной механике
+      наступает только в конце доводки. Окрестность фокуса рендерится
+      (nearTopicIds) и предзагружается — слайд подъезжает наполненным, а не
+      пустой оболочкой до полной остановки анимации. */
+  let focusTopicIndex = $state(-1);
+
+  /** Сменить фокус свайпера: окрестность нового слайда рендерится
+      (nearTopicIds) и предзагружается preloadTopicAround (свежий кеш и
+      идущие запросы делают повторные вызовы дешёвыми). */
+  function setFocusTopicIndex(index: number): void {
+    if (index === focusTopicIndex) return;
+    focusTopicIndex = index;
+    const topic = topicsStore.topics[index];
+    if (topic !== undefined) preloadTopicAround(topic.id);
+  }
+
+  /** Слайды для рендера: окрестность (сам + соседи ±1) стор-активного И
+      фокуса свайпера. При быстрых свайпах фокус опережает стор (доводка/
+      драг ещё идут, а целевой слайд уже виден) — его превью рендерится
+      сразу, слайд не выезжает пустым до полной остановки. Дальние слайды —
+      пустые оболочки (ленивость): при многих топиках в DOM не висят сотни
+      карточек. */
   const nearTopicIds = $derived.by(() => {
     const set = new Set<number>();
     const list = topicsStore.topics;
+    const n = list.length;
+    if (n === 0) return set;
+    const centers = new Set<number>();
     const id = navigation.activeTopicID;
-    if (id === null) return set;
-    const index = list.findIndex((t) => t.id === id);
-    if (index < 0) return set;
-    for (let i = Math.max(0, index - 1); i <= Math.min(list.length - 1, index + 1); i++) {
-      set.add(list[i].id);
+    if (id !== null) {
+      const index = list.findIndex((t) => t.id === id);
+      if (index >= 0) centers.add(index);
+    }
+    if (focusTopicIndex >= 0 && focusTopicIndex < n) centers.add(focusTopicIndex);
+    for (const c of centers) {
+      for (let i = Math.max(0, c - 1); i <= Math.min(n - 1, c + 1); i++) {
+        set.add(list[i].id);
+      }
     }
     return set;
   });
@@ -272,6 +299,8 @@
     const want = topicIndexById(id);
     if (want < 0 || want >= sw.slides.length) return; // свайпер ещё не пересобрался
     if (slideTopicId(sw, sw.activeIndex) === id) return;
+    // Фокус на цель сразу: её окрестность рендерится, пока слайд едет.
+    setFocusTopicIndex(want);
     sw.slideTo(want, animate ? slideSpeed() : 0);
   }
 
@@ -280,6 +309,9 @@
     const sw = currentSwiper();
     const want = topicIndexById(id);
     if (sw !== undefined && want >= 0) {
+      // Фокус на цель сразу: превью цели (и предзагрузка её данных)
+      // стартуют, пока слайд ещё едет анимацией.
+      setFocusTopicIndex(want);
       sw.slideTo(want, slideSpeed());
       return;
     }
@@ -308,8 +340,41 @@
       if (!Number.isNaN(id) && id !== navigation.activeTopicID) {
         setActiveTopic(id);
       }
+      // Слайд встал — фокус совпадает со стор-активным (страховка для
+      // случаев, когда фокус уехал вперёд намерения/драга).
+      setFocusTopicIndex(sw.activeIndex);
     };
-    const onSlidesChanged = (): void => alignToActive(false);
+    const refreshVisibilityPreload = (): void => {
+      visibilityObserver?.disconnect();
+      visibilityObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const raw = (entry.target as HTMLElement).dataset.topicId;
+            if (raw === undefined) continue;
+            const id = Number(raw);
+            if (!Number.isNaN(id)) preloadTopicAround(id);
+          }
+        },
+        { root: el, threshold: 0 },
+      );
+      for (const slide of sw.slides) visibilityObserver.observe(slide);
+    };
+    const onSlidesChanged = (): void => {
+      // Слайды пересобраны (создание/удаление топиков) — наблюдатели заново.
+      refreshVisibilityPreload();
+      alignToActive(false);
+    };
+
+    // Драг пальцем: фокус следует за фактически видимым слайдом — как только
+    // соседний выехал больше чем на половину, его окрестность рендерится и
+    // предзагружается ещё до отпускания. Отпускание скорректирует фокус по
+    // реальной цели доводки (onIntent ниже), недотянутый драг — вернёт.
+    const onDragFocus = (): void => {
+      const max = sw.slides.length - 1;
+      const index = Math.round(-sw.translate / sw.width);
+      setFocusTopicIndex(Math.max(0, Math.min(max, index)));
+    };
 
     const releaseSpring = installSlideSpring(sw, {
       onIntent: (index) => {
@@ -318,11 +383,11 @@
         const pendingId = slideTopicId(sw, index);
         if (Number.isNaN(pendingId)) return;
         navigation.pendingTopicID = pendingId;
-        // Предзагрузка стартует в момент намерения — сразу при отпускании,
-        // когда таб уже подсветился, а слайд ещё едет доводкой: к slideChange
-        // корень цели (и её соседей) уже в кеше — быстрое перелистывание
-        // нескольких топиков не ждёт сеть после остановки слайда.
-        preloadTopicAround(pendingId);
+        // Фокус на цель доводки в момент отпускания: окрестность цели
+        // рендерится (превью) и предзагружается, пока слайд ещё едет
+        // пружиной — к slideChange контент уже готов, быстрые повторные
+        // свайпы не ждут сеть после остановки слайда.
+        setFocusTopicIndex(index);
       },
       onGesture: () => suppressNextClick(),
       onTouchStart: () => {
@@ -330,12 +395,31 @@
       },
     });
 
+    // Предзагрузка по видимости: как только соседний топик начал заезжать
+    // в область свайпера (хотя бы пикселем) — сразу тянем его корень и
+    // соседей. Это самый ранний старт (раньше перехода фокуса на половине
+    // слайда и отпускания). Повторные срабатывания (слайд виден долго)
+    // дешёвые — свежий кеш и идущие запросы пропускаются.
+    // ВАЖНО: внутри эффекта нельзя синхронно писать focusTopicIndex (и читать
+    // его через setFocusTopicIndex) — эффект стал бы зависеть от фокуса и
+    // пересоздавался бы на каждой его смене, а cleanup убивал бы пружину
+    // доводки (releaseSpring → cancelSpring) в момент отпускания: слайд
+    // замирал бы на полпути. Начальный фокус не нужен: окрестность
+    // стартового слайда рендерится через центр activeTopicID, дальше фокус
+    // выставляют драг (onDragFocus), отпускание (onIntent) и slideChange.
+    let visibilityObserver: IntersectionObserver | undefined;
+    refreshVisibilityPreload();
+
     sw.on('slideChange', onSlideChange);
     sw.on('slidesLengthChange', onSlidesChanged);
+    sw.on('sliderMove', onDragFocus);
     return () => {
       releaseSpring();
+      visibilityObserver?.disconnect();
+      visibilityObserver = undefined;
       sw.off('slideChange', onSlideChange);
       sw.off('slidesLengthChange', onSlidesChanged);
+      sw.off('sliderMove', onDragFocus);
     };
   });
 
