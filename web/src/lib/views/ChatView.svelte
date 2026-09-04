@@ -67,7 +67,6 @@
   import { ui } from '$lib/stores/ui.svelte';
   import type { Folder, Note, Topic } from '$lib/types/api';
   import { suppressNextClick } from '$lib/utils/click';
-  import { installSlideSpring } from '$lib/utils/slide-spring';
 
   // Актуальная заметка для «страницы» (NotePage). Кэш последнего объекта:
   // заметка может исчезнуть из списка (done/архив) раньше, чем доиграет
@@ -576,24 +575,6 @@
       setFocusTopicIndex(Math.max(0, Math.min(max, index)));
     };
 
-    const releaseSpring = installSlideSpring(sw, {
-      onIntent: (index) => {
-        // Таб островка подсвечивает цель сразу (контент переключится в конце
-        // доводки, когда slideChange вызовет setActiveTopic).
-        const pendingId = slideTopicId(sw, index);
-        if (Number.isNaN(pendingId)) return;
-        navigation.pendingTopicID = pendingId;
-        // Фокус на цель доводки в момент отпускания: окрестность цели
-        // рендерится (превью) и предзагружается, пока слайд ещё едет
-        // пружиной — к slideChange контент уже готов, быстрые повторные
-        // свайпы не ждут сеть после остановки слайда.
-        setFocusTopicIndex(index);
-      },
-      onGesture: () => suppressNextClick(),
-      onTouchStart: () => {
-        navigation.pendingTopicID = null;
-      },
-    });
 
     // Предзагрузка по видимости: как только соседний топик начал заезжать
     // в область свайпера (хотя бы пикселем) — сразу тянем его корень и
@@ -614,7 +595,6 @@
     sw.on('slidesLengthChange', onSlidesChanged);
     sw.on('sliderMove', onDragFocus);
     return () => {
-      releaseSpring();
       visibilityObserver?.disconnect();
       visibilityObserver = undefined;
       sw.off('slideChange', onSlideChange);
@@ -783,12 +763,9 @@
       const folderId = levelIdOf(level);
       if (folderId !== navigation.activeFolderID) setActiveFolder(folderId);
     };
-    const releaseSpring = installSlideSpring(sw, {
-      onGesture: () => suppressNextClick(),
-    });
+
     sw.on('slideChange', onSlideChange);
     return () => {
-      releaseSpring();
       sw.off('slideChange', onSlideChange);
     };
   });
