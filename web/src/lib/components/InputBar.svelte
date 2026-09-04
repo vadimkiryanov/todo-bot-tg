@@ -184,7 +184,7 @@
 <div class="relative px-3 py-2">
   {#if menuOpen}
     <!-- Затемняющая подложка: тап вне меню — закрыть -->
-    <div class="backdrop-anim fixed inset-0 z-40 bg-black/40" onclick={closeMenu} aria-hidden="true"></div>
+    <div class="backdrop-glass backdrop-anim fixed inset-0 z-40 bg-black/40" onclick={closeMenu} aria-hidden="true"></div>
     <div
       class="glass-menu menu-anim absolute bottom-full left-2 z-50 mb-2 flex w-56 flex-col gap-1 rounded-2xl p-2 shadow-xl"
       role="menu"

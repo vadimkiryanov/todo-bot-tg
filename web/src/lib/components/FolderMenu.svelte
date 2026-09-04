@@ -155,7 +155,7 @@
   </Modal>
 {:else}
   <!-- Затемнённый фон: тап по нему — закрыть меню -->
-  <div class="backdrop-anim fixed inset-0 z-40 bg-black/40" onclick={onClose} aria-hidden="true"></div>
+  <div class="backdrop-glass backdrop-anim fixed inset-0 z-40 bg-black/40" onclick={onClose} aria-hidden="true"></div>
 
   <div
     bind:this={menuEl}

@@ -20,6 +20,7 @@
     removeArchivedNote,
     removeDoneNote,
     removeNote,
+    saveText,
     setPriority,
     setReminder,
     toggleDone,
@@ -35,8 +36,8 @@
     nextPriority,
     priorityEmoji,
     priorityLabel,
-    renderNoteHtml,
   } from '../utils/format';
+  import { renderNoteBlocksHtml } from '../utils/blocks';
 
   let {
     note,
@@ -149,6 +150,10 @@
   let confirmDelete = $state(false);
   let showMove = $state(false);
   let showReminderForm = $state(false);
+  // Меню «⋯» (закрепить/переместить/архив/удалить): позиция у правого края
+  // кнопки, раскрывается вверх над доком.
+  let menuOpen = $state(false);
+  let menuPos = $state({ right: 12, bottom: 96 });
   type BusyKey = 'done' | 'priority' | 'pin' | 'reminder' | 'delete' | 'archive';
   let busy: BusyKey | null = $state(null);
 
@@ -256,6 +261,27 @@
     );
   }
 
+  /** Открыть ⋯-меню у кнопки: низ меню — над доком, правый край — у кнопки. */
+  function openMenu(e: MouseEvent): void {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    menuPos = {
+      right: Math.max(8, window.innerWidth - rect.right),
+      bottom: Math.max(8, window.innerHeight - rect.top + 6),
+    };
+    menuOpen = true;
+    error = '';
+  }
+
+  function closeMenu(): void {
+    menuOpen = false;
+  }
+
+  /** Выбрать пункт меню: закрыть меню и выполнить действие. */
+  function pickMenu(action: () => void): void {
+    menuOpen = false;
+    action();
+  }
+
   /** Сохранить напоминание (из ReminderForm). */
   async function onReminderSubmit(iso: string, repeat: ReminderRepeat): Promise<void> {
     await act(
@@ -306,12 +332,52 @@
     pageNote = await apiUpdateNote(pageNote.id, { text });
   }
 
-  // Escape: закрыть страницу (из редактора — выйти из него).
+  /**
+   * Клик по чекбоксу чеклиста: переключает «[ ]» ↔ «[x]» в тексте и сохраняет
+   * как обычную правку. Маркеры обоих состояний одной длины, поэтому смещения
+   * entities не сдвигаются — меняется один символ на позиции маркера (start+3).
+   */
+  async function toggleCheck(pos: number): Promise<void> {
+    const text = pageNote.text;
+    if (text.slice(pos, pos + 3) !== '- [') return;
+    const mark = text[pos + 3];
+    if (mark !== ' ' && mark !== 'x') return;
+    const nextText = text.slice(0, pos + 3) + (mark === ' ' ? 'x' : ' ') + text.slice(pos + 4);
+    error = '';
+    try {
+      if (owned) {
+        await saveText(pageNote, nextText);
+      } else {
+        pageNote = await apiUpdateNote(pageNote.id, { text: nextText });
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'ошибка';
+    }
+  }
+
+  /** Делегированный клик по контейнеру текста: тап по чекбоксу чеклиста. */
+  function onBodyClick(e: MouseEvent): void {
+    const target = e.target as HTMLElement | null;
+    if (target === null) return;
+    const cb = target.closest<HTMLElement>('[data-cb]');
+    if (cb === null) return;
+    e.preventDefault();
+    void toggleCheck(Number(cb.dataset.cb));
+  }
+
+  // Escape: закрыть меню → форму напоминания → редактор → страницу.
   $effect(() => {
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (editing) cancelEdit();
-      else requestClose();
+      if (editing) {
+        cancelEdit();
+      } else if (menuOpen) {
+        closeMenu();
+      } else if (showReminderForm) {
+        showReminderForm = false;
+      } else {
+        requestClose();
+      }
     };
     window.addEventListener('keydown', onKeydown);
     return () => window.removeEventListener('keydown', onKeydown);
@@ -359,231 +425,231 @@
         onSaved={cancelEdit}
       />
     {:else}
-      <div class="flex min-h-full flex-col gap-4">
-        <div
-          class="whitespace-pre-wrap break-words text-[16px] leading-6 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2 {isDone
-            ? 'text-muted line-through'
-            : 'text-content'}"
-        >
-          {@html renderNoteHtml(pageNote.text, pageNote.entities)}
-        </div>
-
-        {#if error}
-          <p class="text-sm text-danger">{error}</p>
-        {/if}
-
-        <div class="mt-auto flex flex-col gap-3 pt-2">
-          {#if isActive || isDone}
-            <!-- Активная / выполненная: главное действие + инструменты -->
-            <div class="flex items-center justify-between gap-1">
-              <button
-                type="button"
-                aria-label={isDone ? 'Вернуть в работу' : 'Выполнить'}
-                class="flex h-12 w-12 items-center justify-center rounded-full text-xl transition-transform active:scale-90 {isDone
-                  ? 'bg-border/60'
-                  : 'bg-accent/15'}"
-                disabled={busy !== null}
-                onclick={isDone ? doUndone : doToggleDone}
-              >
-                {#if busy === 'done'}
-                  <Spinner />
-                {:else}
-                  {isDone ? '↩️' : '✅'}
-                {/if}
-              </button>
-
-              {#if isActive}
-                <button
-                  type="button"
-                  aria-label={`Приоритет: ${priorityLabel(pageNote.priority)}`}
-                  title={`Приоритет: ${priorityLabel(pageNote.priority)}`}
-                  class="flex h-12 min-w-12 items-center justify-center gap-0.5 rounded-full bg-background px-2 text-base transition-transform active:scale-90"
-                  disabled={busy !== null}
-                  onclick={doCyclePriority}
-                >
-                  {#if busy === 'priority'}
-                    <Spinner />
-                  {:else}
-                    🔄{priorityEmoji(pageNote.priority)}
-                  {/if}
-                </button>
-                <button
-                  type="button"
-                  aria-label={pageNote.pinned ? 'Открепить' : 'Закрепить'}
-                  class="flex h-12 w-12 items-center justify-center rounded-full text-lg transition-transform active:scale-90 {pageNote.pinned
-                    ? 'bg-border/60'
-                    : 'bg-background'}"
-                  disabled={busy !== null}
-                  onclick={doTogglePin}
-                >
-                  {#if busy === 'pin'}
-                    <Spinner />
-                  {:else}
-                    📌
-                  {/if}
-                </button>
-              {/if}
-
-              <button
-                type="button"
-                aria-label="Редактировать"
-                class="flex h-12 w-12 items-center justify-center rounded-full bg-background text-lg"
-                disabled={busy !== null}
-                onclick={startEdit}
-              >
-                ✏️
-              </button>
-              <button
-                type="button"
-                aria-label="Удалить"
-                class="flex h-12 w-12 items-center justify-center rounded-full bg-background text-lg"
-                disabled={busy !== null}
-                onclick={() => {
-                  confirmDelete = true;
-                  error = '';
-                }}
-              >
-                {#if busy === 'delete'}
-                  <Spinner />
-                {:else}
-                  🗑
-                {/if}
-              </button>
-            </div>
-          {:else}
-            <!-- Архивная заметка: вернуть + редактировать + удалить -->
-            <div class="flex items-center justify-center gap-2">
-              <button
-                type="button"
-                aria-label="Вернуть из архива"
-                class="flex h-12 items-center gap-2 rounded-full bg-accent/15 px-5 text-base disabled:opacity-50"
-                disabled={busy !== null}
-                onclick={doUnarchive}
-              >
-                {#if busy === 'archive'}
-                  <Spinner />
-                {:else}
-                  ↩️
-                {/if}
-                Вернуть из архива
-              </button>
-              <button
-                type="button"
-                aria-label="Редактировать"
-                class="flex h-12 w-12 items-center justify-center rounded-full bg-background text-lg"
-                disabled={busy !== null}
-                onclick={startEdit}
-              >
-                ✏️
-              </button>
-              <button
-                type="button"
-                aria-label="Удалить"
-                class="flex h-12 w-12 items-center justify-center rounded-full bg-background text-lg"
-                disabled={busy !== null}
-                onclick={() => {
-                  confirmDelete = true;
-                  error = '';
-                }}
-              >
-                {#if busy === 'delete'}
-                  <Spinner />
-                {:else}
-                  🗑
-                {/if}
-              </button>
-            </div>
-          {/if}
-
-          {#if isActive}
-            {#if pageNote.reminder_at !== null}
-              <div class="flex flex-col gap-2 rounded-xl border border-border bg-background p-3">
-                <div class="flex items-center justify-between gap-2">
-                  <span class="min-w-0 truncate text-sm" title={pageNote.reminder_at}>
-                    ⏰ {formatReminderAt(pageNote.reminder_at, pageNote.reminder_repeat)}
-                  </span>
-                  <button
-                    type="button"
-                    class="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted transition-colors active:bg-border/60"
-                    disabled={busy !== null}
-                    onclick={doClearReminder}
-                  >
-                    {#if busy === 'reminder'}
-                      <Spinner size="14px" />
-                    {:else}
-                      Снять
-                    {/if}
-                  </button>
-                </div>
-                <div class="flex gap-2">
-                  {#each [15, 30, 60] as minutes (minutes)}
-                    <button
-                      type="button"
-                      class="h-9 flex-1 rounded-lg border border-border bg-background text-xs transition-transform active:scale-95"
-                      disabled={busy !== null}
-                      onclick={() => void snooze(minutes)}
-                    >
-                      +{minutes === 60 ? '1ч' : `${minutes}м`}
-                    </button>
-                  {/each}
-                </div>
-              </div>
-            {:else}
-              <button
-                type="button"
-                class="h-11 rounded-xl border border-border text-sm disabled:opacity-50 {showReminderForm
-                  ? 'border-accent bg-accent/10'
-                  : ''}"
-                disabled={busy !== null}
-                onclick={toggleReminderForm}
-              >
-                ⏰ Напомнить
-              </button>
-            {/if}
-
-            {#if showReminderForm}
-              <ReminderForm
-                initial={pageNote.reminder_at ?? ''}
-                initialRepeat={pageNote.reminder_repeat}
-                busy={busy === 'reminder'}
-                onSubmit={onReminderSubmit}
-                onSaved={() => {
-                  showReminderForm = false;
-                }}
-                onCancel={() => {
-                  showReminderForm = false;
-                }}
-              />
-            {/if}
-
-            {#if canMove}
-              <button
-                type="button"
-                class="h-11 rounded-xl border border-border text-sm disabled:opacity-50"
-                disabled={busy !== null}
-                onclick={() => {
-                  showMove = true;
-                  error = '';
-                }}
-              >
-                📂 Переместить
-              </button>
-            {/if}
-
-            <button
-              type="button"
-              class="h-11 rounded-xl border border-border text-sm disabled:opacity-50"
-              disabled={busy !== null}
-              onclick={doArchive}
-            >
-              🗄 В архив
-            </button>
-          {/if}
-        </div>
+      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+      <div
+        class="whitespace-pre-wrap break-words text-[16px] leading-6 text-content [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2"
+        class:note-done={isDone}
+        onclick={onBodyClick}
+      >
+        {@html renderNoteBlocksHtml(pageNote.text, pageNote.entities, isActive)}
       </div>
     {/if}
   </main>
+
+  {#if !editing}
+    <!-- Док действий: закреплён под контентом, главные кнопки всегда видны
+         (✅/↩️ выполнить, 🔄 приоритет, ⏰ напомнить, ✏️ править); остальное
+         (📌, 📂 Переместить, 🗄 В архив, 🗑 Удалить) — в меню ⋯. Чип
+         напоминания появляется только когда оно установлено; форма по ⏰
+         занимает док целиком. data-no-swipe: свайп по кнопкам не закрывает
+         страницу. -->
+    <footer
+      data-no-swipe
+      class="shrink-0 border-t border-border bg-bar px-3 pb-[env(safe-area-inset-bottom)] pt-2"
+    >
+      {#if error}
+        <p class="px-1 pb-2 text-xs text-danger">{error}</p>
+      {/if}
+
+      {#if isActive && showReminderForm}
+        <ReminderForm
+          initial={pageNote.reminder_at ?? ''}
+          initialRepeat={pageNote.reminder_repeat}
+          busy={busy === 'reminder'}
+          onSubmit={onReminderSubmit}
+          onSaved={() => {
+            showReminderForm = false;
+          }}
+          onCancel={() => {
+            showReminderForm = false;
+          }}
+        />
+      {:else}
+        {#if isActive && pageNote.reminder_at !== null}
+          <div class="mb-2 flex flex-col gap-1.5 rounded-xl border border-border bg-background px-3 py-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <span class="min-w-0 truncate text-sm" title={pageNote.reminder_at}>
+                ⏰ {formatReminderAt(pageNote.reminder_at, pageNote.reminder_repeat)}
+              </span>
+              <button
+                type="button"
+                class="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted transition-colors active:bg-border/60"
+                disabled={busy !== null}
+                onclick={doClearReminder}
+              >
+                {#if busy === 'reminder'}
+                  <Spinner size="14px" />
+                {:else}
+                  Снять
+                {/if}
+              </button>
+            </div>
+            <div class="flex gap-1.5">
+              {#each [15, 30, 60] as minutes (minutes)}
+                <button
+                  type="button"
+                  class="h-8 flex-1 rounded-lg border border-border bg-background text-xs transition-transform active:scale-95"
+                  disabled={busy !== null}
+                  onclick={() => void snooze(minutes)}
+                >
+                  +{minutes === 60 ? '1ч' : `${minutes}м`}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <div class="flex items-center justify-between gap-1">
+          {#if isActive || isDone}
+            <button
+              type="button"
+              aria-label={isDone ? 'Вернуть в работу' : 'Выполнить'}
+              class="flex h-12 w-12 items-center justify-center rounded-full text-xl transition-transform active:scale-90 {isDone
+                ? 'bg-border/60'
+                : 'bg-accent/15'}"
+              disabled={busy !== null}
+              onclick={isDone ? doUndone : doToggleDone}
+            >
+              {#if busy === 'done'}
+                <Spinner />
+              {:else}
+                {isDone ? '↩️' : '✅'}
+              {/if}
+            </button>
+          {:else}
+            <button
+              type="button"
+              aria-label="Вернуть из архива"
+              class="flex h-12 items-center gap-2 rounded-full bg-accent/15 px-5 text-base disabled:opacity-50"
+              disabled={busy !== null}
+              onclick={doUnarchive}
+            >
+              {#if busy === 'archive'}
+                <Spinner />
+              {:else}
+                ↩️
+              {/if}
+              Вернуть из архива
+            </button>
+          {/if}
+
+          <div class="flex items-center gap-1">
+            {#if isActive}
+              <button
+                type="button"
+                aria-label={`Приоритет: ${priorityLabel(pageNote.priority)}`}
+                title={`Приоритет: ${priorityLabel(pageNote.priority)}`}
+                class="flex h-12 min-w-12 items-center justify-center gap-0.5 rounded-full bg-background px-2 text-base transition-transform active:scale-90"
+                disabled={busy !== null}
+                onclick={doCyclePriority}
+              >
+                {#if busy === 'priority'}
+                  <Spinner />
+                {:else}
+                  🔄{priorityEmoji(pageNote.priority)}
+                {/if}
+              </button>
+              <button
+                type="button"
+                aria-label={pageNote.reminder_at !== null ? 'Изменить напоминание' : 'Напомнить'}
+                title={pageNote.reminder_at !== null ? 'Изменить напоминание' : 'Напомнить'}
+                class="flex h-12 w-12 items-center justify-center rounded-full text-lg transition-transform active:scale-90 {pageNote.reminder_at !==
+                  null
+                  ? 'bg-accent/15'
+                  : 'bg-background'}"
+                disabled={busy !== null}
+                onclick={toggleReminderForm}
+              >
+                ⏰
+              </button>
+            {/if}
+            <button
+              type="button"
+              aria-label="Редактировать"
+              class="flex h-12 w-12 items-center justify-center rounded-full bg-background text-lg"
+              disabled={busy !== null}
+              onclick={startEdit}
+            >
+              ✏️
+            </button>
+            <button
+              type="button"
+              aria-label="Ещё действия"
+              class="flex h-12 w-12 items-center justify-center rounded-full bg-background text-xl transition-transform active:scale-90"
+              disabled={busy !== null}
+              onclick={openMenu}
+            >
+              ⋯
+            </button>
+          </div>
+        </div>
+      {/if}
+    </footer>
+  {/if}
 </div>
+
+{#if menuOpen}
+  <div
+    class="backdrop-glass backdrop-anim fixed inset-0 z-[71] bg-black/40"
+    onclick={closeMenu}
+    aria-hidden="true"
+  ></div>
+  <div
+    class="glass-menu menu-anim fixed z-[72] flex w-56 flex-col gap-1 rounded-2xl p-2 shadow-xl"
+    style:right={`${menuPos.right}px`}
+    style:bottom={`${menuPos.bottom}px`}
+    role="menu"
+  >
+    {#if isActive}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+        onclick={() => pickMenu(doTogglePin)}
+      >
+        <span class="w-6 shrink-0 text-center text-base">📌</span>
+        <span class="truncate">{pageNote.pinned ? 'Открепить' : 'Закрепить'}</span>
+      </button>
+      {#if canMove}
+        <button
+          type="button"
+          role="menuitem"
+          class="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+          onclick={() =>
+            pickMenu(() => {
+              showMove = true;
+              error = '';
+            })}
+        >
+          <span class="w-6 shrink-0 text-center text-base">📂</span>
+          <span class="truncate">Переместить</span>
+        </button>
+      {/if}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+        onclick={() => pickMenu(doArchive)}
+      >
+        <span class="w-6 shrink-0 text-center text-base">🗄</span>
+        <span class="truncate">В архив</span>
+      </button>
+    {/if}
+    <button
+      type="button"
+      role="menuitem"
+      class="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] text-danger transition-colors active:bg-danger/10"
+      onclick={() =>
+        pickMenu(() => {
+          confirmDelete = true;
+          error = '';
+        })}
+    >
+      <span class="w-6 shrink-0 text-center text-base">🗑</span>
+      <span class="truncate">Удалить</span>
+    </button>
+  </div>
+{/if}
 
 {#if confirmDelete}
   <ConfirmModal

@@ -58,7 +58,7 @@
 </script>
 
 <div
-  class="backdrop-anim pointer-events-auto fixed inset-0 z-40 bg-black/40"
+  class="backdrop-glass backdrop-anim pointer-events-auto fixed inset-0 z-40 bg-black/40"
   onclick={onClose}
   aria-hidden="true"
 ></div>

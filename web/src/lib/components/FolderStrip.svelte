@@ -3,6 +3,7 @@
   // «Корень»). Тап — шторка папок (дерево активного топика); долгий тап —
   // дропдаун «Создать папку» (на текущем уровне) / «Создать топик».
   import QuickMenu from './QuickMenu.svelte';
+  import CrumbPath from './CrumbPath.svelte';
   import { folderChain } from '../stores/folders.svelte';
   import { navigation } from '../stores/navigation.svelte';
   import { topicsStore } from '../stores/topics.svelte';
@@ -49,6 +50,7 @@
 {#if topicsStore.topics.length > 0}
   <button
     type="button"
+    title={navigation.activeFolderID !== null && chain.length > 0 ? chain.join(' › ') : 'Корень'}
     class="strip-glass pointer-events-auto mx-auto flex h-9 w-full max-w-md select-none items-center gap-2 rounded-xl px-3 text-left text-[13px] text-muted transition-colors active:bg-black/5 dark:active:bg-white/10"
     class:in-folder={navigation.activeFolderID !== null}
     onpointerdown={handlePointerDown}
@@ -58,15 +60,13 @@
     onclick={onTap}
   >
     <span class="shrink-0 text-sm leading-none">📁</span>
-    <span class="min-w-0 flex-1 truncate">
-      {#if navigation.activeFolderID === null}
-        Корень
-      {:else if chain.length > 0}
-        {chain.join(' › ')}
-      {:else}
-        Корень
-      {/if}
-    </span>
+    {#if navigation.activeFolderID === null || chain.length === 0}
+      <span class="min-w-0 flex-1 truncate">Корень</span>
+    {:else}
+      <!-- Длинный путь ужимается до влезающего: корневая папка и активная
+           всегда видны, середина маскируется «…» (полный путь — в title). -->
+      <CrumbPath containerClass="flex-1" segments={chain} />
+    {/if}
   </button>
 {/if}
 

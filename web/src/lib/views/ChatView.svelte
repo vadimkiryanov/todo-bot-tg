@@ -118,8 +118,197 @@
   let editRequestId: number | null = $state(null);
 
   function requestEdit(note: Note): void {
-    editRequestId = note.id;
-    selectedId = note.id;
+    openNote(note.id, true);
+  }
+
+  // ── URL-синхронизация (?topic=&folder=&note=) ───────────────────────────
+  // Навигация зеркалится в адресную строку: смена топика/папки — replaceState
+  // (записей истории не плодим), открытие заметки — pushState (кнопка «назад»
+  // браузера закрывает страницу через popstate). Открытие по ссылке с query
+  // восстанавливает топик/папку/заметку после загрузки данных (приоритет над
+  // localStorage). SvelteKit-роутер записи без своего state (наши push/replace)
+  // не навигирует — лишь обновляет page.url, поэтому popstate обрабатываем сами.
+  interface UrlIntent {
+    topic: number | null;
+    folder: number | null;
+    note: number | null;
+    /** Шаг отработан: применён или отклонён (невалиден/нет данных). */
+    topicDone: boolean;
+    folderDone: boolean;
+    noteDone: boolean;
+  }
+
+  /** Query из адреса, ждущий применения к сторам (старт/попstate). */
+  let urlIntent: UrlIntent | null = $state(null);
+  /** Стартовый URL обработан — синхронизация адреса включена. */
+  let urlStarted = $state(false);
+  /** Заметка открыта пользователем (pushState) — UI-закрытие делает history.back(). */
+  let noteOpenedViaPush = false;
+
+  function numParam(params: URLSearchParams, key: string): number | null {
+    const raw = params.get(key);
+    if (raw === null) return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  }
+
+  function readUrlIntent(): UrlIntent {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      topic: numParam(params, 'topic'),
+      folder: numParam(params, 'folder'),
+      note: numParam(params, 'note'),
+      topicDone: false,
+      folderDone: false,
+      noteDone: false,
+    };
+  }
+
+  /** Query для текущего состояния навигации ('' — без параметров). */
+  function queryForState(): string {
+    const params = new URLSearchParams();
+    if (navigation.activeTopicID !== null) params.set('topic', String(navigation.activeTopicID));
+    if (navigation.activeFolderID !== null) params.set('folder', String(navigation.activeFolderID));
+    if (selectedId !== null) params.set('note', String(selectedId));
+    const q = params.toString();
+    return q === '' ? '' : `?${q}`;
+  }
+
+  /** Записать состояние навигации в адрес (replace — без новой записи истории). */
+  function syncLocation(): void {
+    const target = window.location.pathname + queryForState();
+    if (target === window.location.pathname + window.location.search) return;
+    window.history.replaceState(null, '', target);
+  }
+
+  /** Открыть заметку (страница). pushState: «назад» браузера вернёт к списку. */
+  function openNote(id: number, startEdit = false): void {
+    noteOpenedViaPush = true;
+    editRequestId = startEdit ? id : null;
+    selectedId = id;
+    window.history.pushState(null, '', window.location.pathname + queryForState());
+  }
+
+  /** Закрыть страницу заметки (UI: крестик/Escape/действие со страницы). */
+  function closeNotePage(): void {
+    const viaPush = noteOpenedViaPush;
+    noteOpenedViaPush = false;
+    editRequestId = null;
+    selectedId = null;
+    if (viaPush) {
+      // Открытие создало запись истории — возвращаемся к ней: popstate сам
+      // приведёт сторы (заметка уже закрыта, адреса записей совпадают).
+      window.history.back();
+    }
+    // Иначе заметка пришла из URL (ссылка/«вперёд») — эффект синхронизации
+    // заменит адрес на состояние без note.
+  }
+
+  /** Папка есть в дереве загруженных папок (цепочка до корня не рвётся). */
+  function folderExistsInTree(folderId: number): boolean {
+    let current = foldersStore.all.find((f) => f.id === folderId);
+    const seen = new Set<number>();
+    while (current !== undefined && !seen.has(current.id)) {
+      seen.add(current.id);
+      const parentId = current.parent_folder_id;
+      if (parentId === null) return true;
+      current = foldersStore.all.find((f) => f.id === parentId);
+    }
+    return false;
+  }
+
+  /** Применить urlIntent к сторам: шаги, которые можно проверить, — сразу;
+      остальные ждут данные (эффекты-будильники зовут повторно по готовности). */
+  function applyUrlIntent(): void {
+    const intent = urlIntent;
+    if (intent === null) return;
+    let levelChanged = false;
+
+    // Топик — по списку (ждём, пока топики загружены).
+    if (!intent.topicDone) {
+      if (topicsStore.loading) return;
+      intent.topicDone = true;
+      const t = intent.topic;
+      if (t !== null) {
+        if (topicsStore.topics.some((x) => x.id === t)) {
+          if (navigation.activeTopicID !== t) {
+            setActiveTopic(t);
+            levelChanged = true;
+          }
+        } else {
+          // Битый топик: папка и заметка той же ссылки тоже недействительны.
+          intent.folderDone = true;
+          intent.noteDone = true;
+          if (navigation.activeFolderID !== null) setActiveFolder(null);
+          if (selectedId !== null) {
+            noteOpenedViaPush = false;
+            selectedId = null;
+            editRequestId = null;
+          }
+        }
+      }
+    }
+
+    // Папка — по дереву папок активного топика (ждём загрузку; ошибка сети —
+    // папка не подтверждается и сбрасывается в корень).
+    if (!intent.folderDone) {
+      const want = intent.folder;
+      if (want === null) {
+        if (navigation.activeFolderID !== null) {
+          setActiveFolder(null);
+          levelChanged = true;
+        }
+        intent.folderDone = true;
+      } else {
+        const ready = foldersStore.topicId === navigation.activeTopicID && !foldersStore.loading;
+        const failed = !ready && foldersStore.error !== null && !foldersStore.loading;
+        if (!ready && !failed) return;
+        const valid = ready && folderExistsInTree(want);
+        if (valid) {
+          if (navigation.activeFolderID !== want) {
+            setActiveFolder(want);
+            levelChanged = true;
+          }
+        } else if (navigation.activeFolderID !== null) {
+          setActiveFolder(null);
+          levelChanged = true;
+        }
+        intent.folderDone = true;
+      }
+    }
+
+    // Заметка: закрытие безопасно сразу; открытие — только по загруженному
+    // списку текущего уровня, когда уровень в этом проходе не менялся (после
+    // смены уровня список ещё от старого — ждём перезапуск от загрузки).
+    if (!intent.noteDone) {
+      const n = intent.note;
+      if (n === null) {
+        if (selectedId !== null) {
+          noteOpenedViaPush = false;
+          selectedId = null;
+          editRequestId = null;
+        }
+        intent.noteDone = true;
+      } else if (!levelChanged) {
+        if (!intent.folderDone || notesStore.loading) return;
+        if (notesStore.notes.some((x) => x.id === n)) {
+          noteOpenedViaPush = false;
+          editRequestId = null;
+          selectedId = n;
+        } else if (selectedId !== null) {
+          // Заметки нет в списке уровня (удалена/не на этом уровне) — закрыть.
+          noteOpenedViaPush = false;
+          selectedId = null;
+          editRequestId = null;
+        }
+        intent.noteDone = true;
+      }
+    }
+
+    // Всё применено/отклонено — дальше адрес ведёт эффект синхронизации.
+    if (intent.topicDone && intent.folderDone && intent.noteDone) {
+      urlIntent = null;
+    }
   }
 
   // Шторки: топики (сетка) и папки (дерево активного топика) — раздельные,
@@ -642,6 +831,72 @@
     void loadNotes(topicId, navigation.activeFolderID);
   });
 
+  // Стартовый URL (глубокая ссылка/восстановление вкладки): после загрузки
+  // топиков и авто-выбора активного (restoreActiveTopic) применяем параметры
+  // query — они приоритетнее localStorage. Без параметров — просто включаем
+  // синхронизацию адреса (URL получит ?topic= при первом же изменении).
+  $effect(() => {
+    if (session.state !== 'authed') return;
+    if (topicsStore.loading || topicsStore.topics.length === 0) return;
+    if (navigation.activeTopicID === null) return;
+    if (urlStarted) return;
+    urlStarted = true;
+    const intent = readUrlIntent();
+    if (intent.topic === null && intent.folder === null && intent.note === null) return;
+    urlIntent = intent;
+    applyUrlIntent();
+  });
+
+  // Будильники: urlIntent применяется по шагам, когда данные для проверки
+  // очередного шага готовы (топики → папки → заметки) — каждый эффект будит
+  // applyUrlIntent при изменении своего стора.
+  $effect(() => {
+    void topicsStore.loading;
+    void topicsStore.topics;
+    applyUrlIntent();
+  });
+
+  $effect(() => {
+    void foldersStore.topicId;
+    void foldersStore.loading;
+    void foldersStore.all;
+    void foldersStore.error;
+    applyUrlIntent();
+  });
+
+  $effect(() => {
+    void notesStore.loading;
+    void notesStore.notes;
+    void notesStore.error;
+    applyUrlIntent();
+  });
+
+  // Зеркало навигации в адресной строке: ?topic=&folder=&note=. replaceState
+  // не плодит историю; открытие/закрытие заметки управляет стеком отдельно
+  // (pushState в openNote / history.back() в closeNotePage). Молчит, пока не
+  // обработан стартовый URL и пока живой intent ведёт адрес сам.
+  $effect(() => {
+    void navigation.activeTopicID;
+    void navigation.activeFolderID;
+    void selectedId;
+    if (!urlStarted || urlIntent !== null) return;
+    syncLocation();
+  });
+
+  // «Назад/вперёд»: popstate на наши записи (state=null) SvelteKit пропускает
+  // (лишь обновляет page.url) — доводим сторы сами: заметка в query — открыть,
+  // без неё — закрыть; топик/папку — по равенству (как slideChange).
+  $effect(() => {
+    const onPopState = (): void => {
+      urlIntent = readUrlIntent();
+      applyUrlIntent();
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+    };
+  });
+
   // Предзагрузка: подгружаем корень топика и корни его соседей слева и
   // справа — свайп на соседний слайд не ждёт сеть. В режиме «папки в списке»
   // превью слайда показывает и корневые папки соседа — их тоже кешируем
@@ -793,7 +1048,7 @@
                     normalSplit.pinned,
                     normalSplit.rest,
                     inlineFolders,
-                    (n) => (selectedId = n.id),
+                    (n) => openNote(n.id),
                     openMenu,
                     (f) => setActiveFolder(f.id),
                     openFolderMenu,
@@ -948,10 +1203,7 @@
   <NotePage
     note={selectedCache}
     startEditing={editRequestId === selectedCache.id}
-    onClose={() => {
-      selectedId = null;
-      editRequestId = null;
-    }}
+    onClose={closeNotePage}
   />
 {/if}
 

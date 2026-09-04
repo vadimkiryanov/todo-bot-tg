@@ -61,7 +61,7 @@
 
 {#if open}
   <div
-    class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center {closing ? 'backdrop-out' : 'backdrop-anim'}"
+    class="backdrop-glass fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center {closing ? 'backdrop-out' : 'backdrop-anim'}"
     style="padding-bottom: {keyboardInset}px"
     onclick={(event) => {
       if (event.target === event.currentTarget) requestClose();

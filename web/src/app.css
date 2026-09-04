@@ -223,6 +223,104 @@ html {
   backdrop-filter: blur(28px) saturate(1.4);
 }
 
+/* Затемняющая подложка под меню/модалками: к затемнению добавляется
+   размытие — список под ней становится «морозным стеклом» (тот же приём,
+   что у glass-поверхностей), и всплывающий слой читается с любого фона. */
+.backdrop-glass {
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+
+/* ── Блочная разметка заметки (показ в вебе) ───────────────────
+   Маркеры строк (# / ## / - / - [ ]) живут в тексте как обычные символы
+   (их видит бот); здесь — их оформление. Размеры в em: наследуют размер
+   текста заметки. Цвета — токенами (content/muted/accent-strong). */
+.note-h1 {
+  font-size: 1.25em;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0.15em 0 0.1em;
+}
+.note-h2 {
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0.1em 0 0.05em;
+}
+.note-blank {
+  min-height: 1.5em;
+}
+.note-li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+.note-bullet {
+  flex: none;
+  color: var(--color-muted);
+  width: 1em;
+  text-align: center;
+}
+.note-li-text {
+  min-width: 0;
+  flex: 1;
+}
+/* Отмеченный пункт чеклиста: приглушён и зачёркнут (как выполненная заметка). */
+.note-checked-text {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+/* Квадратик чеклиста: кнопка при показе активной заметки (переключение
+   галочки), статичный — у выполненной/архивной. Галочка — через ::after. */
+.note-cb {
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+  margin-top: 0.18em;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--color-content) 45%, transparent);
+  border-radius: 0.32em;
+  background: transparent;
+  color: #fff;
+  font-size: 0.8em;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+.note-cb-static {
+  pointer-events: none;
+}
+.note-cb::after {
+  content: '';
+}
+.note-li.checked .note-cb {
+  background: var(--color-accent-strong);
+  border-color: transparent;
+}
+.note-li.checked .note-cb::after {
+  content: '✓';
+}
+/* Выполненная заметка целиком: приглушить и зачеркнуть все блоки
+   (раньше это делал класс line-through на контейнере — он не проходит
+   сквозь блочные <div> строк, поэтому стилизуем сами строки). */
+.note-done .note-line,
+.note-done .note-h1,
+.note-done .note-h2,
+.note-done .note-li,
+.note-done .note-bullet,
+.note-done .note-li-text {
+  color: var(--color-muted);
+}
+.note-done .note-line,
+.note-done .note-h1,
+.note-done .note-h2,
+.note-done .note-li-text {
+  text-decoration: line-through;
+}
+/* Ссылки и так перекрыты акцентным цветом ([&_a] контейнера) — зачёркивание
+   не трогаем, текст ссылки остаётся акцентным и в выполненной заметке. */
+
 /* ── Фриз скролла при открытом контекстном меню ──────────────
    Пока открыто дропдаун-меню (NoteMenu/QuickMenu), список заметок не
    скроллится: свайп/скролл-жест не закрывает меню и не «утаскивает»

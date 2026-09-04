@@ -82,6 +82,74 @@
     });
   }
 
+  // ── Строковые маркеры: заголовок / подзаголовок / список / чеклист ──────
+  // Работают на уровне строки: маркер ставится в её начало (или убирается,
+  // если такой уже стоит). В самом тексте маркеры остаются как есть — веб
+  // оформляет их при показе, бот видит их текстом.
+
+  const LINE_MARKERS = {
+    h1: '# ',
+    h2: '## ',
+    list: '- ',
+    check: '- [ ] ',
+  } as const;
+  type LineMarkerKind = keyof typeof LINE_MARKERS;
+
+  /** Границы строки под курсором (без учёта выделения в другие строки). */
+  function currentLine(): { start: number; end: number } {
+    const ta = textarea;
+    if (!ta) return { start: 0, end: 0 };
+    const caret = ta.selectionStart ?? 0;
+    const start = editText.lastIndexOf('\n', caret - 1) + 1;
+    const nl = editText.indexOf('\n', caret);
+    return { start, end: nl === -1 ? editText.length : nl };
+  }
+
+  /** Структурный маркер в начале строки, если есть (любой из четырёх). */
+  function existingMarker(raw: string): { kind: LineMarkerKind; marker: string } | null {
+    const defs: [LineMarkerKind, string][] = [
+      ['check', '- [x] '],
+      ['check', '- [ ] '],
+      ['list', '- '],
+      ['h2', '## '],
+      ['h1', '# '],
+    ];
+    for (const [kind, marker] of defs) {
+      if (raw.startsWith(marker)) return { kind, marker };
+    }
+    return null;
+  }
+
+  /** Поставить/снять маркер строки: один клик — маркер, повторный — убрать. */
+  function toggleLineMarker(kind: LineMarkerKind): void {
+    const { start, end } = currentLine();
+    const caret = textarea?.selectionStart ?? start;
+    const raw = editText.slice(start, end);
+    const cur = existingMarker(raw);
+    const target = LINE_MARKERS[kind];
+
+    let newLine: string;
+    let delta: number;
+    if (cur !== null && cur.marker === target) {
+      // Тот же маркер уже стоит — снимаем.
+      newLine = raw.slice(cur.marker.length);
+      delta = -cur.marker.length;
+    } else if (cur !== null) {
+      // Другой структурный маркер — заменяем на нужный.
+      newLine = target + raw.slice(cur.marker.length);
+      delta = target.length - cur.marker.length;
+    } else {
+      newLine = target + raw;
+      delta = target.length;
+    }
+    editText = editText.slice(0, start) + newLine + editText.slice(end);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      const inLine = Math.min(Math.max(caret - start + delta, 0), newLine.length);
+      textarea?.setSelectionRange(start + inLine, start + inLine);
+    });
+  }
+
   async function submit(): Promise<void> {
     const value = editText.trim();
     if (value === '') {
@@ -151,6 +219,43 @@
     >
       🔗
     </button>
+    <span class="mx-0.5 h-6 w-px bg-border" aria-hidden="true"></span>
+    <button
+      type="button"
+      aria-label="Заголовок (# в начале строки)"
+      title="Заголовок"
+      class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] font-bold transition-colors active:bg-border/60"
+      onclick={() => toggleLineMarker('h1')}
+    >
+      #
+    </button>
+    <button
+      type="button"
+      aria-label="Подзаголовок (## в начале строки)"
+      title="Подзаголовок"
+      class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] font-semibold transition-colors active:bg-border/60"
+      onclick={() => toggleLineMarker('h2')}
+    >
+      ##
+    </button>
+    <button
+      type="button"
+      aria-label="Список (- в начале строки)"
+      title="Список"
+      class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[17px] transition-colors active:bg-border/60"
+      onclick={() => toggleLineMarker('list')}
+    >
+      ••
+    </button>
+    <button
+      type="button"
+      aria-label="Чеклист (- [ ] в начале строки)"
+      title="Чеклист"
+      class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60"
+      onclick={() => toggleLineMarker('check')}
+    >
+      ☑
+    </button>
   </div>
 
   {#if linkOpen}
@@ -183,7 +288,8 @@
     class="max-h-[46dvh] min-h-44 w-full resize-y rounded-2xl border border-border bg-background px-4 py-3 text-base leading-6 outline-none focus:border-accent"
   ></textarea>
   <p class="text-xs text-muted">
-    **жирный**, *курсив*, `код`, [ссылка](https://…)
+    # заголовок · ## подзаголовок · - список · - [ ] чеклист · **жирный**, *курсив*, `код`,
+    [ссылка](https://…)
   </p>
 
   {#if error}
