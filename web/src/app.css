@@ -20,6 +20,12 @@
   /* Затемнённый акцент для белого текста на кнопках: контраст ≥4.5:1 */
   --color-accent-strong: #1f6fc2;
   --color-danger: #e53935;
+  /* Приоритет заметки — обводка карточки вместо эмодзи-кружка (🔴🟡🔵).
+     Отдельные токены: danger зарезервирован за ошибками, а чистый жёлтый
+     на белой обводке почти не читается — medium тёплый янтарный. */
+  --color-priority-high: #e5484d;
+  --color-priority-medium: #f59e0b;
+  --color-priority-low: #3390ec;
 }
 
 /* Тёмная тема: следует системной настройке. Утилиты Tailwind ссылаются
@@ -38,6 +44,11 @@
     --color-accent: #5ea6f0;
     --color-accent-strong: #236cce;
     --color-danger: #ef5350;
+    /* Приоритеты в тёмной теме — светлее, чтобы кольцо читалось на тёмных
+       карточках (как переопределены accent и danger). */
+    --color-priority-high: #f87171;
+    --color-priority-medium: #fbbf24;
+    --color-priority-low: #60a5fa;
   }
 }
 
@@ -163,6 +174,28 @@ html {
   background: color-mix(in srgb, var(--color-border) 55%, transparent);
 }
 
+/* ── Обводка приоритета карточки ────────────────────────────
+   Эмодзи-кружки приоритета из карточек убраны — приоритет рисуется
+   цветным кольцом по контуру (inset-обводка box-shadow: не двигает
+   контент и не трогает стеклянный фон .glass-card). Классы unlayered —
+   перебивают box-shadow утилиты shadow-sm карточки. */
+.note-priority-high,
+.note-priority-medium,
+.note-priority-low {
+  box-shadow:
+    inset 0 0 0 1.5px var(--priority-ring),
+    0 1px 2px rgb(0 0 0 / 0.05);
+}
+.note-priority-high {
+  --priority-ring: color-mix(in srgb, var(--color-priority-high) 88%, transparent);
+}
+.note-priority-medium {
+  --priority-ring: color-mix(in srgb, var(--color-priority-medium) 88%, transparent);
+}
+.note-priority-low {
+  --priority-ring: color-mix(in srgb, var(--color-priority-low) 88%, transparent);
+}
+
 /* Плавающие круглые кнопки над панелью ввода (📁/📚). */
 .glass-fab {
   background: color-mix(in srgb, var(--color-surface) 62%, transparent);
@@ -188,68 +221,6 @@ html {
   background: color-mix(in srgb, var(--color-surface) 88%, transparent);
   -webkit-backdrop-filter: blur(28px) saturate(1.4);
   backdrop-filter: blur(28px) saturate(1.4);
-}
-
-/* Въезд списка заметок при переключении топика (свайп/таб): контент едет
-   с той стороны, откуда пришёл топик. */
-@keyframes enter-from-left {
-  from {
-    opacity: 0.3;
-    transform: translateX(-56px);
-  }
-}
-@keyframes enter-from-right {
-  from {
-    opacity: 0.3;
-    transform: translateX(56px);
-  }
-}
-.enter-from-left {
-  animation: enter-from-left 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.enter-from-right {
-  animation: enter-from-right 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-/* ── Свайп-сцена переключения топиков (drag-follow) ──────────
-   Сцена — контейнер высотой как у текущего списка; внутри три абсолютных
-   панели (текущий список по центру, превью соседей слева/справа — из кеша),
-   каждая шириной в контейнер. Пока палец ведёт, панели едут за ним
-   (transform выставляется из JS на каждый pointermove); .swipe-settle
-   включает плавную доводку панелей после отпускания. */
-.swipe-stage {
-  position: relative;
-  overflow: hidden;
-}
-.swipe-panel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  /* will-change: transform здесь убран: он промоутит содержимое панелей
-     (включая эмодзи-глифы) на композитный слой, где на macOS глифы на время
-     рендерятся запасным шрифтом другого размера. Без will-change браузер
-     сам решает, нужен ли слой — артефакта нет. */
-}
-.swipe-settle .swipe-panel {
-  transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-/* Пока жест горизонтальный, карточки под пальцем не «нажимаются»:
-   гасим сжатие и подложку active, чтобы список не моргал при drag. */
-.swiping .glass-card,
-.swiping .glass-card:active {
-  transform: none !important;
-  background: color-mix(in srgb, var(--color-card) 74%, transparent);
-}
-
-/* Пока идёт горизонтальный свайп (класс .swiping вешается на сам main —
-   скролл-контейнер списка), вертикальный скролл списка заморожен: нативный
-   pan-y не должен посреди свайпа прокручивать заметки вверх/вниз и «резинить»
-   у краёв. Пока палец ведёт сцену, список не скроллится. */
-.scroll-area.swiping {
-  overflow-y: hidden !important;
-  overscroll-behavior: none;
 }
 
 /* ── Фриз скролла при открытом контекстном меню ──────────────
@@ -317,8 +288,6 @@ body.scroll-locked .scroll-area {
   .sheet-anim,
   .sheet-out,
   .menu-anim,
-  .enter-from-left,
-  .enter-from-right,
   .empty-bob {
     animation: none !important;
   }
@@ -327,10 +296,6 @@ body.scroll-locked .scroll-area {
   .note-highlight {
     animation: none;
     background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-card));
-  }
-  /* Доводка свайпа — мгновенно. */
-  .swipe-settle .swipe-panel {
-    transition: none !important;
   }
 }
 
@@ -388,4 +353,55 @@ textarea {
 .scroll-area {
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
+}
+
+/* Полосы прокрутки скрыты везде (мобильный стиль, как у островка табов):
+   скролл остаётся нативным, прячем только визуальный скроллбар — на десктопе
+   он не нужен (списки скроллятся колесом/тачем), на телефоне и так оверлей. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Свайп-сцена выхода из папки (drag-follow) ─────────────
+   Жест «назад» (свайп-вправо в папке) ведёт контент за пальцем, как листание
+   папок в Telegram: список раскладывается в сцену — по центру текущий
+   уровень, слева превью уровня выше из кеша (абсолютные панели, ширина
+   контейнера). Пока палец ведёт, transform панелей выставляется из JS на
+   каждый pointermove. Доводка после отпускания — JS-пружина на rAF в
+   ChatView (стартует со скоростью пальца, поэтому CSS-transition не
+   используется: он давал бы скачок скорости). Сцена живёт внутри слайда
+   топика (слайд = топик, папка — уровень внутри него, см. ChatView). */
+.swipe-stage {
+  position: relative;
+  overflow: hidden;
+}
+.swipe-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  /* will-change: transform здесь убран: он промоутит содержимое панелей
+     (включая эмодзи-глифы) на композитный слой, где на macOS глифы на время
+     рендерятся запасным шрифтом другого размера. Без will-change браузер
+     сам решает, нужен ли слой — артефакта нет. */
+}
+
+/* Пока жест горизонтальный, карточки под пальцем не «нажимаются»:
+   гасим сжатие и подложку active, чтобы список не моргал при drag. */
+.swiping .glass-card,
+.swiping .glass-card:active {
+  transform: none !important;
+  background: color-mix(in srgb, var(--color-card) 74%, transparent);
+}
+
+/* Пока идёт горизонтальный свайп (класс .swiping вешается на .chat-scroll —
+   скролл-контейнер списка), вертикальный скролл заморожен: нативный pan-y не
+   должен посреди свайпа прокручивать заметки вверх/вниз и «резинить» у краёв. */
+.scroll-area.swiping {
+  overflow-y: hidden !important;
+  overscroll-behavior: none;
 }

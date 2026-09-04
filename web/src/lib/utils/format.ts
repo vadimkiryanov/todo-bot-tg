@@ -134,14 +134,63 @@ function safeUrl(url: string): string | null {
   return null;
 }
 
-/** Рендерит заметку (text + entities) в безопасный HTML. */
+// ── Автопарсинг «голых» ссылок (http/https/www) в тексте ─────────────
+// Telegram-бот не размечает URL без [текст](url) — превращаем их сами при
+// рендере. Ссылка должна начинаться с границы слова; внутри — любые
+// символы, кроме пробела, HTML-скобок и кавычек.
+const AUTO_LINK_RE = /(?<![\w@])(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+/** Пунктуация, которой URL может оканчиваться в предложении («См. x.io.»). */
+const URL_TAIL = ".,;:!?…»\"'";
+
+function trimUrlTail(url: string): string {
+  let out = url;
+  while (URL_TAIL.includes(out[out.length - 1] ?? '')) out = out.slice(0, -1);
+  // Закрывающую скобку убираем, только если парной внутри URL нет
+  // (Wikipedia-подобные https://…/Foo_(bar) остаются целиком).
+  for (;;) {
+    const close = out[out.length - 1];
+    const open = close === ')' ? '(' : close === ']' ? '[' : close === '}' ? '{' : null;
+    if (open === null) break;
+    if (out.split(open).length - 1 < out.split(close).length - 1) {
+      out = out.slice(0, -1);
+      continue;
+    }
+    break;
+  }
+  return out;
+}
+
+/** Экранирует сырой текст и оборачивает найденные URL в безопасные <a>. */
+function linkifyHtml(raw: string): string {
+  let html = '';
+  let last = 0;
+  for (const m of raw.matchAll(AUTO_LINK_RE)) {
+    const url = trimUrlTail(m[0]);
+    html += escapeHtml(raw.slice(last, m.index));
+    if (url !== '') {
+      const href = url.startsWith('www.') ? `https://${url}` : url;
+      html += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`;
+      // Хвостовая пунктуация (обрезанная у ссылки) остаётся обычным текстом.
+      html += escapeHtml(m[0].slice(url.length));
+    } else {
+      // Ссылка обрезалась целиком — оставляем как есть.
+      html += escapeHtml(m[0]);
+    }
+    last = m.index + m[0].length;
+  }
+  html += escapeHtml(raw.slice(last));
+  return html;
+}
+
+/** Рендерит заметку (text + entities) в безопасный HTML: экранирует,
+ *  оборачивает entities в теги, а «голые» URL в plain-тексте — в ссылки. */
 export function renderNoteHtml(text: string, entities: NoteEntity[]): string {
   const sorted = [...entities].sort((a, b) => a.offset - b.offset);
   let html = '';
   let pos = 0;
   for (const e of sorted) {
     if (e.offset < pos || e.length <= 0) continue;
-    html += escapeHtml(text.slice(pos, e.offset));
+    html += linkifyHtml(text.slice(pos, e.offset));
     const frag = text.slice(e.offset, e.offset + e.length);
     if (e.type === 'text_link') {
       const href = safeUrl(e.url ?? '');
@@ -156,7 +205,7 @@ export function renderNoteHtml(text: string, entities: NoteEntity[]): string {
     }
     pos = e.offset + e.length;
   }
-  html += escapeHtml(text.slice(pos));
+  html += linkifyHtml(text.slice(pos));
   return html;
 }
 

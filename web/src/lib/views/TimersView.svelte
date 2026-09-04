@@ -1,7 +1,8 @@
 <script lang="ts">
   // Экран «⏰ Таймеры» (URL /timers): все заметки с установленным напоминанием,
-  // из любых топиков — как /timers в боте. Каждая строка: эмодзи статуса +
+  // из любых топиков — как /timers в боте. Каждая строка: ✅ выполненной +
   // превью + время напоминания и режим (🔂 разовый / 🔁 ежедневный).
+  // Приоритет — цветная обводка строки (note-priority-*), как в списке заметок.
   // Тап по строке — полноэкранная «страница» заметки (NotePage).
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
@@ -10,7 +11,7 @@
   import { loadTimers, timersStore } from '$lib/stores/notes.svelte';
   import { logout } from '$lib/stores/session.svelte';
   import type { Note } from '$lib/types/api';
-  import { firstLineHtml, formatReminderAt, priorityEmoji } from '$lib/utils/format';
+  import { firstLineHtml, formatReminderAt } from '$lib/utils/format';
 
   // Открытая заметка: кэш объекта — заметка может исчезнуть из списка
   // (таймер снят/выполнена/удалена) раньше, чем доиграет закрытие страницы.
@@ -84,16 +85,19 @@
           <!-- Тап по строке — страница заметки (там снимают/переносят таймер) -->
           <button
             type="button"
-            class="glass-card flex w-full touch-manipulation select-none flex-col gap-1 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none]"
+            class="glass-card flex w-full touch-manipulation select-none flex-col gap-1 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none] {note.priority ===
+            'high'
+              ? 'note-priority-high'
+              : note.priority === 'medium'
+                ? 'note-priority-medium'
+                : note.priority === 'low'
+                  ? 'note-priority-low'
+                  : ''}"
             onclick={() => (selectedId = note.id)}
           >
             <span class="flex min-w-0 items-start gap-2.5">
               {#if note.done}
                 <span class="w-5 shrink-0 text-center text-sm leading-6">✅</span>
-              {:else if note.priority !== 'none'}
-                <span class="w-5 shrink-0 text-center text-sm leading-6">
-                  {priorityEmoji(note.priority)}
-                </span>
               {/if}
               <span
                 class="line-clamp-2 min-w-0 flex-1 break-words text-[15px] leading-6 {note.done

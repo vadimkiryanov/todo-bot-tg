@@ -1,16 +1,37 @@
 <script lang="ts">
-  // Экран чата: «островок» топиков + строка текущей папки (сверху, стеклянные,
-  // фиксированы — список скроллится под ними), список заметок, поле ввода снизу.
-  // Островок: клик по табу или горизонтальный свайп по списку переключает топик
-  // (активный контент въезжает с соответствующей стороны). Заметки соседних
-  // топиков подгружаются в кеш после активного — свайп не ждёт сеть.
-  // Внутри папки свайпы топиков отключаются: свайп-вправо (влево-направо)
-  // возвращает на уровень выше (папку-родителя или корень), свайп-влево
-  // ничего не делает.
+  // Экран чата: «островок» топиков (сверху, стеклянный, фиксирован — список
+  // скроллится под ним), список заметок, поле ввода снизу.
+  // Переключение топиков — SwiperJS (слайд = топик): горизонтальный свайп
+  // работает в корне топиков, активный контент едет за пальцем (нативные
+  // жесты библиотеки, никакой самописной «сцены»). Вертикальный скролл —
+  // послайдовый: у каждого слайда свой scroll-контейнер (.chat-scroll);
+  // сам свайпер не скроллится (overflow скрыт). Активный слайд — «живой»
+  // список из стора; соседние слайды — статичные превью корней из кеша
+  // (peekCachedNotes/peekCachedFolders), без кеша — плейсхолдер ⏳, а хэндлеры
+  // заглушены (no-op), чтобы долгий тап не открывал меню чужого топика.
+  // Внутри папки свайпы топиков отключены целиком (allowTouchMove = false),
+  // но свайп ВПРАВО по списку — жест «назад»: поднимает на уровень выше
+  // (до корня топика), контент едет за пальцем (drag-follow — внутри слайда
+  // собирается сцена из превью родителя из кеша и текущего списка). Слайды
+  // Swiper тут не подходят: слайд = топик, а папка — уровень внутри слайда,
+  // слайда-«родителя» у свайпера нет — жест ведём сами (см. блок ниже).
+  // Кроме жеста выход из папки — тапом по UI (в шторке
+  // папок «📂 Корень»/уровень, таб-крошка островка в режиме пути 'tab',
+  // строка-крошка FolderStrip в 'strip').
+  // Путь в папках (настройка pathMode): по умолчанию расширяет активный таб
+  // островка — «Топик › Папка › Подпапка», тап по табу открывает шторку
+  // папок; в режиме 'strip' — прежняя строка-крошка под островком.
   // Папки/топики открываются отдельными шторками: 📁 и 📚 плавающие кнопки
-  // над полем ввода; 📁 также — тап по строке текущей папки.
+  // над полем ввода (📁 — в режиме папок 'button').
   // Создание топика — долгий тап на табе островка/в меню топика; создание
   // папки — долгий тап на строке папки / заметке / пустом месте.
+  // Swiper v14 (element) не регистрирует custom elements при импорте —
+  // обязателен явный вызов register(), иначе swiper-container/swiper-slide
+  // остаются неизвестными элементами и свайпер не инициализируется.
+  import { register } from 'swiper/element/bundle';
+  register();
+  import type { SwiperContainer } from 'swiper/element';
+  import type { Swiper } from 'swiper/types';
   import { onDestroy } from 'svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import CreateFolderModal from '$lib/components/CreateFolderModal.svelte';
@@ -28,12 +49,13 @@
   import TopicIsland from '$lib/components/TopicIsland.svelte';
   import TopicMenu from '$lib/components/TopicMenu.svelte';
   import TopicTabs from '$lib/components/TopicTabs.svelte';
-  import { foldersStore, levelFolders, loadFolders, peekCachedFolders } from '$lib/stores/folders.svelte';
+  import { foldersStore, levelFolders, loadFolders, peekCachedFolders, foldersCacheTick } from '$lib/stores/folders.svelte';
   import { navigation, setActiveFolder, setActiveTopic } from '$lib/stores/navigation.svelte';
   import {
     clearNoteHighlight,
     loadNotes,
     notesStore,
+    notesCacheTick,
     peekCachedNotes,
     preloadTopicNeighbors,
   } from '$lib/stores/notes.svelte';
@@ -41,7 +63,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { loadTopics, topicsStore } from '$lib/stores/topics.svelte';
   import { ui } from '$lib/stores/ui.svelte';
-  import type { Folder, Note } from '$lib/types/api';
+  import type { Folder, Note, Topic } from '$lib/types/api';
   import { suppressNextClick } from '$lib/utils/click';
 
   // Актуальная заметка для «страницы» (NotePage). Кэш последнего объекта:
@@ -123,48 +145,550 @@
     return { pinned, rest };
   }
 
-  /** Transform панели сцены: база (0 — центр, ±W — сосед) + текущий сдвиг. */
-  function panelShift(side: 'left' | 'center' | 'right'): string {
-    const s = stage;
-    if (s === null) return 'translate3d(0,0,0)';
-    const base = side === 'left' ? -s.W : side === 'right' ? s.W : 0;
-    return `translate3d(${base + s.eff}px,0,0)`;
-  }
-
-  // Панели соседей в сцене не интерактивны (жест ведёт список, клик после
-  // горизонтального движения подавляется) — заглушки, чтобы долгий тач не
-  // открывал меню чужого топика.
+  // Панели соседних топиков в слайдах не интерактивны (жест ведёт свайпер,
+  // клик/долгий тап не должен открывать меню чужого топика) — заглушки.
   function noopOpenNote(_note: Note): void {}
   function noopMenuNote(_note: Note, _rect: DOMRect): void {}
   function noopOpenFolder(_folder: Folder): void {}
   function noopMenuFolder(_folder: Folder, _rect: DOMRect): void {}
 
-  let mainEl: HTMLElement | undefined;
-
-  /** Вход в папку по строке списка: переключение уровня + скролл вверх
-      (список сменился — показываем его начало). */
-  function openFolder(id: number): void {
-    setActiveFolder(id);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => mainEl?.scrollTo({ top: 0 }));
-    });
+  // ── Превью соседних топиков (неактивные слайды) ─────────────────────────
+  // Статичный снимок корня топика из кеша (заметки + при режиме «папки
+  // в списке» корневые папки). Кеш — обычный Map, поэтому превью пересобирается
+  // по реактивным счётчикам изменений кеша (notesCacheTick/foldersCacheTick).
+  interface SlidePreview {
+    /** 'pending' — кеша ещё нет, слайд показывает плейсхолдер ⏳. */
+    state: 'pending' | 'ready';
+    pinned: Note[];
+    rest: Note[];
+    folders: Folder[];
   }
 
-  /** Выход из папки на уровень выше (folderId null — корень топика):
-      свайп-вправо в папке. Переключение уровня + скролл вверх; контент
-      показывается из кеша контекста (если он был), свежесть догружается. */
+  const previews = $derived.by(() => {
+    // Реактивность: счётчики кешей + режим папок + список топиков.
+    notesCacheTick.n;
+    foldersCacheTick.n;
+    settings.foldersMode;
+    const map = new Map<number, SlidePreview>();
+    for (const topic of topicsStore.topics) {
+      const notes = peekCachedNotes(topic.id, null);
+      if (notes === undefined) {
+        map.set(topic.id, { state: 'pending', pinned: [], rest: [], folders: [] });
+        continue;
+      }
+      let folders: Folder[] = [];
+      if (settings.foldersMode === 'list') {
+        const all = peekCachedFolders(topic.id);
+        if (all === undefined) {
+          map.set(topic.id, { state: 'pending', pinned: [], rest: [], folders: [] });
+          continue;
+        }
+        folders = all.filter((f) => f.parent_folder_id === null);
+      }
+      const { pinned, rest } = splitNotes(notes);
+      map.set(topic.id, { state: 'ready', pinned, rest, folders });
+    }
+    return map;
+  });
+
+  function previewData(topicId: number): SlidePreview | undefined {
+    return previews.get(topicId);
+  }
+
+  /** Стартовый слайд свайпера: восстановленный активный топик. Атрибут
+      initial-slide читается элементом один раз при инициализации — после
+      этого слайдом управляют события/эффекты ниже. */
+  const initialTopicIndex = $derived.by(() => {
+    const id = navigation.activeTopicID;
+    if (id === null) return 0;
+    const index = topicsStore.topics.findIndex((t) => t.id === id);
+    return index > 0 ? index : 0;
+  });
+
+  // ── Свайпер (Swiper element, слайд = топик) ─────────────────────────────
+  // Слайды рендерятся по topicsStore.topics (в том же порядке, что табы
+  // островка). Навигация двусторонняя:
+  //  • свайп/таб островка двигает свайпер → событие slideChange пишет
+  //    navigation.activeTopicID (guard: если id совпадает — пропуск, иначе
+  //    замкнутый цикл slideTo ↔ slideChange);
+  //  • программная смена (TopicTabs/шторка, deleteTopic/restore, вход в чат)
+  //    меняет стор → $effect делает swiper.slideTo (с тем же guard).
+  // Папки: вход (activeFolderID) — allowTouchMove=false, выход — true.
+  let swiperEl: SwiperContainer | undefined = $state();
+
+  function currentSwiper(): Swiper | undefined {
+    const el = swiperEl;
+    if (el === undefined) return undefined;
+    const sw = el.swiper;
+    if (sw === undefined || sw.destroyed) return undefined;
+    return sw;
+  }
+
+  /** Индекс топика в списке/свайпере (-1 — нет). */
+  function topicIndexById(id: number): number {
+    return topicsStore.topics.findIndex((t) => t.id === id);
+  }
+
+  /** id топика слайда свайпера по индексу (NaN — слайда нет). */
+  function slideTopicId(sw: Swiper, index: number): number {
+    const slide = sw.slides[index];
+    if (slide === undefined) return NaN;
+    const raw = (slide as HTMLElement).dataset.topicId;
+    return raw === undefined ? NaN : Number(raw);
+  }
+
+  /** Скорость анимации: 0 при prefers-reduced-motion. */
+  function slideSpeed(): number {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 360;
+  }
+
+  /** Привести активный слайд к navigation.activeTopicID. Защита от петель:
+      если слайд уже показывает нужный топик — не трогаем свайпер. */
+  function alignToActive(animate: boolean): void {
+    const sw = currentSwiper();
+    const id = navigation.activeTopicID;
+    if (sw === undefined || id === null) return;
+    const want = topicIndexById(id);
+    if (want < 0 || want >= sw.slides.length) return; // свайпер ещё не пересобрался
+    if (slideTopicId(sw, sw.activeIndex) === id) return;
+    sw.slideTo(want, animate ? slideSpeed() : 0);
+  }
+
+  /** Слайднуть к топику (тап по табу островка). */
+  function slideToTopic(id: number): void {
+    const sw = currentSwiper();
+    const want = topicIndexById(id);
+    if (sw !== undefined && want >= 0) {
+      sw.slideTo(want, slideSpeed());
+      return;
+    }
+    // Свайпер ещё не готов — переключение просто меняет стор (эффект догонит).
+    setActiveTopic(id);
+  }
+
+  /** Переключить топик (выбор таба в островке): ведём слайд свайпера. */
+  function onIslandSelect(id: number): void {
+    slideToTopic(id);
+  }
+
+  // События свайпера: свайп/таб → стор; реальный drag → гасим «клик
+  // отпускания» (иначе после свайпа открылся бы оверлей заметки под пальцем);
+  // пересборка слайдов (удаление/добавление топиков) → синхронизация.
+  $effect(() => {
+    const el = swiperEl;
+    const sw = el?.swiper;
+    if (el === undefined || sw === undefined) return;
+
+    let dragMoved = false;
+    const onSlideChange = (): void => {
+      const id = slideTopicId(sw, sw.activeIndex);
+      if (!Number.isNaN(id) && id !== navigation.activeTopicID) {
+        setActiveTopic(id);
+      }
+    };
+    const onSliderMove = (): void => {
+      dragMoved = true;
+    };
+    const onTouchEnd = (): void => {
+      if (dragMoved) {
+        dragMoved = false;
+        suppressNextClick();
+      }
+    };
+    const onSlidesChanged = (): void => alignToActive(false);
+
+    sw.on('slideChange', onSlideChange);
+    sw.on('sliderMove', onSliderMove);
+    sw.on('touchEnd', onTouchEnd);
+    sw.on('slidesLengthChange', onSlidesChanged);
+    return () => {
+      sw.off('slideChange', onSlideChange);
+      sw.off('sliderMove', onSliderMove);
+      sw.off('touchEnd', onTouchEnd);
+      sw.off('slidesLengthChange', onSlidesChanged);
+    };
+  });
+
+  // Программная навигация (шторка «Топики», восстановление сессии, удаление
+  // активного топика и т.п.): активный топик в сторе изменился — слайднуться.
+  // Зависимость от длины списка: после удаления/создания топика слайды
+  // пересобраны — проверяем соответствие заново.
+  $effect(() => {
+    const id = navigation.activeTopicID;
+    if (id === null) return;
+    void topicsStore.topics.length;
+    alignToActive(true);
+  });
+
+  // Внутри папки свайпы топиков отключены целиком: жестом можно только
+  // листать вертикальный список папки. Ставим и params, и свойство инстанса
+  // (обработчики касаний смотрят именно в swiper.allowTouchMove).
+  $effect(() => {
+    const el = swiperEl;
+    const sw = el?.swiper;
+    if (el === undefined || sw === undefined) return;
+    const touchAllowed = navigation.activeFolderID === null;
+    sw.allowTouchMove = touchAllowed;
+    sw.params.allowTouchMove = touchAllowed;
+  });
+
+  // ── Свайп-«назад» из папки (drag-follow, жест вправо) ──────────────────
+  // Свайпер в папке выключен (allowTouchMove=false), и его слайды тут не
+  // помогут: слайд = топик, а папка — уровень ВНУТРИ слайда, слайда-
+  // «родителя» у свайпера нет (см. шапку файла). Поэтому жест «назад» ведём
+  // сами, как в интерфейсе до Swiper: пока палец тянет вправо, контент едет
+  // за ним — внутри слайда собирается сцена из двух слоёв: слева превью
+  // уровня выше из кеша, по центру текущий список. Отпустили за порогом/
+  // флинтом — доводка до родителя (выход на уровень выше), иначе — пружина
+  // в центр. Если превью не закешировано (или уровень — экран-заглушка),
+  // сцена не собирается: после отпускания за порогом — мгновенный выход.
+  // Влево/вертикаль не трогаем: вертикаль уводит браузер в нативный скролл
+  // (touch-action: pan-y шлёт pointercancel), влево ничего не делает (свайп-
+  // влево в папке смену топиков не включает).
+  // Захват указателя вешаем на исходный элемент (не на зону): отпускание
+  // приходит ему же, и его обработчики (сброс долгого тапа на карточке/пустом
+  // месте) срабатывают как обычно. В корне (папки нет) жест выключен —
+  // свайпер рулит сам.
+  const AXIS_LOCK_PX = 12;
+  /** Доля ширины, после которой отпускание — «доводка до родителя». */
+  const SETTLE_FRACTION = 0.3;
+  /** Флинг: скорость отпускания, при которой выходим даже без порога. */
+  const FLING_PX_MS = 0.5;
+  /** Сцены нет (кеш родителя пуст/не закеширован, экран-заглушка): выход
+      мгновенный, за порогом вправо — как раньше. */
+  const FALLBACK_BACK_PX = 72;
+
+  interface BackSwipe {
+    startX: number;
+    startY: number;
+    axis: 'h' | 'v' | null;
+    lastX: number;
+    lastT: number;
+    vx: number; // px/ms, сглаженная скорость по последним движениям
+  }
+  let backSwipe: BackSwipe | null = null;
+  /** .chat-scroll слайда, на который вешаем .swiping (заморозка скролла и
+      active-эффектов карточек на время горизонтального жеста). */
+  let backScrollEl: HTMLElement | null = null;
+
+  /** Превью уровня выше для сцены (данные из кеша). */
+  interface FolderStagePane {
+    /** Уровень, в который выходим (null — корень топика). */
+    folderId: number | null;
+    pinned: Note[];
+    rest: Note[];
+    folders: Folder[];
+  }
+
+  interface FolderStage {
+    /** Ширина панели (ширина контента слайда), px. */
+    W: number;
+    /** Текущий сдвиг сцены: 0 — текущий уровень в центре, W — родитель. */
+    eff: number;
+    /** Уровень выше (панель слева); null — выйти некуда (в папке не бывает). */
+    left: FolderStagePane | null;
+    settling: boolean;
+  }
+  let folderStage: FolderStage | null = $state(null);
+  /** Куда доводим: 'left' — родитель (выход), null — вернуться в центр. */
+  let settleTarget: 'left' | null = null;
+  let settleRaf: number | undefined;
+
+  /** Обёртка списка в слайде: в спокойном состоянии — сам список (меряем
+      его высоту), при сцене — контейнер абсолютных панелей этой высоты. */
+  let stageBox = $state<HTMLDivElement | undefined>();
+  let stageH = $state(0);
+  // Панели сцены: покадровый сдвиг пишем напрямую в DOM (см. applyFolderStage),
+  // минуя реактивность Svelte — иначе чтение eff в шаблоне пере-рендерил бы
+  // весь список карточек каждый кадр drag/доводки.
+  let stageLeftPanel = $state<HTMLDivElement | undefined>();
+  let stageCenterPanel = $state<HTMLDivElement | undefined>();
+
+  /** Родитель активной папки (null = корень топика). Папки берём из полного
+      списка топика; при расхождении (папка удалена) — выход в корень. */
+  function folderParentID(): number | null {
+    const id = navigation.activeFolderID;
+    if (id === null) return null;
+    const folder = foldersStore.all.find((f) => f.id === id);
+    return folder?.parent_folder_id ?? null;
+  }
+
+  /** Сдвиг панелей сцены — запись transform напрямую в DOM, без чтения eff в
+      шаблоне (иначе Svelte пере-рендерил бы список на каждый кадр). База:
+      0 — центр, -W — родитель слева; обе панели едут на eff. Округляем до
+      целых пикселей только здесь: эмодзи-глифы при субпиксельном transform
+      «дрожат». Сам eff остаётся непрерывным — иначе пружина (шаг меньше
+      0.5px) застревала бы в пикселе от цели и не достигала условия остановки. */
+  function applyFolderStage(): void {
+    const s = folderStage;
+    if (s === null) return;
+    const x = Math.round(s.eff);
+    if (stageLeftPanel !== undefined) {
+      stageLeftPanel.style.transform = `translate3d(${-s.W + x}px,0,0)`;
+    }
+    if (stageCenterPanel !== undefined) {
+      stageCenterPanel.style.transform = `translate3d(${x}px,0,0)`;
+    }
+  }
+
+  /** Свободный ход сцены — до W вправо (родитель по центру); дальше (или
+      влево) — «резинка» с сопротивлением, как в Telegram. Влево выхода не
+      даёт — свайп-влево в папке просто возвращает список в центр. */
+  function clampFolderEff(raw: number): number {
+    const s = folderStage;
+    if (s === null) return raw;
+    if (raw > s.W) return s.W + (raw - s.W) * 0.35;
+    if (raw < 0) return raw * 0.35;
+    return raw;
+  }
+
+  /** Собрать сцену выхода из папки в момент блокировки оси. Нужен кеш
+      уровня выше (иначе drag-follow нечего показать слева — после отпускания
+      сработает мгновенный выход за порогом) и ненулевой список (экран-
+      заглушку не тащим — тоже мгновенный выход). */
+  function mountFolderStage(): void {
+    const topicId = navigation.activeTopicID;
+    const activeFolder = navigation.activeFolderID;
+    const box = stageBox;
+    if (topicId === null || activeFolder === null || box === undefined) return;
+    const upFolderId = folderParentID();
+    const upNotes = peekCachedNotes(topicId, upFolderId);
+    if (upNotes === undefined) return;
+    const notes = notesStore.notes;
+    const curFolders = settings.foldersMode === 'list' ? levelFolders() : [];
+    if (notes.length === 0 && curFolders.length === 0) return;
+    const W = box.clientWidth;
+    if (W <= 0) return;
+    // Высота сцены — как у текущего списка (панели абсолютные, в потоке
+    // сцена сама высоты не имеет). Свежий замер, не только ResizeObserver.
+    const H = box.offsetHeight;
+    if (H <= 0) return;
+    stageH = H;
+    const upSplit = splitNotes(upNotes);
+    const upFolders =
+      settings.foldersMode === 'list'
+        ? foldersStore.all.filter((f) => f.parent_folder_id === upFolderId)
+        : [];
+    folderStage = {
+      W,
+      eff: 0,
+      left: {
+        folderId: upFolderId,
+        pinned: upSplit.pinned,
+        rest: upSplit.rest,
+        folders: upFolders,
+      },
+      settling: false,
+    };
+  }
+
+  // Высота сцены при drag-follow — по САМОЙ высокой панели (текущий список
+  // и превью родителя): если держать высоту текущего уровня, превью с
+  // длинным списком обрежется. Панели абсолютные — замер после сборки сцены.
+  $effect(() => {
+    if (folderStage === null) return;
+    const box = stageBox;
+    if (box === undefined) return;
+    let max = box.offsetHeight;
+    for (const panel of box.querySelectorAll<HTMLElement>('.swipe-panel')) {
+      const h = panel.offsetHeight;
+      if (h > max) max = h;
+    }
+    if (max > 0 && max !== stageH) stageH = max;
+    // Панели смонтированы — выставляем стартовый сдвиг (eff уже мог уйти от 0
+    // к моменту блокировки оси, когда сцена собралась).
+    applyFolderStage();
+  });
+
+  /** Выход из папки на уровень выше (folderId null — корень топика): смена
+      уровня + немедленный показ списка родителя из кеша (свежесть догружается
+      фоном), скролл вверх делает эффект смены контекста. */
   function exitFolderTo(folderId: number | null): void {
     setActiveFolder(folderId);
     const topicId = navigation.activeTopicID;
     if (topicId !== null) void loadNotes(topicId, folderId);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => mainEl?.scrollTo({ top: 0 }));
-    });
   }
 
-  // ── Верхний «островок» + строка папки (overlay над списком) ─────────────
-  // Островок и строка фиксированы: main получает верхний паддинг, равный
-  // реальной высоте оверлея (+6px), — список не прячется под ними при старте.
+  /** Закрыть сцену (откат в центр или после доводки). */
+  function closeFolderStage(): void {
+    if (settleRaf !== undefined) cancelAnimationFrame(settleRaf);
+    settleRaf = undefined;
+    settleTarget = null;
+    folderStage = null;
+  }
+
+  /** Плавная доводка: едем к родителю (его панель в центр) или назад.
+      CSS-transition тут не годится: он стартует с нулевой скоростью, а в
+      момент отпускания контент едет со скоростью пальца — была бы «смена
+      скорости» (рывок, при пружине назад — резкий разворот). Ведём доводку
+      критически демпфированной пружиной на requestAnimationFrame: стартуем
+      со скоростью пальца (vx, px/ms) — скорость непрерывна, без перелёта и
+      колебаний, финиш — мягкое «прилипание». */
+  function beginFolderSettle(target: 'left' | null, vx: number): void {
+    const s = folderStage;
+    if (s === null) return;
+    s.settling = true;
+    settleTarget = target;
+    const to = target === 'left' ? s.W : 0;
+    // prefers-reduced-motion: без анимации — сразу к цели и финализация.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      s.eff = to;
+      finalizeFolderSettle();
+      return;
+    }
+    // Критическое демпфирование (ω = 20 рад/с): самое быстрое возвращение к
+    // цели без перелёта; время докидывания ~0.4 с, как прежний переход.
+    const K = 400; // ω²
+    const C = 40; // 2ω
+    let v = vx * 1000; // px/ms → px/с
+    let prev = performance.now();
+    const step = (now: number): void => {
+      const st = folderStage;
+      if (st === null || settleTarget !== target || !st.settling) return;
+      const dt = Math.min((now - prev) / 1000, 0.032);
+      prev = now;
+      const dx = to - st.eff;
+      if (Math.abs(dx) < 0.5 && Math.abs(v) < 1) {
+        st.eff = to;
+        finalizeFolderSettle();
+        return;
+      }
+      v += (K * dx - C * v) * dt;
+      // eff непрерывный: округление до целых пикселей — только при записи в
+      // DOM (applyFolderStage), иначе шаг меньше 0.5px не двигал бы eff и
+      // пружина застревала бы в пикселе от цели без достижения остановки.
+      st.eff = st.eff + v * dt;
+      applyFolderStage();
+      settleRaf = requestAnimationFrame(step);
+    };
+    settleRaf = requestAnimationFrame(step);
+  }
+
+  function finalizeFolderSettle(): void {
+    if (settleRaf !== undefined) cancelAnimationFrame(settleRaf);
+    settleRaf = undefined;
+    const s = folderStage;
+    if (s === null) return;
+    const target = settleTarget;
+    settleTarget = null;
+    const pane = target === 'left' ? s.left : null;
+    closeFolderStage();
+    if (pane !== null) exitFolderTo(pane.folderId);
+  }
+
+  function backSwipeDown(e: PointerEvent): void {
+    if (navigation.activeFolderID === null || e.button !== 0) return;
+    // Жест начался во время доводки/сцены — завершаем её мгновенно, чтобы
+    // жесты не «склеивались».
+    if (folderStage !== null) {
+      if (folderStage.settling) finalizeFolderSettle();
+      else closeFolderStage();
+    }
+    const target = e.target;
+    if (target instanceof Element) target.setPointerCapture(e.pointerId);
+    backScrollEl =
+      target instanceof Element ? target.closest<HTMLElement>('.chat-scroll') : null;
+    const t = performance.now();
+    backSwipe = {
+      startX: e.clientX,
+      startY: e.clientY,
+      axis: null,
+      lastX: e.clientX,
+      lastT: t,
+      vx: 0,
+    };
+  }
+
+  function backSwipeMove(e: PointerEvent): void {
+    const s = backSwipe;
+    if (s === null) return;
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    if (s.axis === null) {
+      if (Math.abs(dx) > AXIS_LOCK_PX && Math.abs(dx) > Math.abs(dy) * 1.3) {
+        s.axis = 'h';
+        // Пока жест горизонтальный, карточки под пальцем не «нажимаются»
+        // (CSS .swiping гасит active), вертикальный скролл списка заморожен.
+        backScrollEl?.classList.add('swiping');
+        if (folderStage === null) mountFolderStage();
+      } else if (Math.abs(dy) > AXIS_LOCK_PX) {
+        s.axis = 'v'; // скролл отдан браузеру
+      }
+    }
+    if (s.axis !== 'h') return;
+    // Скорость флинта по последним движениям.
+    const now = performance.now();
+    const dt = now - s.lastT;
+    const inst = (e.clientX - s.lastX) / Math.max(dt, 1);
+    s.vx = dt > 48 ? inst : s.vx * 0.6 + inst * 0.4;
+    s.lastX = e.clientX;
+    s.lastT = now;
+    if (folderStage !== null && !folderStage.settling) {
+      // eff непрерывный (округление — только при записи в DOM, applyFolderStage);
+      // реактивный рендер на каждый кадр стоил бы кадры на мобильных.
+      folderStage.eff = clampFolderEff(dx);
+      applyFolderStage();
+    }
+  }
+
+  function backSwipeUp(e: PointerEvent): void {
+    const s = backSwipe;
+    backSwipe = null;
+    backScrollEl?.classList.remove('swiping');
+    backScrollEl = null;
+    if (s === null) return;
+    if (s.axis !== 'h') return;
+
+    // Сцена собрана — решаем, куда доводим. Жест реально тащил список:
+    // клик отпускания подавляем (иначе после отката/доводки открылся бы
+    // оверлей заметки под пальцем). Скорость отпускания (s.vx) уходит в
+    // доводку — она стартует со скоростью пальца, без «смены скорости».
+    if (folderStage !== null && !folderStage.settling) {
+      suppressNextClick();
+      const W = folderStage.W;
+      const dx = e.clientX - s.startX;
+      let target: 'left' | null = null;
+      if (dx >= W * SETTLE_FRACTION && folderStage.left !== null) target = 'left';
+      if (target === null && s.vx >= FLING_PX_MS && folderStage.left !== null) target = 'left';
+      beginFolderSettle(target, s.vx);
+      return;
+    }
+    if (folderStage !== null) return; // идёт доводка — отпускание второго пальца
+
+    // Сцены нет (превью родителя не закешировано, экран-заглушка) — выход
+    // мгновенный, за порогом вправо (не по диагонали вниз).
+    const dx = e.clientX - s.startX;
+    const dy = Math.abs(e.clientY - s.startY);
+    if (dx < FALLBACK_BACK_PX || dx < dy) return;
+    suppressNextClick();
+    exitFolderTo(folderParentID());
+  }
+
+  function backSwipeReset(): void {
+    backSwipe = null;
+    backScrollEl?.classList.remove('swiping');
+    backScrollEl = null;
+    if (folderStage !== null) {
+      if (folderStage.settling) finalizeFolderSettle();
+      else closeFolderStage();
+    }
+  }
+
+  // Смена топика/папки меняет список слайда — показываем его с начала.
+  // (topPad-оверлей вверху перекрывает первые строки, скролл-контейнер
+  // активного слайда сбрасываем после того, как контент уже обновился.)
+  $effect(() => {
+    const id = navigation.activeTopicID;
+    void navigation.activeFolderID; // вход/выход из папки тоже сбрасывает скролл
+    const el = swiperEl;
+    if (id === null || el === undefined) return;
+    requestAnimationFrame(() => {
+      const slide = el.querySelector<HTMLElement>(`swiper-slide[data-topic-id="${id}"]`);
+      const scroll = slide?.querySelector<HTMLElement>('.chat-scroll');
+      if (scroll !== undefined && scroll !== null) scroll.scrollTop = 0;
+    });
+  });
+
   let topZone: HTMLDivElement | undefined;
   let topPad = $state(0);
 
@@ -179,452 +703,6 @@
     ro.observe(el);
     return () => ro.disconnect();
   });
-
-  // Анимация въезда списка при переключении топика (классы enter-from-left/right).
-  let slideCls = $state('');
-  function applySlide(fromLeft: boolean): void {
-    slideCls = '';
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        slideCls = fromLeft ? 'enter-from-left' : 'enter-from-right';
-      });
-    });
-  }
-
-  /** Переключить топик с анимацией въезда (выбор таба в островке). */
-  function onIslandSelect(id: number): void {
-    const current = navigation.activeTopicID;
-    const list = topicsStore.topics;
-    if (current === null) return;
-    const iCurrent = list.findIndex((t) => t.id === current);
-    const iNext = list.findIndex((t) => t.id === id);
-    if (iCurrent < 0 || iNext < 0) return;
-    applySlide(iNext < iCurrent);
-    setActiveTopic(id);
-  }
-
-  // ── Горизонтальный свайп по списку ──────────────────────────────────────
-  // В корне — переключение топиков; внутри папки свайп-вправо выводит на
-  // уровень выше (влево отключён). touch-action: pan-y на main — вертикальный
-  // скролл нативный, горизонтальный жест достаётся нам. Пока палец ведёт,
-  // контент едет за ним (как пролистывание папок в Telegram): список
-  // раскладывается в «сцену» из трёх панелей — сосед слева / текущая /
-  // сосед справа (превью соседей — из кеша корней, без сети; в папке
-  // слева — превью уровня выше). За границей (соседа нет) — «резинка».
-  // После отпускания — доводка: за порогом/при флинге доезжаем до соседа,
-  // иначе — назад в центр. Если превью ещё не закешировано — сцена не
-  // собирается, работает классический свайп (въезд списка после отпускания).
-  interface Swipe {
-    startX: number;
-    startY: number;
-    axis: 'h' | 'v' | null;
-    lastX: number;
-    lastT: number;
-    vx: number; // px/ms, сглаженная скорость по последним движениям
-  }
-  let swipe: Swipe | null = null;
-  const SWIPE_THRESHOLD = 48;
-  /** Флинг: скорость отпускания, при которой листаем даже без порога. */
-  const FLING_PX_MS = 0.5;
-  /** Доля ширины экрана, после которой жест считается «доводкой до соседа». */
-  const SETTLE_FRACTION = 0.3;
-  const AXIS_LOCK_PX = 12;
-
-  // ── Сцена: превью-панель (заметки корня топика из кеша + строки папок).
-  // Панели хранят готовые разбивки (закреплённые/остальные) — при движении
-  // пальца список не пересчитывается, меняется только transform панелей.
-  // В папке сцена другая: превью слева — уровень выше (свайп-вправо выводит
-  // из папки), соседа справа нет (свайп-влево смену топиков не включает).
-  interface StagePane {
-    topicId: number;
-    /** Уровень папки, который показывает панель (null — корень топика).
-        В сцене соседних топиков у панелей всегда null. */
-    folderId: number | null;
-    pinned: Note[];
-    rest: Note[];
-    folders: Folder[];
-  }
-
-  let stage = $state<{
-    /** Ширина панели (ширина контента main), px. */
-    W: number;
-    /** Текущий сдвиг сцены: 0 — текущий топик в центре, ±W — сосед. */
-    eff: number;
-    /** 'topic' — соседние топики (смена топика в корне);
-        'folderUp' — выход из папки на уровень выше (свайп-вправо). */
-    mode: 'topic' | 'folderUp';
-    left: StagePane | null;
-    center: StagePane;
-    right: StagePane | null;
-    settling: boolean;
-  } | null>(null);
-  /** Куда доводим: 'left'/'right' — сосед, null — вернуться в центр. */
-  let settleTarget: 'left' | 'right' | null = null;
-  let settleTimer: ReturnType<typeof setTimeout> | undefined;
-
-  /** Список в стадии drag-follow: замеряем его высоту для сцены. */
-  let listBox = $state<HTMLDivElement | undefined>(undefined);
-  let stageH = $state(0);
-  $effect(() => {
-    const el = listBox;
-    if (el === undefined) return;
-    const update = (): void => {
-      if (stage === null) stageH = el.offsetHeight;
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
-  // Высота сцены при drag-follow — по САМОЙ высокой панели (текущая и превью
-  // соседей). Если держать высоту текущего списка, превью соседа с длинным
-  // списком обрежется по ней (показывалась бы «полоска» высотой с короткий
-  // топик). Панели абсолютные — замер после сборки сцены.
-  $effect(() => {
-    if (stage === null) return;
-    const box = listBox;
-    if (box === undefined) return;
-    let max = box.offsetHeight;
-    for (const panel of box.querySelectorAll<HTMLElement>('.swipe-panel')) {
-      const h = panel.offsetHeight;
-      if (h > max) max = h;
-    }
-    if (max > 0 && max !== stageH) stageH = max;
-  });
-
-  /** Превью-панель соседнего топика: корень из кеша (undefined — кеша нет). */
-  function neighborPane(topicId: number): StagePane | null {
-    const notes = peekCachedNotes(topicId);
-    if (notes === undefined) return null;
-    let folders: Folder[] = [];
-    if (settings.foldersMode === 'list') {
-      const all = peekCachedFolders(topicId);
-      if (all === undefined) return null;
-      folders = all.filter((f) => f.parent_folder_id === null);
-    }
-    const { pinned, rest } = splitNotes(notes);
-    return { topicId, folderId: null, pinned, rest, folders };
-  }
-
-  /** Свободный ход сцены — на ширину панели в сторону соседа; дальше (или в
-      сторону без соседа) — «резинка»: ход с сопротивлением, как в Telegram. */
-  function clampEff(raw: number): number {
-    const s = stage;
-    if (s === null) return raw;
-    const maxRight = s.left !== null ? s.W : 0;
-    const maxLeft = s.right !== null ? -s.W : 0;
-    if (raw > maxRight) return maxRight + (raw - maxRight) * 0.35;
-    if (raw < maxLeft) return maxLeft + (raw - maxLeft) * 0.35;
-    return raw;
-  }
-
-  /** Превью-панель «уровень выше» для выхода из папки свайпом-вправо:
-      заметки контекста родителя (или корня) из кеша — кеша ещё нет, сцену
-      не собираем, после отпускания сработает классический свайп. */
-  function mountFolderExitStage(topicId: number, activeFolder: number): void {
-    // Уровень выше: родитель активной папки или корень топика (null).
-    const folder = foldersStore.all.find((f) => f.id === activeFolder);
-    const upFolderId = folder?.parent_folder_id ?? null;
-    const upNotes = peekCachedNotes(topicId, upFolderId);
-    if (upNotes === undefined) return;
-    const notes = notesStore.notes;
-    const curFolders = settings.foldersMode === 'list' ? levelFolders() : [];
-    if (notes.length === 0 && curFolders.length === 0) return; // экран-заглушка
-    const W = mainEl?.clientWidth ?? 0;
-    if (W <= 0) return;
-    // Высота сцены = высоте текущего списка (панели абсолютные, в потоке
-    // сцена сама высоты не имеет). Свежий замер, а не только ResizeObserver.
-    const H = listBox?.offsetHeight ?? 0;
-    if (H <= 0) return;
-    stageH = H;
-    const { pinned, rest } = splitNotes(notes);
-    const upSplit = splitNotes(upNotes);
-    const upFolders =
-      settings.foldersMode === 'list'
-        ? foldersStore.all.filter((f) => f.parent_folder_id === upFolderId)
-        : [];
-    stage = {
-      mode: 'folderUp',
-      W,
-      eff: 0,
-      left: {
-        topicId,
-        folderId: upFolderId,
-        pinned: upSplit.pinned,
-        rest: upSplit.rest,
-        folders: upFolders,
-      },
-      center: { topicId, folderId: activeFolder, pinned, rest, folders: [...curFolders] },
-      right: null, // свайп-влево отключён — соседа справа нет
-      settling: false,
-    };
-  }
-
-  /** Собрать сцену в момент блокировки оси (сосед уже закеширован). */
-  function mountStage(): void {
-    const topicId = navigation.activeTopicID;
-    if (topicId === null || mainEl === undefined) return;
-    // В папке свайп-вправо выводит на уровень выше — своя сцена (слева
-    // превью родителя); свайпы смены топиков внутри папки не работают.
-    if (navigation.activeFolderID !== null) {
-      mountFolderExitStage(topicId, navigation.activeFolderID);
-      return;
-    }
-    const list = topicsStore.topics;
-    const index = list.findIndex((t) => t.id === topicId);
-    if (index < 0) return;
-    const notes = notesStore.notes;
-    const folders = settings.foldersMode === 'list' ? levelFolders() : [];
-    if (notes.length === 0 && folders.length === 0) return; // экран-заглушка
-    const left = index > 0 ? neighborPane(list[index - 1].id) : null;
-    const right = index + 1 < list.length ? neighborPane(list[index + 1].id) : null;
-    if (left === null && right === null) return;
-    const W = mainEl.clientWidth;
-    if (W <= 0) return;
-    // Высота сцены = высоте текущего списка (панели абсолютные, в потоке
-    // сцена сама высоты не имеет). Свежий замер, а не только ResizeObserver.
-    const H = listBox?.offsetHeight ?? 0;
-    if (H <= 0) return;
-    stageH = H;
-    const { pinned, rest } = splitNotes(notes);
-    stage = {
-      mode: 'topic',
-      W,
-      eff: 0,
-      left,
-      center: { topicId, folderId: null, pinned, rest, folders: [...folders] },
-      right,
-      settling: false,
-    };
-  }
-
-  /** Закрыть сцену: commitTopicId — топик, в который доехали (null — откат). */
-  function closeStage(commitTopicId: number | null): void {
-    clearTimeout(settleTimer);
-    settleTimer = undefined;
-    settleTarget = null;
-    if (stage === null) return;
-    stage = null;
-    mainEl?.classList.remove('swiping');
-    if (commitTopicId !== null && commitTopicId !== navigation.activeTopicID) {
-      setActiveTopic(commitTopicId);
-      // Кеш соседа уже есть (сцена из него и собрана) — показываем сразу,
-      // чтобы на кадр не мелькнул список предыдущего топика.
-      void loadNotes(commitTopicId, null);
-    }
-  }
-
-  /** Плавная доводка: едем к соседу (или назад в центр), затем финализируем. */
-  function beginSettle(target: 'left' | 'right' | null): void {
-    const s = stage;
-    if (s === null) return;
-    s.settling = true;
-    settleTarget = target;
-    s.eff = target === 'left' ? s.W : target === 'right' ? -s.W : 0;
-    // prefers-reduced-motion: CSS гасит transition, transitionend не придёт —
-    // финализируем сразу, не держа соседний список статичным.
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      finalizeSettle();
-      return;
-    }
-    clearTimeout(settleTimer);
-    // Страховка: transitionend может не прийти (прерванный жест) — доводка
-    // завершается по таймеру (дольше CSS-перехода .swipe-settle 0.44s).
-    settleTimer = setTimeout(finalizeSettle, 560);
-  }
-
-  function finalizeSettle(): void {
-    clearTimeout(settleTimer);
-    settleTimer = undefined;
-    const s = stage;
-    if (s === null) return;
-    const target = settleTarget;
-    settleTarget = null;
-    if (s.mode === 'folderUp') {
-      // Доводка вправо (к левой панели) — выход на уровень выше; откат
-      // в центр (свайп-влево, недотяг) папку не меняет.
-      const pane = target === 'left' ? s.left : null;
-      closeStage(null);
-      if (pane !== null) exitFolderTo(pane.folderId);
-      return;
-    }
-    const commitId =
-      target === 'left' ? s.left?.topicId : target === 'right' ? s.right?.topicId : null;
-    closeStage(commitId ?? null);
-  }
-
-  function onMainPointerDown(e: PointerEvent): void {
-    if (e.pointerType !== 'touch') return;
-    // Жест начался во время доводки/сцены — завершаем её мгновенно, чтобы
-    // жесты не «склеивались».
-    if (stage !== null) {
-      if (stage.settling) finalizeSettle();
-      else closeStage(null);
-    }
-    // В папке свайп-вправо выводит на уровень выше — жест нужен даже при
-    // единственном топике; в корне — только когда есть соседи для смены.
-    if (topicsStore.topics.length < 2 && navigation.activeFolderID === null) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest('textarea, input, a, [data-no-swipe]')) return;
-    const t = performance.now();
-    swipe = {
-      startX: e.clientX,
-      startY: e.clientY,
-      axis: null,
-      lastX: e.clientX,
-      lastT: t,
-      vx: 0,
-    };
-  }
-
-  function onMainPointerMove(e: PointerEvent): void {
-    const s = swipe;
-    if (s === null) return;
-    const dx = e.clientX - s.startX;
-    const dy = e.clientY - s.startY;
-    if (s.axis === null) {
-      if (Math.abs(dx) > AXIS_LOCK_PX && Math.abs(dx) > Math.abs(dy) * 1.3) {
-        s.axis = 'h';
-        // Пока жест горизонтальный, карточки под пальцем не «нажимаются»
-        // (CSS .swiping гасит active-эффекты), список ведём за пальцем.
-        mainEl?.classList.add('swiping');
-        if (stage === null) mountStage();
-      } else if (Math.abs(dy) > AXIS_LOCK_PX) {
-        s.axis = 'v';
-      }
-    }
-    if (s.axis !== 'h') return;
-    // Скорость флинга по последним движениям.
-    const now = performance.now();
-    const dt = now - s.lastT;
-    const inst = (e.clientX - s.lastX) / Math.max(dt, 1);
-    s.vx = dt > 48 ? inst : s.vx * 0.6 + inst * 0.4;
-    s.lastX = e.clientX;
-    s.lastT = now;
-    if (stage !== null && !stage.settling) {
-      // Округляем до целых пикселей: эмодзи-глифы не умеют дробное
-      // позиционирование, при субпиксельном transform они «дрожат».
-      stage.eff = Math.round(clampEff(dx));
-    }
-  }
-
-  function onMainPointerUp(e: PointerEvent): void {
-    const s = swipe;
-    swipe = null;
-    if (s === null) return;
-    if (s.axis !== 'h') return;
-    mainEl?.classList.remove('swiping');
-
-    // Сцена собрана — решаем, куда доводим. Жест реально тащил список:
-    // клик отпускания подавляем (иначе после отката/доводки открылся бы
-    // оверлей заметки под пальцем).
-    if (stage !== null && !stage.settling) {
-      suppressNextClick();
-      const W = stage.W;
-      const dx = e.clientX - s.startX;
-      let target: 'left' | 'right' | null = null;
-      if (dx <= -W * SETTLE_FRACTION && stage.right !== null) target = 'right';
-      else if (dx >= W * SETTLE_FRACTION && stage.left !== null) target = 'left';
-      if (target === null) {
-        if (s.vx <= -FLING_PX_MS && stage.right !== null) target = 'right';
-        else if (s.vx >= FLING_PX_MS && stage.left !== null) target = 'left';
-      }
-      beginSettle(target);
-      return;
-    }
-    if (stage !== null) return; // идёт доводка — отпускание второго пальца
-
-    // Классический свайп (превью соседа не закешировано — сцены нет):
-    // отпустили за порогом — въезд списка соседнего топика (в папке —
-    // выход на уровень выше).
-    const dx = e.clientX - s.startX;
-    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
-
-    // В папке свайпы смены топиков отключены: вправо — на уровень выше
-    // (родитель или корень), влево — ничего.
-    if (navigation.activeFolderID !== null) {
-      if (dx <= 0) return;
-      suppressNextClick();
-      const folder = foldersStore.all.find((f) => f.id === navigation.activeFolderID);
-      const upFolderId = folder?.parent_folder_id ?? null;
-      applySlide(false);
-      exitFolderTo(upFolderId);
-      return;
-    }
-
-    const current = navigation.activeTopicID;
-    const list = topicsStore.topics;
-    if (current === null) return;
-    const index = list.findIndex((t) => t.id === current);
-    if (index < 0) return;
-    const offset = dx < 0 ? 1 : -1; // влево — следующий топик, вправо — предыдущий
-    const target = list[index + offset];
-    if (target === undefined) return;
-
-    suppressNextClick();
-    applySlide(offset > 0);
-    setActiveTopic(target.id);
-  }
-
-  function onMainPointerCancel(): void {
-    swipe = null;
-    if (stage !== null) {
-      if (stage.settling) finalizeSettle();
-      else closeStage(null);
-    }
-    mainEl?.classList.remove('swiping');
-  }
-
-  // ── Ранний захват горизонтального жеста ────────────────────────────────
-  // touch-action: pan-y на main отдаёт браузеру «вертикальные» жесты, а
-  // границу браузер проводит сам — по первым пикселям движения. Начинаешь
-  // свайп с лёгким уходом вверх/вниз — браузер решает, что жест вертикальный,
-  // уводит его в нативный скролл (pointercancel, список едет или «резинит»
-  // в вертикаль), хотя палец вёл вбок. Дублируем определение оси на
-  // cancelable touchmove раньше браузерного pan-y: как только смещение с
-  // самого начала горизонтальное (меньший порог, чем у pointermove), берём
-  // жест себе и preventDefault'ом не даём нативному скроллу стартовать.
-  // Пока ось захвачена горизонтально, каждый touchmove гасится — даже
-  // вертикальные колебания пальца посреди свайпа не прокрутят список.
-  const EARLY_AXIS_PX = 7;
-
-  function onMainTouchMove(e: TouchEvent): void {
-    if (e.touches.length !== 1) return;
-    const s = swipe;
-    if (s === null) return;
-    if (s.axis === 'h') {
-      e.preventDefault(); // держим вертикаль замороженной на время свайпа
-      return;
-    }
-    if (s.axis === 'v') return; // скролл отдан браузеру
-    const t = e.touches[0];
-    const dx = t.clientX - s.startX;
-    const dy = t.clientY - s.startY;
-    const ax = Math.abs(dx);
-    const ay = Math.abs(dy);
-    if (ax > EARLY_AXIS_PX && ax > ay * 1.3) {
-      s.axis = 'h';
-      mainEl?.classList.add('swiping');
-      if (stage === null) mountStage();
-      e.preventDefault();
-    }
-  }
-
-  $effect(() => {
-    const el = mainEl;
-    if (el === undefined) return;
-    // passive: false — иначе preventDefault на touchmove не сработает.
-    el.addEventListener('touchmove', onMainTouchMove, { passive: false });
-    return () => el.removeEventListener('touchmove', onMainTouchMove);
-  });
-
-  /** Доводка завершена (transitionend с панелей сцены). */
-  function onStageTransitionEnd(e: TransitionEvent): void {
-    if (e.propertyName !== 'transform') return;
-    const t = e.target;
-    if (!(t instanceof Element) || !t.classList.contains('swipe-panel')) return;
-    if (stage !== null && stage.settling) finalizeSettle();
-  }
 
   // Долгое нажатие на пустом месте (заметок нет) — дропдаун «Создать папку».
   const LONG_PRESS_MS = 500;
@@ -665,9 +743,9 @@
   });
 
   // Предзагрузка: после активного топика подгружаем корни соседей слева и
-  // справа — свайп на соседний таб не ждёт сеть. В режиме «папки в списке»
-  // превью-панель сцены показывает и корневые папки соседа — их тоже
-  // кешируем заранее (иначе drag-follow не соберётся до первого визита).
+  // справа — свайп на соседний слайд не ждёт сеть. В режиме «папки в списке»
+  // превью слайда показывает и корневые папки соседа — их тоже кешируем
+  // заранее (иначе слайд соседа показывал бы плейсхолдер до первого визита).
   $effect(() => {
     const list = topicsStore.topics;
     const topicId = navigation.activeTopicID;
@@ -719,8 +797,8 @@
   )}
     <!-- Колонка списка: закреплённые → строки папок (режим «в списке») →
          остальные заметки. Без анимации появления: при перерисовке списка
-         (переключение топиков/папок, закрытие свайп-сцены) каскадный въезд
-         «мигал» карточками. -->
+         (переключение топиков/папок, морфинг слайда live ⇄ превью) каскадный
+         въезд «мигал» бы карточками. -->
     <div class="flex flex-col gap-2 px-3 py-3">
       {#each pinned as note (note.id)}
         <NoteCard
@@ -746,144 +824,192 @@
     </div>
   {/snippet}
 
-  <main
-    bind:this={mainEl}
-    class="scroll-area touch-pan-y flex-1 overflow-y-auto"
-    style:padding-top={`${topPad}px`}
-    class:enter-from-left={slideCls === 'enter-from-left'}
-    class:enter-from-right={slideCls === 'enter-from-right'}
-    onpointerdown={onMainPointerDown}
-    onpointermove={onMainPointerMove}
-    onpointerup={onMainPointerUp}
-    onpointercancel={onMainPointerCancel}
-  >
-    {#if topicsStore.loading}
-      <EmptyState emoji="⏳" />
-    {:else if topicsStore.error}
-      <div class="flex flex-col items-center gap-4 px-6 py-16">
-        <EmptyState emoji="⚠️" text={topicsStore.error} />
-        <button
-          type="button"
-          class="h-11 rounded-xl border border-border px-6 text-sm"
-          onclick={() => void loadTopics()}
-        >
-          Повторить
-        </button>
-      </div>
-    {:else if topicsStore.topics.length === 0}
-      <div class="flex flex-col items-center gap-4 px-6 py-16">
-        <EmptyState emoji="＋" text="Создайте топик" />
-        <button
-          type="button"
-          class="flex h-11 items-center gap-2 rounded-xl border border-border px-6 text-sm"
-          onclick={() => (ui.topicCreateOpen = true)}
-        >
-          <span>＋</span> Создать
-        </button>
-      </div>
-    {:else if notesStore.loading}
-      <EmptyState emoji="⏳" />
-    {:else if notesStore.error}
-      <div class="flex flex-col items-center gap-4 px-6 py-16">
-        <EmptyState emoji="⚠️" text={notesStore.error} />
-        <button
-          type="button"
-          class="h-11 rounded-xl border border-border px-6 text-sm"
-          onclick={() => {
-            const topicId = navigation.activeTopicID;
-            if (topicId !== null) void loadNotes(topicId, navigation.activeFolderID);
-          }}
-        >
-          Повторить
-        </button>
-      </div>
-    {:else if notesStore.notes.length === 0 && inlineFolders.length === 0}
-      <!-- Пустое место: долгое нажатие — дропдаун «Создать папку» -->
-      <div
-        role="group"
-        aria-label="Пустое место"
-        class="flex min-h-full flex-col"
-        onpointerdown={handleEmptyPress}
-        onpointerup={cancelEmptyPress}
-        onpointercancel={cancelEmptyPress}
-        onpointerleave={cancelEmptyPress}
-      >
-        <div class="flex flex-1 flex-col">
-          <EmptyState />
-        </div>
-      </div>
-    {:else}
-      <!-- Общий список: закреплённые → строки папок (режим «в списке») →
-           остальные заметки. Во время drag-follow список раскладывается
-           в сцену: по центру текущий контент, по бокам — превью соседей. -->
-      <div
-        bind:this={listBox}
-        class:swipe-stage={stage !== null}
-        class:swipe-settle={stage !== null && stage.settling}
-        style:height={stage !== null ? `${stageH}px` : undefined}
-        ontransitionend={onStageTransitionEnd}
-      >
-        {#if stage !== null}
-          {#if stage.left !== null}
-            <div class="swipe-panel" style:transform={panelShift('left')}>
-              {@render noteList(
-                stage.left.pinned,
-                stage.left.rest,
-                stage.left.folders,
-                noopOpenNote,
-                noopMenuNote,
-                noopOpenFolder,
-                noopMenuFolder,
-              )}
-            </div>
-          {/if}
-          <div class="swipe-panel" style:transform={panelShift('center')}>
-            {@render noteList(
-              stage.center.pinned,
-              stage.center.rest,
-              stage.center.folders,
-              (n) => (selectedId = n.id),
-              openMenu,
-              (f) => openFolder(f.id),
-              openFolderMenu,
-            )}
+  {#snippet topicPane(topic: Topic)}
+    <!-- Слайд топика: «живой» список активного топика или статичное превью
+         корня соседнего (из кеша). Вертикальный скролл — у самого слайда
+         (.chat-scroll): свайпер выше не скроллится, а контент начинается под
+         «островком» (topPad перенесён со всего main на каждый слайд). -->
+    {@const live = topic.id === navigation.activeTopicID}
+    {@const preview = previewData(topic.id)}
+    <div
+      class="chat-scroll scroll-area h-full touch-pan-y overflow-y-auto"
+      style:padding-top={`${topPad}px`}
+    >
+      {#if live}
+        {#if notesStore.loading}
+          <EmptyState emoji="⏳" />
+        {:else if notesStore.error}
+          <div class="flex flex-col items-center gap-4 px-6 py-16">
+            <EmptyState emoji="⚠️" text={notesStore.error} />
+            <button
+              type="button"
+              class="h-11 rounded-xl border border-border px-6 text-sm"
+              onclick={() => {
+                const topicId = navigation.activeTopicID;
+                if (topicId !== null) void loadNotes(topicId, navigation.activeFolderID);
+              }}
+            >
+              Повторить
+            </button>
           </div>
-          {#if stage.right !== null}
-            <div class="swipe-panel" style:transform={panelShift('right')}>
-              {@render noteList(
-                stage.right.pinned,
-                stage.right.rest,
-                stage.right.folders,
-                noopOpenNote,
-                noopMenuNote,
-                noopOpenFolder,
-                noopMenuFolder,
-              )}
+        {:else if notesStore.notes.length === 0 && inlineFolders.length === 0}
+          <!-- Пустое место: долгое нажатие — дропдаун «Создать папку» -->
+          <div
+            role="group"
+            aria-label="Пустое место"
+            class="flex min-h-full flex-col"
+            onpointerdown={handleEmptyPress}
+            onpointerup={cancelEmptyPress}
+            onpointercancel={cancelEmptyPress}
+            onpointerleave={cancelEmptyPress}
+          >
+            <div class="flex flex-1 flex-col">
+              <EmptyState />
             </div>
-          {/if}
+          </div>
         {:else}
-          {@render noteList(
-            normalSplit.pinned,
-            normalSplit.rest,
-            inlineFolders,
-            (n) => (selectedId = n.id),
-            openMenu,
-            (f) => openFolder(f.id),
-            openFolderMenu,
-          )}
+          <!-- Общий список: закреплённые → строки папок (режим «в списке») →
+               остальные заметки. Во время жеста «назад» (свайп-вправо в папке)
+               список раскладывается в сцену: по центру текущий уровень, слева
+               — превью уровня выше из кеша; пока палец ведёт, панели едут за
+               ним, доводка после отпускания — JS-пружина с подхватом скорости
+               пальца. Сдвиг пишется напрямую в DOM (applyFolderStage) — чтение
+               eff в шаблоне пере-рендерило бы список карточек на каждый кадр. -->
+          <div
+            bind:this={stageBox}
+            class:swipe-stage={folderStage !== null}
+            style:height={folderStage !== null ? `${stageH}px` : undefined}
+          >
+            {#if folderStage !== null}
+              {#if folderStage.left !== null}
+                <div class="swipe-panel" bind:this={stageLeftPanel}>
+                  {@render noteList(
+                    folderStage.left.pinned,
+                    folderStage.left.rest,
+                    folderStage.left.folders,
+                    noopOpenNote,
+                    noopMenuNote,
+                    noopOpenFolder,
+                    noopMenuFolder,
+                  )}
+                </div>
+              {/if}
+              <div class="swipe-panel" bind:this={stageCenterPanel}>
+                {@render noteList(
+                  normalSplit.pinned,
+                  normalSplit.rest,
+                  inlineFolders,
+                  (n) => (selectedId = n.id),
+                  openMenu,
+                  (f) => setActiveFolder(f.id),
+                  openFolderMenu,
+                )}
+              </div>
+            {:else}
+              {@render noteList(
+                normalSplit.pinned,
+                normalSplit.rest,
+                inlineFolders,
+                (n) => (selectedId = n.id),
+                openMenu,
+                (f) => setActiveFolder(f.id),
+                openFolderMenu,
+              )}
+            {/if}
+          </div>
         {/if}
-      </div>
-    {/if}
-  </main>
+      {:else if preview === undefined || preview.state === 'pending'}
+        <!-- Кеша соседа ещё нет — плейсхолдер (фоновая предзагрузка
+             наполнит превью, как только придут данные). -->
+        <EmptyState emoji="⏳" />
+      {:else}
+        <!-- Статичное превью корня соседнего топика: без интерактива. -->
+        {@render noteList(
+          preview.pinned,
+          preview.rest,
+          preview.folders,
+          noopOpenNote,
+          noopMenuNote,
+          noopOpenFolder,
+          noopMenuFolder,
+        )}
+      {/if}
+    </div>
+  {/snippet}
 
-  <!-- Островок топиков + строка папки: фиксированы над списком (pointer-events
-       только на самих панелях — между ними список можно листать) -->
+  {#if topicsStore.loading}
+    <div class="flex flex-1 flex-col justify-center">
+      <EmptyState emoji="⏳" />
+    </div>
+  {:else if topicsStore.error}
+    <div class="flex flex-1 flex-col items-center justify-center gap-4 px-6">
+      <EmptyState emoji="⚠️" text={topicsStore.error} />
+      <button
+        type="button"
+        class="h-11 rounded-xl border border-border px-6 text-sm"
+        onclick={() => void loadTopics()}
+      >
+        Повторить
+      </button>
+    </div>
+  {:else if topicsStore.topics.length === 0}
+    <div class="flex flex-1 flex-col items-center justify-center gap-4 px-6">
+      <EmptyState emoji="＋" text="Создайте топик" />
+      <button
+        type="button"
+        class="flex h-11 items-center gap-2 rounded-xl border border-border px-6 text-sm"
+        onclick={() => (ui.topicCreateOpen = true)}
+      >
+        <span>＋</span> Создать
+      </button>
+    </div>
+  {:else}
+    <!-- Зона свайпера: слайд на каждый топик. Сам контейнер не скроллится
+         (overflow скрыт) — вертикальный скролл живёт внутри слайдов.
+         Свайп-«назад» из папки (вправо, drag-follow) ловим на зоне: в папке
+         свайпер выключен, жест наш; в корне — свайпер рулит сам (обработчики
+         выходят по navigation.activeFolderID === null). -->
+    <div
+      class="relative min-h-0 flex-1 overflow-hidden"
+      role="region"
+      aria-label="Список топиков"
+      onpointerdown={backSwipeDown}
+      onpointermove={backSwipeMove}
+      onpointerup={backSwipeUp}
+      onpointercancel={backSwipeReset}
+    >
+      <swiper-container
+        bind:this={swiperEl}
+        class="chat-swiper block h-full w-full"
+        speed="360"
+        initial-slide={initialTopicIndex}
+      >
+        {#each topicsStore.topics as topic (topic.id)}
+          <swiper-slide class="block" data-topic-id={String(topic.id)}>
+            {@render topicPane(topic)}
+          </swiper-slide>
+        {/each}
+      </swiper-container>
+    </div>
+  {/if}
+
+  <!-- Островок топиков (+ по настройке — строка папки): фиксированы над
+       списком (pointer-events только на самих панелях — между ними список
+       можно листать). По умолчанию (pathMode 'tab') строка-крошка не
+       рисуется: путь в папке показывает расширенный активный таб островка,
+       тап по нему открывает шторку папок. В режиме 'strip' — прежняя строка. -->
   <div
     bind:this={topZone}
     class="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center gap-2 px-3 pt-[calc(env(safe-area-inset-top)+8px)]"
   >
-    <TopicIsland onSelect={onIslandSelect} />
-    <FolderStrip onOpen={() => (folderSheetOpen = true)} />
+    <TopicIsland
+      onSelect={onIslandSelect}
+      pathInTab={settings.pathMode === 'tab'}
+      onOpenFolders={() => (folderSheetOpen = true)}
+    />
+    {#if settings.pathMode === 'strip'}
+      <FolderStrip onOpen={() => (folderSheetOpen = true)} />
+    {/if}
   </div>
 
   <footer

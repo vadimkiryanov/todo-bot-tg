@@ -1,8 +1,9 @@
-// Тесты настроек интерфейса: режим показа папок в списке заметок.
-// По умолчанию — «в списке» (как в боте); переключение сохраняется в
-// localStorage и восстанавливается при старте модуля.
+// Тесты настроек интерфейса: режим показа папок в списке заметок и место
+// «хлебного пути» (в табе островка / отдельной строкой). По умолчанию —
+// папки «в списке» (как в боте) и путь «в табе»; переключение сохраняется
+// в localStorage и восстанавливается при старте модуля.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setFoldersMode, settings } from './settings.svelte';
+import { setFoldersMode, setPathMode, settings } from './settings.svelte';
 
 /** Мини-хранилище для node-окружения (в тестах localStorage нет). */
 function createStorage(): Storage {
@@ -49,5 +50,26 @@ describe('settings store', () => {
     vi.resetModules();
     const mod = await import('./settings.svelte');
     expect(mod.settings.foldersMode).toBe('button');
+  });
+
+  it('по умолчанию путь показывается в табе островка', () => {
+    expect(settings.pathMode).toBe('tab');
+  });
+
+  it('переключение режима пути обновляет стор и localStorage', () => {
+    setPathMode('strip');
+    expect(settings.pathMode).toBe('strip');
+    expect(localStorage.getItem('todo.pathMode')).toBe('strip');
+
+    setPathMode('tab');
+    expect(settings.pathMode).toBe('tab');
+    expect(localStorage.getItem('todo.pathMode')).toBe('tab');
+  });
+
+  it('при старте восстанавливается сохранённый режим пути', async () => {
+    localStorage.setItem('todo.pathMode', 'strip');
+    vi.resetModules();
+    const mod = await import('./settings.svelte');
+    expect(mod.settings.pathMode).toBe('strip');
   });
 });

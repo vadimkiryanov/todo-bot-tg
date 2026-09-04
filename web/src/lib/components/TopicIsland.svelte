@@ -4,6 +4,13 @@
   // Тап — выбрать топик (свайпом по списку тоже переключается), долгий тап
   // по табу — меню топика (TopicMenu: создать/переименовать/удалить).
   // Счётчик заметок — как в боте.
+  // Режим «путь в табе» (pathInTab, настройка): активный таб при входе
+  // в папку расширяется в хлебные крошки по ширине своего текста, оставаясь
+  // обычной акцентной таблеткой, и показывает путь из корня («Работа ›
+  // Проект › Задачи»); длинный путь ограничен шириной островка (многоточие).
+  // Тап по нему открывает шторку папок. Отдельная строка-крошка
+  // (FolderStrip) в этом режиме не рисуется.
+  import { folderChain } from '../stores/folders.svelte';
   import { navigation } from '../stores/navigation.svelte';
   import { topicsStore } from '../stores/topics.svelte';
   import { openTopicMenu } from '../stores/topic-menu.svelte';
@@ -12,7 +19,18 @@
   let {
     /** Выбор топика (родитель добавляет анимацию въезда списка). */
     onSelect,
-  }: { onSelect: (id: number) => void } = $props();
+    /** Режим «путь в табе»: путь в папке показывается в активном табе. */
+    pathInTab = false,
+    /** Открыть шторку папок (тап по расширенному табу в папке). */
+    onOpenFolders,
+  }: {
+    onSelect: (id: number) => void;
+    pathInTab?: boolean;
+    onOpenFolders?: () => void;
+  } = $props();
+
+  /** Имена папок от корня активного топика до активной папки включительно. */
+  const chainNames = $derived(folderChain().map((f) => f.name));
 
   let longPressTimer: number | undefined;
   let longPressFired = false;
@@ -34,6 +52,10 @@
     const id = navigation.activeTopicID;
     const el = islandEl;
     if (id === null || el === undefined) return;
+    // Вход/выход из папки меняет ширину активного таба (обычный ⇄ крошки) —
+    // лента перестраивается, поэтому следим и за папкой: эффект
+    // перезапускается при смене пути.
+    const inFolder = navigation.activeFolderID !== null && chainNames.length > 0;
     const chip = el.querySelector<HTMLElement>(`[data-topic-id="${id}"]`);
     if (chip === null) return;
     // Откладываем на кадр: позиции табов финальны после отрисовки
@@ -42,6 +64,14 @@
       const pad = 8;
       const cr = el.getBoundingClientRect();
       const c = chip.getBoundingClientRect();
+      if (inFolder) {
+        // Расширенный таб-крошки прижимаем к левому краю островка: путь
+        // обрезается многоточием в конце, поэтому важно показать начало
+        // (имя топика). Если таб влезает целиком — ленту не трогаем.
+        if (c.left >= cr.left + pad && c.right <= cr.right - pad) return; // уже виден
+        el.scrollTo({ left: el.scrollLeft + (c.left - cr.left) - pad, behavior: 'auto' });
+        return;
+      }
       if (c.left >= cr.left + pad && c.right <= cr.right - pad) return; // уже виден
       el.scrollTo({
         left: el.scrollLeft + (c.left - cr.left) - (cr.width - c.width) / 2,
@@ -86,6 +116,12 @@
     }
     if (id !== navigation.activeTopicID) {
       onSelect(id);
+      return;
+    }
+    // Активный таб. В режиме «путь в табе» вход в папку расширяет его —
+    // повторный тап открывает шторку папок (замена строки-крошки).
+    if (pathInTab && navigation.activeFolderID !== null) {
+      onOpenFolders?.();
     }
   }
 </script>
@@ -97,15 +133,20 @@
     role="tablist"
   >
     {#each topicsStore.topics as topic (topic.id)}
+      {@const active = topic.id === navigation.activeTopicID}
+      {@const extended =
+        active && pathInTab && navigation.activeFolderID !== null && chainNames.length > 0}
       <button
         type="button"
         role="tab"
         data-topic-id={topic.id}
-        aria-selected={topic.id === navigation.activeTopicID}
-        class="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm transition-[background-color] {topic.id ===
-        navigation.activeTopicID
-          ? 'bg-accent-strong text-white'
-          : 'text-content'}"
+        aria-selected={active}
+        title={extended ? `${topic.name} › ${chainNames.join(' › ')}` : topic.name}
+        class="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm transition-[background-color] {extended
+          ? 'shrink-0 max-w-full bg-accent-strong text-white'
+          : active
+            ? 'shrink-0 bg-accent-strong text-white'
+            : 'shrink-0 text-content'}"
         onpointerdown={(e) => handlePointerDown(topic.id, e)}
         onpointerup={clearTimer}
         onpointercancel={clearTimer}
@@ -113,9 +154,21 @@
         onpointermove={handlePointerMove}
         onclick={() => onTap(topic.id)}
       >
-        <span class="max-w-36 truncate">{topic.name}</span>
-        {#if topic.note_count > 0}
-          <span class="shrink-0 text-xs opacity-70">{topic.note_count}</span>
+        {#if extended}
+          <!-- Активный таб в папке: обычная акцентная таблетка, ширина — по
+               тексту пути (короткий путь — узкий таб рядом с другими табами,
+               длинный упирается в ширину островка). Длинный путь обрезается
+               многоточием в конце — имя топика в начале всегда видно;
+               полный путь — в title и в шторке папок (тап по табу). -->
+          <span class="min-w-0 truncate">
+            <span class="font-semibold">{topic.name}</span>
+            <span class="text-white/75"> › {chainNames.join(' › ')}</span>
+          </span>
+        {:else}
+          <span class="max-w-36 truncate">{topic.name}</span>
+          {#if topic.note_count > 0}
+            <span class="shrink-0 text-xs opacity-70">{topic.note_count}</span>
+          {/if}
         {/if}
       </button>
     {/each}

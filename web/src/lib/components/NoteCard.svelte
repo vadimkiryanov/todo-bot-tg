@@ -1,6 +1,8 @@
 <script lang="ts">
-  // Карточка заметки: превью первой строки (с форматированием), слева — 📌 или эмодзи приоритета.
-  // Справа — ⏰ при установленном напоминании. Выполненная — зачёркнута и приглушена.
+  // Карточка заметки: превью первой строки (с форматированием), слева — 📌 у
+  // закреплённой. Приоритет показывается цветной обводкой карточки
+  // (note-priority-*), не эмодзи-кружком. Справа — ⏰ при установленном
+  // напоминании. Выполненная — зачёркнута и приглушена.
   // Клик — открыть оверлей; долгий тач (или правый клик на десктопе) — дропдаун-меню действий.
   import { onDestroy } from 'svelte';
   import type { Note } from '../types/api';
@@ -20,16 +22,14 @@
     highlighted?: boolean;
   } = $props();
 
-  const marker = $derived(
-    note.pinned
-      ? '📌'
-      : note.priority === 'high'
-        ? '🔴'
-        : note.priority === 'medium'
-          ? '🟡'
-          : note.priority === 'low'
-            ? '🔵'
-            : null,
+  const prioCls = $derived(
+    note.priority === 'high'
+      ? 'note-priority-high'
+      : note.priority === 'medium'
+        ? 'note-priority-medium'
+        : note.priority === 'low'
+          ? 'note-priority-low'
+          : '',
   );
 
   const reminder = $derived(
@@ -129,7 +129,7 @@
   type="button"
   class="glass-card flex w-full touch-manipulation select-none items-start gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none] {highlighted
     ? 'note-highlight'
-    : ''}"
+    : ''} {prioCls}"
   onclick={onCardClick}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
@@ -137,8 +137,8 @@
   onpointercancel={onPointerCancel}
   oncontextmenu={onContextMenu}
 >
-  {#if marker !== null}
-    <span class="w-5 shrink-0 text-center text-sm leading-6">{marker}</span>
+  {#if note.pinned}
+    <span class="w-5 shrink-0 text-center text-sm leading-6">📌</span>
   {/if}
   <span
     class="line-clamp-2 min-w-0 flex-1 break-words text-[15px] leading-6 [&_a]:text-accent [&_a]:underline {note.done

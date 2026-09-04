@@ -87,6 +87,14 @@ const cacheLoadedAt = new Map<string, number>();
 /** Идущие запросы (тихая фоновая загрузка не дублирует сетевой вызов). */
 const inFlight = new Map<string, Promise<void>>();
 
+/** Реактивный «счётчик» изменений кеша контекстов. ChatView показывает
+    соседние слайды-топики превью из кеша (`peekCachedNotes`) — кеш обычный
+    Map, без счётчика превью не пересобралось бы после фоновой подгрузки. */
+export const notesCacheTick = $state({ n: 0 });
+function bumpNotesCacheTick(): void {
+  notesCacheTick.n += 1;
+}
+
 /** Контекст активен? (защита от гонок при быстрых переключениях). */
 function isActiveContext(topicId: number, folderId: number | null): boolean {
   return navigation.activeTopicID === topicId && navigation.activeFolderID === folderId;
@@ -103,6 +111,7 @@ function syncActiveCache(): void {
   const key = activeCacheKey();
   if (key !== null && notesCache.has(key)) {
     notesCache.set(key, notesStore.notes);
+    bumpNotesCacheTick();
   }
 }
 
@@ -181,6 +190,7 @@ export async function loadNotes(
       const notes = await listNotes(topicId, folderId);
       notesCache.set(key, notes);
       cacheLoadedAt.set(key, Date.now());
+      bumpNotesCacheTick();
       trimCache();
       if (isActiveContext(topicId, folderId)) {
         notesStore.notes = notes;
@@ -231,6 +241,7 @@ export function pruneNotesCacheForTopic(topicId: number): void {
       cacheLoadedAt.delete(key);
     }
   }
+  bumpNotesCacheTick();
 }
 
 /** Загрузка архива. silent — тихая перезагрузка. */
@@ -479,6 +490,7 @@ export function resetNotes(): void {
   notesCache.clear();
   cacheLoadedAt.clear();
   inFlight.clear();
+  bumpNotesCacheTick();
 }
 
 // ── Owner-aware мутации ─────────────────────────────────────────────────────

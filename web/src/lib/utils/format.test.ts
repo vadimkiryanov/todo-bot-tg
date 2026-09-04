@@ -67,6 +67,46 @@ describe('renderNoteHtml', () => {
   });
 });
 
+describe('renderNoteHtml — автопарсинг ссылок', () => {
+  const A = (url: string, text: string) =>
+    `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+
+  it('http-ссылку оборачивает в <a>, экранируя остальной текст', () => {
+    const html = renderNoteHtml('См. https://x.io/a и дальше', []);
+    expect(html).toBe(`См. ${A('https://x.io/a', 'https://x.io/a')} и дальше`);
+  });
+
+  it('www-ссылку дополняет схемой https://', () => {
+    const html = renderNoteHtml('Сайт: www.example.com/path', []);
+    expect(html).toBe(`Сайт: ${A('https://www.example.com/path', 'www.example.com/path')}`);
+  });
+
+  it('пунктуация конца предложения в ссылку не попадает', () => {
+    const html = renderNoteHtml('Пункт 1: https://x.io.', []);
+    expect(html).toBe(`Пункт 1: ${A('https://x.io', 'https://x.io')}.`);
+  });
+
+  it('парную скобку в URL сохраняет, висячую — отрезает', () => {
+    expect(renderNoteHtml('https://en.wikipedia.org/wiki/Foo_(bar)', [])).toBe(
+      A('https://en.wikipedia.org/wiki/Foo_(bar)', 'https://en.wikipedia.org/wiki/Foo_(bar)'),
+    );
+    expect(renderNoteHtml('https://x.io/a_(b))', [])).toBe(
+      `${A('https://x.io/a_(b)', 'https://x.io/a_(b)')})`,
+    );
+  });
+
+  it('не линкует URL внутри слова или сразу после @', () => {
+    expect(renderNoteHtml('nowww.example.com', [])).toBe('nowww.example.com');
+    expect(renderNoteHtml('xhttps://y.io/path', [])).toBe('xhttps://y.io/path');
+    expect(renderNoteHtml('см. @www.example.com', [])).toBe('см. @www.example.com');
+  });
+
+  it('URL в code/entity-фрагментах не дублирует ссылку', () => {
+    const html = renderNoteHtml('код www.x.io', [{ type: 'code', offset: 4, length: 9 }]);
+    expect(html).toBe('код <code>www.x.io</code>');
+  });
+});
+
 describe('markdownFromEntities', () => {
   it('восстанавливает разметку из entities', () => {
     const text = markdownFromEntities('Купить молоко', [

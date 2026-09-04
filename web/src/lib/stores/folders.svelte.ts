@@ -26,6 +26,20 @@ export const foldersStore = $state<{
  *  показывает папки сразу, без скелетона и мерцания. */
 const foldersByTopic = new Map<number, Folder[]>();
 
+/** Реактивный «счётчик» изменений кеша папок. ChatView показывает соседние
+    слайды-топики превью корневых папок из кеша (`peekCachedFolders`) — кеш
+    обычный Map, без счётчика превью не пересобралось бы после подгрузки. */
+export const foldersCacheTick = $state({ n: 0 });
+function bumpFoldersCacheTick(): void {
+  foldersCacheTick.n += 1;
+}
+
+/** Записать кеш папок топика + уведомить реактивных читателей. */
+function setTopicFolders(topicId: number, folders: Folder[]): void {
+  foldersByTopic.set(topicId, folders);
+  bumpFoldersCacheTick();
+}
+
 /** Папки текущего уровня: дети активной папки (или корневые, если папка не выбрана). */
 export function levelFolders(): Folder[] {
   const parent = navigation.activeFolderID;
@@ -105,7 +119,7 @@ export async function loadFolders(topicId: number, silent = false): Promise<void
   }
   try {
     const folders = await listAllFolders(topicId);
-    foldersByTopic.set(topicId, folders);
+    setTopicFolders(topicId, folders);
     if (navigation.activeTopicID === topicId) {
       foldersStore.all = folders;
       foldersStore.topicId = topicId;
@@ -125,7 +139,7 @@ export async function createFolder(name: string): Promise<void> {
   const updated = [...foldersStore.all, folder];
   foldersStore.all = updated;
   foldersStore.topicId = topicId;
-  foldersByTopic.set(topicId, updated);
+  setTopicFolders(topicId, updated);
 }
 
 export async function renameFolder(id: number, name: string): Promise<void> {
@@ -134,7 +148,7 @@ export async function renameFolder(id: number, name: string): Promise<void> {
   // Кеш топика папки тоже обновляем (если он загружен).
   const topicId = navigation.activeTopicID;
   if (topicId !== null && foldersByTopic.has(topicId)) {
-    foldersByTopic.set(topicId, foldersStore.all);
+    setTopicFolders(topicId, foldersStore.all);
   }
 }
 
@@ -145,7 +159,7 @@ export async function deleteFolder(id: number): Promise<void> {
   foldersStore.all = foldersStore.all.filter((f) => !subtree.has(f.id));
   const topicId = navigation.activeTopicID;
   if (topicId !== null && foldersByTopic.has(topicId)) {
-    foldersByTopic.set(topicId, foldersStore.all);
+    setTopicFolders(topicId, foldersStore.all);
   }
   if (subtree.has(navigation.activeFolderID ?? -1)) {
     navigation.activeFolderID = null;
