@@ -133,7 +133,10 @@
     role="tablist"
   >
     {#each topicsStore.topics as topic (topic.id)}
-      {@const active = topic.id === navigation.activeTopicID}
+      <!-- Подсветка — по фактическому активному топику либо по тому, куда
+           едет свайпер после отпускания (pendingTopicID): таб «догоняет» жест
+           сразу, не дожидаясь конца доводки. -->
+      {@const active = topic.id === (navigation.pendingTopicID ?? navigation.activeTopicID)}
       {@const extended =
         active && pathInTab && navigation.activeFolderID !== null && chainNames.length > 0}
       <button

@@ -361,6 +361,10 @@
     const runSpring = (index: number, v0: number): void => {
       cancelSpring();
       const target = -sw.snapGrid[Math.min(index, sw.snapGrid.length - 1)];
+      // Таб островка подсвечивает цель сразу (контент переключится в конце
+      // доводки, когда slideChange вызовет setActiveTopic).
+      const pendingId = slideTopicId(sw, index);
+      if (!Number.isNaN(pendingId)) navigation.pendingTopicID = pendingId;
       const finish = (): void => {
         springIndex = null;
         springRaf = undefined;
@@ -425,9 +429,11 @@
     sw.slideTo = slideToWithSpring as typeof sw.slideTo;
 
     const onTouchStart = (): void => {
-      // Новое касание ловит слайд на полпути доводки: пружину гасим, свайпер
-      // поведёт от текущей позиции; если касание окажется тапом (движения не
-      // было) — доводку возобновим в touchEnd.
+      // Новое касание: подсветка-«цель» сбрасывается (пружина/жест заново
+      // выставят её в runSpring); если пружина идёт — гасим её, свайпер
+      // поведёт от текущей позиции, а если касание окажется тапом (движения
+      // не было) — доводку возобновим в touchEnd.
+      navigation.pendingTopicID = null;
       if (springRaf !== undefined) {
         springHalted = true;
         cancelSpring();
