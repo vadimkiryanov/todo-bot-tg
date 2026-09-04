@@ -31,9 +31,8 @@
   // Swiper v14 (element) не регистрирует custom elements при импорте —
   // обязателен явный вызов register(), иначе swiper-container/swiper-slide
   // остаются неизвестными элементами и свайпер не инициализируется.
-  import { register } from 'swiper/element/bundle';
-  register();
-  import type { SwiperContainer } from 'swiper/element';
+
+  import { register, type SwiperContainer } from 'swiper/element';
   import type { Swiper } from 'swiper/types';
   import { onDestroy } from 'svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -75,6 +74,9 @@
   // анимация закрытия страницы — держим объект до явного onClose.
   let selectedId: number | null = $state(null);
   let selectedCache: Note | null = $state(null);
+  import { onMount } from 'svelte';
+
+ 
   $effect(() => {
     if (selectedId === null) {
       selectedCache = null;
@@ -83,6 +85,9 @@
     const found = notesStore.notes.find((n) => n.id === selectedId);
     if (found) selectedCache = found;
   });
+ onMount(()=>{
+      register();
+  })
 
   // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент открытия.
   let menuNoteId: number | null = $state(null);
@@ -1001,7 +1006,6 @@
       <swiper-container
         bind:this={levelSwiperEl}
         class="block h-full w-full"
-        speed="360"
       >
         {#each folderLevels as level, i (levelKey(level))}
           {@const folderId = levelIdOf(level)}
@@ -1152,7 +1156,6 @@
       <swiper-container
         bind:this={swiperEl}
         class="chat-swiper block h-full w-full"
-        speed="360"
         initial-slide={initialTopicIndex}
       >
         {#each topicsStore.topics as topic (topic.id)}
