@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { request } from '../api/client';
 import { resetMockStore, setMockDelay } from '../api/mock';
 import { loadNotes, notesStore, resetNotes } from './notes.svelte';
+import { navigation, setActiveFolder, setActiveTopic } from './navigation.svelte';
 import {
   createFolder,
   deleteFolder,
@@ -12,14 +13,15 @@ import {
   levelFolders,
   loadFolders,
   renameFolder,
+  resetFolders,
   treeFolders,
 } from './folders.svelte';
-import { navigation, setActiveFolder, setActiveTopic } from './navigation.svelte';
 import type { Topic } from '../types/api';
 
 beforeEach(() => {
   resetMockStore();
   setMockDelay(0);
+  resetFolders();
   resetNotes();
 });
 

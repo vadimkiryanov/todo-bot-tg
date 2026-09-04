@@ -195,6 +195,23 @@
     return previews.get(topicId);
   }
 
+  /** Слайды рядом с активным (сам + соседи ±1): у них рендерим контент или
+      превью. Дальние слайды — пустые оболочки (ленивость): при многих
+      топиках в DOM не висят сотни карточек, контент появляется, когда слайд
+      приблизился к активному (переключение слайда = смена activeTopicID). */
+  const nearTopicIds = $derived.by(() => {
+    const set = new Set<number>();
+    const list = topicsStore.topics;
+    const id = navigation.activeTopicID;
+    if (id === null) return set;
+    const index = list.findIndex((t) => t.id === id);
+    if (index < 0) return set;
+    for (let i = Math.max(0, index - 1); i <= Math.min(list.length - 1, index + 1); i++) {
+      set.add(list[i].id);
+    }
+    return set;
+  });
+
   /** Стартовый слайд свайпера: восстановленный активный топик. Атрибут
       initial-slide читается элементом один раз при инициализации — после
       этого слайдом управляют события/эффекты ниже. */
@@ -986,7 +1003,13 @@
       >
         {#each topicsStore.topics as topic (topic.id)}
           <swiper-slide class="block" data-topic-id={String(topic.id)}>
-            {@render topicPane(topic)}
+            {#if nearTopicIds.has(topic.id)}
+              {@render topicPane(topic)}
+            {:else}
+              <!-- Дальний слайд — пустая оболочка (ленивость): контент
+                   рендерится, когда слайд стал активным или соседним. -->
+              <div class="h-full"></div>
+            {/if}
           </swiper-slide>
         {/each}
       </swiper-container>

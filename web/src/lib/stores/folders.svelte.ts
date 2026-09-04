@@ -102,6 +102,17 @@ export function folderChain(): Folder[] {
   return chain;
 }
 
+/** Запросы папок топика в полёте: параллельные вызовы (эффект смены топика +
+    предзагрузка соседа) не дублируются в сеть — ждут один запрос. */
+const foldersInFlight = new Map<number, Promise<void>>();
+
+/** Момент последнего успешного получения папок топика. */
+const foldersLoadedAt = new Map<number, number>();
+
+/** Повторный запрос в течение окна не нужен: Svelte-эффекты при старте
+    срабатывают дважды с интервалом <1 с, данные только что получены. */
+const FOLDERS_FRESH_MS = 3000;
+
 /** Загрузка всех папок активного топика. silent — тихая перезагрузка. */
 export async function loadFolders(topicId: number, silent = false): Promise<void> {
   if (!silent) foldersStore.loading = true;
@@ -117,18 +128,48 @@ export async function loadFolders(topicId: number, silent = false): Promise<void
     foldersStore.all = [];
     foldersStore.topicId = null;
   }
-  try {
-    const folders = await listAllFolders(topicId);
-    setTopicFolders(topicId, folders);
-    if (navigation.activeTopicID === topicId) {
-      foldersStore.all = folders;
-      foldersStore.topicId = topicId;
-    }
-  } catch (e) {
-    foldersStore.error = e instanceof Error ? e.message : 'не удалось загрузить папки';
-  } finally {
+
+  // Кеш только что обновлён — повторный запрос не нужен (ре-ран эффекта).
+  const loadedAt = foldersLoadedAt.get(topicId);
+  if (loadedAt !== undefined && cached !== undefined && Date.now() - loadedAt < FOLDERS_FRESH_MS) {
     if (!silent) foldersStore.loading = false;
+    return;
   }
+
+  // Тот же топик уже грузится (предзагрузка соседа и т.п.) — ждём его
+  // результат, не начиная второй запрос.
+  const pending = foldersInFlight.get(topicId);
+  if (pending !== undefined) {
+    await pending;
+    if (navigation.activeTopicID === topicId) {
+      const fresh = foldersByTopic.get(topicId);
+      if (fresh !== undefined) {
+        foldersStore.all = fresh;
+        foldersStore.topicId = topicId;
+      }
+    }
+    if (!silent) foldersStore.loading = false;
+    return;
+  }
+
+  const run = (async () => {
+    try {
+      const folders = await listAllFolders(topicId);
+      foldersLoadedAt.set(topicId, Date.now());
+      setTopicFolders(topicId, folders);
+      if (navigation.activeTopicID === topicId) {
+        foldersStore.all = folders;
+        foldersStore.topicId = topicId;
+      }
+    } catch (e) {
+      foldersStore.error = e instanceof Error ? e.message : 'не удалось загрузить папки';
+    } finally {
+      foldersInFlight.delete(topicId);
+      if (!silent) foldersStore.loading = false;
+    }
+  })();
+  foldersInFlight.set(topicId, run);
+  await run;
 }
 
 /** Создание папки на текущем уровне (в активной папке или в корне топика). */
@@ -189,4 +230,6 @@ export function resetFolders(): void {
   foldersStore.loading = false;
   foldersStore.error = null;
   foldersByTopic.clear();
+  foldersLoadedAt.clear();
+  foldersInFlight.clear();
 }
