@@ -999,6 +999,7 @@
         class="block h-full w-full"
         speed="360"
         threshold="0"
+        touchReleaseOnEdges
       >
         {#each folderLevels as level, i (levelKey(level))}
           {@const folderId = levelIdOf(level)}
@@ -1152,6 +1153,7 @@
         initial-slide={initialTopicIndex}
         speed="360"
         threshold="0"
+        touchReleaseOnEdges
       >
         {#each topicsStore.topics as topic (topic.id)}
           <swiper-slide class="block" data-topic-id={String(topic.id)}>
