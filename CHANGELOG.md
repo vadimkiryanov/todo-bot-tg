@@ -508,6 +508,18 @@
 
 ---
 
+## Этап 50: Веб — свайпер на siema/SwipeStrip вместо SwiperJS (2026-09-06)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(в коммите)* | **SwiperJS заменён на siema** (web): причина — вес/размер зависимости и сложность/непрозрачность element API (shadow root, `register()`, параметры в `params`), эксперимент ради минимализма. Добавлен npm-пакет `siema ^1.5.1` (~13КБ, без зависимостей), `swiper ^14.2.0` удалён (`npm uninstall`); локальная декларация типов — `web/src/lib/types/siema.d.ts` (пакет без .d.ts) |
+| — | *(в коммите)* | **Новый компонент `web/src/lib/components/SwipeStrip.svelte`**: лента свайпов на siema с generics `T` — props: `items`, `keyOf`, `children` (Snippet), `initialIndex`, `animateGrowth`, `draggable`, `duration`, `threshold`, `scrollSel`, `onchange`, `onsettle`. События: `onchange(index)` — синхронно при смене слайда (аналог `slideChange`), `onsettle(index)` — после конца доезда по таймауту `duration+60` (аналог `slideChangeTransitionEnd`, siema не даёт transitionend). Программные переходы — `goTo(index, animate)` через `enableTransition`/`disableTransition` (без loop анимацию даёт CSS-transition на sliderFrame), `getIndex()`/`getCount()` для bind:this. Ключевое: слайды живут в keyed-поддереве `{#key}` — siema чистит контейнер через `innerHTML=''` и заворачивает слайды в обёртки, что убило бы якорь Svelte-каждого; при изменении списка поддерево перемонтируется ЦЕЛИКОМ по плану (`planKey`/`planIndex`/`planAnimateTo`), скроллы живых слайдов (`.chat-scroll`) переносятся между пересборками. Конфиг, читаемый siema только в конструкторе (draggable/duration/threshold), меняется пересозданием инстанса «на месте»: cleanup `destroy(true)` возвращает слайды в контейнер без обёрток, позиция держится через `curIndex` |
+| — | *(в коммите)* | **Миграция `ChatView.svelte` (топики + уровни папок)**: оба свайпера перенесены на `SwipeStrip` с полным паритетом механик — превью соседей ±1 (`nearTopicIds` от стор-активного ∪ фокуса), фокус/предзагрузка на отпускание (`onTopicChange`) и при программных переездах, синхронизация с островком табов (`alignToActive`/`slideToTopic`), URL (`?topic=&folder=`), ленивые дальние слайды-оболочки. Уровни папок: слайд = уровень пути `[null, ...folderChain()]`, вход в папку — рост цепочки с анимированным доездом к глубокому слайду (`animateGrowth`, двойной rAF), выход свайпом — смена уровня стора только на `onsettle` (после фактической остановки, чтобы укорачивание цепочки не снесло уезжающий слайд). Жесты «ровно один включён» — пропсами `draggable`: внешний `!inFolder`, уровни `inFolder`; siema с `draggable=false` вообще не вешает touch-хендлеров. `prefers-reduced-motion` — `duration=0` через `stripSpeed()`. Удалены element API Swiper (`register()`, `swiper-container`, shadow-классы, IntersectionObserver видимости, drag-события) |
+| — | *(в коммите)* | **Компромиссы siema** (сознательно приняты): нет событий драга — фокус окрестности выставляется на отпускание и программно (`onchange` приходит в начале доезда — превью успевает наполнить слайд до остановки); нет transitionend — `onsettle` по таймауту; `stopPropagation` в touch-хендлерах всегда — вложенный свайпер уровней работает только когда внешний выключен (драг-пропсы «ровно один включён») |
+| — | *(в коммите)* | Проверки: `npm run check` 0 ошибок (известные warnings), `vitest` 71/71, `npm run build` успешен |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |

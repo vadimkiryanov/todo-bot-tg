@@ -13,8 +13,8 @@
     "gen:icons": "node scripts/gen-icons.mjs"
   },
   "dependencies": {
-    "svelte": "^5.56.10",
-    "swiper": "^14.2.0"
+    "siema": "^1.5.1",
+    "svelte": "^5.56.10"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",

@@ -1,24 +1,23 @@
 <script lang="ts">
   // Экран чата: «островок» топиков (сверху, стеклянный, фиксирован — список
   // скроллится под ним), список заметок, поле ввода снизу.
-  // Переключение топиков — SwiperJS (слайд = топик): горизонтальный свайп
-  // работает в корне топиков, активный контент едет за пальцем (нативные
-  // жесты библиотеки, никакой самописной «сцены»). Вертикальный скролл —
-  // послайдовый: у каждого слайда свой scroll-контейнер (.chat-scroll);
-  // сам свайпер не скроллится (overflow скрыт). Активный слайд — «живой»
-  // список из стора; соседние слайды — статичные превью корней из кеша
+  // Переключение топиков — горизонтальная лента SwipeStrip на siema (слайд
+  // = топик): активный контент едет за пальцем (нативные жесты библиотеки,
+  // никакой самописной «сцены»). Вертикальный скролл — послайдовый:
+  // у каждого слайда свой scroll-контейнер (.chat-scroll); сама лента не
+  // скроллится (overflow скрыт). Активный слайд — «живой» список из стора;
+  // соседние слайды — статичные превью корней из кеша
   // (peekCachedNotes/peekCachedFolders), без кеша — плейсхолдер ⏳, а хэндлеры
   // заглушены (no-op), чтобы долгий тап не открывал меню чужого топика.
   // Папки — уровни внутри слайда топика, поэтому у живого топика свой
   // ВЛОЖЕННЫЙ свайпер уровней (слайд = уровень: корень + цепочка папок до
-  // активной). Внутри папки внешний свайпер (топики) выключен целиком
-  // (allowTouchMove = false) — работает внутренний: свайп ВПРАВО по списку
-  // поднимает на уровень выше (заводская анимация; смена уровня — после
-  // остановки слайда, slideChangeTransitionEnd) — самописного drag-follow
-  // больше нет. Глубокий
-  // (последний) слайд уровней — «живой» список активного уровня, слайды
-  // выше — статичные превью из кеша. Вход в папку (тап по строке/крошке) —
-  // анимированный переезд вглубь, как смена топиков.
+  // активной). Внутри папки внешняя лента (топики) выключена целиком
+  // (draggable = false) — работает внутренняя: свайп ВПРАВО по списку
+  // поднимает на уровень выше (смена уровня — после фактической остановки
+  // слайда, onsettle) — самописного drag-follow нет. Глубокий (последний)
+  // слайд уровней — «живой» список активного уровня, слайды выше — статичные
+  // превью из кеша. Вход в папку (тап по строке/крошке) — анимированный
+  // переезд вглубь, как смена топиков.
   // Кроме жеста выход из папки — тапом по UI (в шторке
   // папок «📂 Корень»/уровень, таб-крошка островка в режиме пути 'tab',
   // строка-крошка FolderStrip в 'strip').
@@ -29,12 +28,11 @@
   // над полем ввода (📁 — в режиме папок 'button').
   // Создание топика — долгий тап на табе островка/в меню топика; создание
   // папки — долгий тап на строке папки / заметке / пустом месте.
-  // Swiper v14 (element) не регистрирует custom elements при импорте —
-  // обязателен явный вызов register(), иначе swiper-container/swiper-slide
-  // остаются неизвестными элементами и свайпер не инициализируется.
+  // SwipeStrip на siema: компромиссы против SwiperJS — событий драга нет
+  // (фокус/предзагрузка обновляются в момент отпускания, onchange; соседние
+  // ±1 рендерятся всегда, поэтому слайд приезжает наполненным), вход в папку
+  // анимируется планом пересборки SwipeStrip (стартовый слайд + доезд).
 
-  import { register, type SwiperContainer } from 'swiper/element';
-  import type { Swiper } from 'swiper/types';
   import { onDestroy } from 'svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import CreateFolderModal from '$lib/components/CreateFolderModal.svelte';
@@ -49,6 +47,7 @@
   import NoteMenu from '$lib/components/NoteMenu.svelte';
   import NotePage from '$lib/components/NotePage.svelte';
   import QuickMenu from '$lib/components/QuickMenu.svelte';
+  import SwipeStrip from '$lib/components/SwipeStrip.svelte';
   import TopicIsland from '$lib/components/TopicIsland.svelte';
   import TopicMenu from '$lib/components/TopicMenu.svelte';
   import TopicTabs from '$lib/components/TopicTabs.svelte';
@@ -74,9 +73,7 @@
   // анимация закрытия страницы — держим объект до явного onClose.
   let selectedId: number | null = $state(null);
   let selectedCache: Note | null = $state(null);
-  import { onMount } from 'svelte';
 
- 
   $effect(() => {
     if (selectedId === null) {
       selectedCache = null;
@@ -85,10 +82,6 @@
     const found = notesStore.notes.find((n) => n.id === selectedId);
     if (found) selectedCache = found;
   });
- onMount(()=>{
-      register();
-  })
-
   // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент открытия.
   let menuNoteId: number | null = $state(null);
   let menuRect: DOMRect | null = $state(null);
@@ -395,8 +388,8 @@
 
   /** Слайд в фокусе свайпера (видимый сейчас / цель драга / программного
       переезда). Может опережать стор-активный: при быстрых свайпах целевой
-      слайд едет и виден ДО slideChange (тот приходит по отпускании, в начале
-      заводской анимации). Окрестность фокуса рендерится
+      слайд едет и виден ДО onchange ленты (тот приходит на отпускании, в
+      начале доезда). Окрестность фокуса рендерится
       (nearTopicIds) и предзагружается — слайд подъезжает наполненным, а не
       пустой оболочкой до полной остановки анимации. */
   let focusTopicIndex = $state(-1);
@@ -437,9 +430,10 @@
     return set;
   });
 
-  /** Стартовый слайд свайпера: восстановленный активный топик. Атрибут
-      initial-slide читается элементом один раз при инициализации — после
-      этого слайдом управляют события/эффекты ниже. */
+  /** Стартовый слайд свайпера: восстановленный активный топик. Проп
+      initialIndex используется SwipeStrip планом пересборки (при обычных
+      изменениях списка лента оказывается здесь) — после старта слайдом
+      управляют onchange ленты и эффект alignToActive ниже. */
   const initialTopicIndex = $derived.by(() => {
     const id = navigation.activeTopicID;
     if (id === null) return 0;
@@ -447,216 +441,129 @@
     return index > 0 ? index : 0;
   });
 
-  // ── Свайпер (Swiper element, слайд = топик) ─────────────────────────────
+  // ── Лента топиков (SwipeStrip на siema; слайд = топик) ──────────────────
   // Слайды рендерятся по topicsStore.topics (в том же порядке, что табы
   // островка). Навигация двусторонняя:
-  //  • свайп/таб островка двигает свайпер → событие slideChange пишет
+  //  • свайп/таб островка двигает ленту → событие onchange пишет
   //    navigation.activeTopicID (guard: если id совпадает — пропуск, иначе
-  //    замкнутый цикл slideTo ↔ slideChange);
+  //    замкнутый цикл goTo ↔ onchange);
   //  • программная смена (TopicTabs/шторка, deleteTopic/restore, вход в чат)
-  //    меняет стор → $effect делает swiper.slideTo (с тем же guard).
-  // Папки: вход (activeFolderID) — allowTouchMove=false, выход — true.
-  let swiperEl: SwiperContainer | undefined = $state();
-
-  function currentSwiper(): Swiper | undefined {
-    const el = swiperEl;
-    if (el === undefined) return undefined;
-    const sw = el.swiper;
-    if (sw === undefined || sw.destroyed) return undefined;
-    return sw;
+  //    меняет стор → $effect делает goTo (с тем же guard).
+  // Папки: вход (activeFolderID) — внешняя лента draggable=false, выход — true
+  // (пропс, не ручное переключение: siema с draggable=false вообще не вешает
+  // обработчиков касаний — «выключенная» лента не мешает вложенной).
+  //
+  // Императивный API ленты (bind:this) — узкий интерфейс под нужное ChatView:
+  // полный тип инстанса завязан на generics SwipeStrip, поэтому описываем
+  // только goTo/getIndex/getCount (экспорты SwipeStrip структурно совместимы).
+  interface StripHandle {
+    goTo(index: number, animate: boolean): void;
+    getIndex(): number;
+    getCount(): number;
   }
 
-  /** Индекс топика в списке/свайпере (-1 — нет). */
+  let topicStrip: StripHandle | undefined = $state();
+  let levelStrip: StripHandle | undefined = $state();
+
+  /** Внутри папки внешняя лента (топики) выключена — жесты у уровней. */
+  const inFolder = $derived(navigation.activeFolderID !== null);
+
+  /** Длительность доезда siema: 0 при prefers-reduced-motion (всё мгновенно:
+      и отпускание драга, и программные переходы). */
+  function stripSpeed(): number {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 360;
+  }
+
+  /** Индекс топика в списке/ленте (-1 — нет). */
   function topicIndexById(id: number): number {
     return topicsStore.topics.findIndex((t) => t.id === id);
   }
 
-  /** id топика слайда свайпера по индексу (NaN — слайда нет). */
-  function slideTopicId(sw: Swiper, index: number): number {
-    const slide = sw.slides[index];
-    if (slide === undefined) return NaN;
-    const raw = (slide as HTMLElement).dataset.topicId;
-    return raw === undefined ? NaN : Number(raw);
-  }
-
-  /** Скорость анимации: 0 при prefers-reduced-motion. */
-  function slideSpeed(): number {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 360;
-  }
-
   /** Привести активный слайд к navigation.activeTopicID. Защита от петель:
-      если слайд уже показывает нужный топик — не трогаем свайпер. */
+      если слайд уже показывает нужный топик — не трогаем ленту. */
   function alignToActive(animate: boolean): void {
-    const sw = currentSwiper();
+    const strip = topicStrip;
     const id = navigation.activeTopicID;
-    if (sw === undefined || id === null) return;
+    if (strip === undefined || strip.getIndex() < 0 || id === null) return;
     const want = topicIndexById(id);
-    if (want < 0 || want >= sw.slides.length) return; // свайпер ещё не пересобрался
-    if (slideTopicId(sw, sw.activeIndex) === id) return;
+    if (want < 0 || want >= topicsStore.topics.length) return; // лента ещё не пересобралась
+    if (strip.getIndex() === want) return;
     // Фокус на цель сразу: её окрестность рендерится, пока слайд едет.
     setFocusTopicIndex(want);
-    sw.slideTo(want, animate ? slideSpeed() : 0);
+    strip.goTo(want, animate);
   }
 
   /** Слайднуть к топику (тап по табу островка). */
   function slideToTopic(id: number): void {
-    const sw = currentSwiper();
+    const strip = topicStrip;
     const want = topicIndexById(id);
-    if (sw !== undefined && want >= 0) {
+    if (strip !== undefined && strip.getIndex() >= 0 && want >= 0) {
       // Фокус на цель сразу: превью цели (и предзагрузка её данных)
       // стартуют, пока слайд ещё едет анимацией.
       setFocusTopicIndex(want);
-      sw.slideTo(want, slideSpeed());
+      strip.goTo(want, true);
       return;
     }
-    // Свайпер ещё не готов — переключение просто меняет стор (эффект догонит).
+    // Лента ещё не готова — переключение просто меняет стор (эффект догонит).
     setActiveTopic(id);
   }
 
-  /** Переключить топик (выбор таба в островке): ведём слайд свайпера. */
+  /** Переключить топик (выбор таба в островке): ведём слайд ленты. */
   function onIslandSelect(id: number): void {
     slideToTopic(id);
   }
 
-  // События свайпера: свайп/таб → стор; реальный drag → гасим «клик
-  // отпускания» (иначе после свайпа открылся бы оверлей заметки под пальцем);
-  // пересборка слайдов (удаление/добавление топиков) → синхронизация.
-  // После отпускания слайд доезжает заводской анимацией Swiper (speed=360).
-  $effect(() => {
-    const el = swiperEl;
-    const sw = el?.swiper;
-    if (el === undefined || sw === undefined) return;
-
-    // Без «пружины» resistance на крайних слайдах (первый/последний топик):
-    // при возврате драга за точку старта слайд иначе едет за пальцем не 1:1 —
-    // видимый «стык», слайд будто встаёт на место. Жёсткое следование до
-    // отпускания; доезд/возврат — заводской анимацией.
-    sw.params.resistance = false;
-
-    const onSlideChange = (): void => {
-      const id = slideTopicId(sw, sw.activeIndex);
-      if (!Number.isNaN(id) && id !== navigation.activeTopicID) {
-        setActiveTopic(id);
-      }
-      // Слайд встал — фокус совпадает со стор-активным (страховка для
-      // случаев, когда фокус уехал вперёд намерения/драга).
-      setFocusTopicIndex(sw.activeIndex);
-    };
-    const refreshVisibilityPreload = (): void => {
-      visibilityObserver?.disconnect();
-      visibilityObserver = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            const raw = (entry.target as HTMLElement).dataset.topicId;
-            if (raw === undefined) continue;
-            const id = Number(raw);
-            if (!Number.isNaN(id)) preloadTopicAround(id);
-          }
-        },
-        { root: el, threshold: 0 },
-      );
-      for (const slide of sw.slides) visibilityObserver.observe(slide);
-    };
-    const onSlidesChanged = (): void => {
-      // Слайды пересобраны (создание/удаление топиков) — наблюдатели заново.
-      refreshVisibilityPreload();
-      alignToActive(false);
-    };
-
-    // Драг пальцем: фокус следует за фактически видимым слайдом — как только
-    // соседний выехал больше чем на половину, его окрестность рендерится и
-    // предзагружается ещё до отпускания. Отпускание скорректирует фокус по
-    // реальной цели (slideChange), недотянутый драг — вернёт.
-    const onDragFocus = (): void => {
-      const max = sw.slides.length - 1;
-      const index = Math.round(-sw.translate / sw.width);
-      setFocusTopicIndex(Math.max(0, Math.min(max, index)));
-    };
-
-
-    // Предзагрузка по видимости: как только соседний топик начал заезжать
-    // в область свайпера (хотя бы пикселем) — сразу тянем его корень и
-    // соседей. Это самый ранний старт (раньше перехода фокуса на половине
-    // слайда и отпускания). Повторные срабатывания (слайд виден долго)
-    // дешёвые — свежий кеш и идущие запросы пропускаются.
-    // ВАЖНО: внутри эффекта нельзя синхронно писать focusTopicIndex (и читать
-    // его через setFocusTopicIndex) — эффект стал бы зависеть от фокуса и
-    // пересоздавался бы на каждой его смене: лишняя работа (перевешивание
-    // слушателей, сброс наблюдателя видимости). Начальный фокус не нужен:
-    // окрестность стартового слайда рендерится через центр activeTopicID,
-    // дальше фокус выставляют драг (onDragFocus), отпускание (slideChange).
-    let visibilityObserver: IntersectionObserver | undefined;
-    refreshVisibilityPreload();
-
-    sw.on('slideChange', onSlideChange);
-    sw.on('slidesLengthChange', onSlidesChanged);
-    sw.on('sliderMove', onDragFocus);
-    return () => {
-      visibilityObserver?.disconnect();
-      visibilityObserver = undefined;
-      sw.off('slideChange', onSlideChange);
-      sw.off('slidesLengthChange', onSlidesChanged);
-      sw.off('sliderMove', onDragFocus);
-    };
-  });
+  /** Смена слайда ленты (отпускание драга или программный goTo) — аналог
+      slideChange у Swiper: слайд известен до конца доезда. Пишем стор
+      (guard: тот же топик — пропуск, иначе петля goTo ↔ onchange) и
+      выравниваем фокус — он мог уехать вперёд намерения/драга. */
+  function onTopicChange(index: number): void {
+    const topic = topicsStore.topics[index];
+    if (topic !== undefined && topic.id !== navigation.activeTopicID) {
+      setActiveTopic(topic.id);
+    }
+    setFocusTopicIndex(index);
+  }
 
   // Программная навигация (шторка «Топики», восстановление сессии, удаление
   // активного топика и т.п.): активный топик в сторе изменился — слайднуться.
-  // Зависимость от длины списка: после удаления/создания топика слайды
-  // пересобраны — проверяем соответствие заново.
+  // Зависимость от длины списка: после удаления/создания топика SwipeStrip
+  // пересобирает слайды (стартовый слайд плана = активный топик по
+  // initialIndex) — сверяем соответствие заново (goTo с guard не сработает
+  // зря: индекс уже правильный).
+  //
+  // ВАЖНО: у siema нет событий драга/пересборки слайдов — предзагрузка по
+  // видимости (IntersectionObserver) и сопровождение фокуса за пальцем
+  // (onDragFocus) из Swiper-версии не переносятся. Их роль выполняют:
+  // окрестность ±1 вокруг активного/фокусного топика рендерится всегда
+  // (nearTopicIds) и предзагружается при установке фокуса; фокус/предзагрузка
+  // обновляются в момент отпускания (onTopicChange) и при программном goTo —
+  // слайд приезжает наполненным (превью из кеша или «живой» список).
   $effect(() => {
     const id = navigation.activeTopicID;
     if (id === null) return;
     void topicsStore.topics.length;
+    void topicStrip;
     alignToActive(true);
   });
 
-  // Свайперы делят жесты — «ровно один включён»: в корне топиков (папка не
-  // выбрана) листаются топики внешним свайпером, внутренний выключен; внутри
-  // папки — наоборот: топики не листаются (внешний выключен), уровни ведёт
-  // внутренний. Ставим и params, и свойство инстанса (обработчики касаний
-  // смотрят именно в swiper.allowTouchMove). Выключенный свайпер не мешает
-  // включённому: при allowTouchMove=false onTouchMove выходит до
-  // preventDefault/stopPropagation — жест достаётся родительскому элементу.
-  $effect(() => {
-    const inFolder = navigation.activeFolderID !== null;
-    const outer = swiperEl?.swiper;
-    if (outer !== undefined) {
-      outer.allowTouchMove = !inFolder;
-      outer.params.allowTouchMove = !inFolder;
-    }
-    const inner = levelSwiperEl?.swiper;
-    if (inner !== undefined) {
-      inner.allowTouchMove = inFolder;
-      inner.params.allowTouchMove = inFolder;
-    }
-  });
-
-  // ── Уровни папок — вложенный Swiper (слайд = уровень) ──────────────────
-  // Папка — уровень ВНУТРИ слайда топика, поэтому у живого топика свой
-  // вложенный свайпер: слайд на каждый уровень [корень(null), ...цепочка
+  // ── Уровни папок — вложенная лента SwipeStrip (слайд = уровень) ────────
+  // Папка — уровень ВНУТРИ слайда топика, поэтому у живого топика своя
+  // вложенная лента: слайд на каждый уровень [корень(null), ...цепочка
   // папок до активной]. Глубокий (последний) слайд — «живой» список
   // активного уровня из стора; слайды выше — статичные превью уровней из
   // кеша (noop-хэндлеры, как у соседних топиков).
-  // Вход в папку (тап по строке/крошке) — цепочка растёт: эффект глубины
-  // анимированно ведёт свайпер вглубь (контент уезжает влево, как у топиков).
-  // Выход свайпом-вправо — заводская анимация до слайда родителя; когда
-  // слайд встал (slideChangeTransitionEnd), меняется уровень стора —
-  // цепочка укорачивается, слайд родителя становится глубоким («живым»).
-  // Скролл уровня живёт в его слайде и сохраняется (keyed each по id уровня
-  // не пересоздаёт DOM родительских слайдов при входе/выходе). При смене
-  // топика вложенный свайпер размонтируется вместе со слайдом — скролл
-  // нового топика естественно с нуля.
-  let levelSwiperEl: SwiperContainer | undefined = $state();
-
-  function levelSwiper(): Swiper | undefined {
-    const el = levelSwiperEl;
-    if (el === undefined) return undefined;
-    const sw = el.swiper;
-    if (sw === undefined || sw.destroyed) return undefined;
-    return sw;
-  }
+  // Вход в папку (тап по строке/крошке) — цепочка растёт: SwipeStrip
+  // (animateGrowth) стартует со слайда родителя и анимированно доезжает
+  // к глубокому (контент уезжает влево, как у топиков).
+  // Выход свайпом-вправо — доезд до слайда родителя; когда слайд встал
+  // (onsettle), меняется уровень стора — цепочка укорачивается, слайд
+  // родителя становится глубоким («живым»). Скролл уровня живёт в его
+  // слайде и сохраняется (SwipeStrip переносит scrollTop пережившим слайдам
+  // при пересборке цепочки). При смене топика вложенная лента
+  // размонтируется вместе со слайдом — скролл нового топика с нуля.
+  // Императивный handle ленты — levelStrip (объявлен выше, рядом с
+  // topicStrip): используется только как bind:this-цель в разметке.
 
   /** Слайды уровней: корень (null) + цепочка папок от корня до активной.
       Пустая цепочка (в корне) — один слайд корня. */
@@ -712,66 +619,28 @@
     return levelPreviews.get(folderId);
   }
 
-  /** Привести активный слайд уровней к глубокому (folderLevels.length - 1).
-      Слайды свайпера могут отставать от Svelte-флаша (observer асинхронный) —
-      sw.update() собирает их синхронно; не вышло — пропуск (глубина меняется
-      только через folderLevels, следующий прогон эффекта доведёт). Уже на
-      глубоком слайде — не трогаем (guard от петель). */
-  function alignLevels(animate: boolean): void {
-    const sw = levelSwiper();
-    const want = folderLevels.length - 1;
-    if (sw === undefined || want < 0) return;
-    if (sw.slides.length <= want) sw.update();
-    if (sw.slides.length <= want) return;
-    if (sw.activeIndex === want) return;
-    sw.slideTo(want, animate ? slideSpeed() : 0);
+  /** Глубокий слайд уровней — последний в цепочке: на нём лента оказывается
+      после каждой пересборки (SwipeStrip initialIndex). Вход в папку — рост
+      цепочки: SwipeStrip с animateGrowth стартует со слайда родителя
+      (предыдущего глубокого) и анимированно доезжает сюда; выход/UI-переходы —
+      цепочка укорачивается, этот же индекс ведёт сразу на глубокий слайд. */
+  const levelInitialIndex = $derived(folderLevels.length - 1);
+
+  /** Свайп-выход доехал до уровня (onsettle — фактическая остановка слайда,
+      аналог slideChangeTransitionEnd): слайд показывает уровень выше — меняем
+      уровень стора, цепочка укорачивается, слайд становится глубоким.
+      Момент важен: onchange у siema приходит в момент отпускания, ДО конца
+      CSS-transition — укорачивание цепочки там удалило бы уезжающий слайд
+      из DOM посреди движения (видимый обрыв). Смена уровня только после
+      остановки слайда (он уже скрылся за краем) делает удаление невидимым.
+      Программные входы (рост цепочки) заканчиваются на глубоком слайде —
+      уровень совпадает со стором, ничего не меняем. */
+  function onLevelSettled(index: number): void {
+    const level = folderLevels[index];
+    if (level === undefined) return;
+    const folderId = levelIdOf(level);
+    if (folderId !== navigation.activeFolderID) setActiveFolder(folderId);
   }
-
-  // Глубина уровней (вход/выход из папки) ведёт внутренний свайпер: цепочка
-  // выросла (вошли глубже) — анимированный переезд к новому глубокому слайду;
-  // укоротилась (выход) — мгновенно: свайп-выход уже доехал (уровень сменился
-  // на slideChangeTransitionEnd, слайд стоит на родителе), UI-выход по
-  // крошке/шторке — резкий, как и раньше.
-  let prevLevelsDepth = 0;
-  $effect(() => {
-    const depth = folderLevels.length;
-    const growing = prevLevelsDepth > 0 && depth > prevLevelsDepth;
-    prevLevelsDepth = depth;
-    alignLevels(growing);
-  });
-
-  // События внутреннего свайпера: свайп-выход доехал (заводская анимация
-  // закончилась, slideChangeTransitionEnd) — слайд показывает уровень выше:
-  // меняем уровень стора, цепочка укорачивается, слайд становится глубоким.
-  // Момент важен: slideChange у Swiper приходит в НАЧАЛЕ slideTo (до начала
-  // CSS-transition) — укорачивание цепочки там удалило бы уезжающий слайд
-  // из DOM посреди движения (видимый обрыв). Смена уровня только после
-  // фактической остановки слайда (он уже скрылся за краем) делает удаление
-  // невидимым. Программные slideTo (вход/выход через alignLevels)
-  // заканчиваются на глубоком слайде — уровень совпадает со стором,
-  // ничего не меняем. При прерывании анимации новым драгом Swiper сам
-  // форсит это событие (синтетический transitionend).
-  $effect(() => {
-    const el = levelSwiperEl;
-    const sw = el?.swiper;
-    if (el === undefined || sw === undefined) return;
-
-    // То же, что у внешнего свайпера: без «пружины» resistance на крайних
-    // слайдах уровней (корень/глубина) при возврате драга за точку старта.
-    sw.params.resistance = false;
-
-    const onSlideSettled = (): void => {
-      const level = folderLevels[sw.activeIndex];
-      if (level === undefined) return;
-      const folderId = levelIdOf(level);
-      if (folderId !== navigation.activeFolderID) setActiveFolder(folderId);
-    };
-
-    sw.on('slideChangeTransitionEnd', onSlideSettled);
-    return () => {
-      sw.off('slideChangeTransitionEnd', onSlideSettled);
-    };
-  });
 
   let topZone: HTMLDivElement | undefined;
   let topPad = $state(0);
@@ -880,7 +749,7 @@
 
   // «Назад/вперёд»: popstate на наши записи (state=null) SvelteKit пропускает
   // (лишь обновляет page.url) — доводим сторы сами: заметка в query — открыть,
-  // без неё — закрыть; топик/папку — по равенству (как slideChange).
+  // без неё — закрыть; топик/папку — по равенству (как onchange ленты).
   $effect(() => {
     const onPopState = (): void => {
       urlIntent = readUrlIntent();
@@ -984,27 +853,30 @@
 
   {#snippet topicPane(topic: Topic)}
     {#if topic.id === navigation.activeTopicID}
-      <!-- Живой топик: вложенный свайпер уровней. Слайд на каждый уровень
-           [корень, ...цепочка папок до активной] — глубокий (последний)
-           показывает «живой» список активного уровня из стора, слайды выше —
-           статичные превью уровней из кеша (noop-хэндлеры, как у соседних
-           топиков). Вертикальный скролл — у каждого слайда свой (.chat-scroll):
-           вход/выход из папки не сбрасывает скролл уровней, контент каждого
-           уровня начинается под «островком» (topPad). Свайп-вправо — «назад»
-           на уровень выше (смена уровня — после остановки слайда, см. эффект
-           slideChangeTransitionEnd ниже); тап по папке/крошке — вход: эффект
-           глубины ведёт свайпер к глубокому слайду. -->
-      <swiper-container
-        bind:this={levelSwiperEl}
-        class="block h-full w-full"
-        speed="360"
-        threshold="0"
-        touchReleaseOnEdges
+      <!-- Живой топик: вложенная лента уровней (SwipeStrip на siema). Слайд
+           на каждый уровень [корень, ...цепочка папок до активной] — глубокий
+           (последний) показывает «живой» список активного уровня из стора,
+           слайды выше — статичные превью уровней из кеша (noop-хэндлеры, как
+           у соседних топиков). Вертикальный скролл — у каждого слайда свой
+           (.chat-scroll): вход/выход из папки не сбрасывает скролл уровней
+           (SwipeStrip переносит scrollTop пережившим слайдам), контент
+           каждого уровня начинается под «островком» (topPad). Свайп-вправо —
+           «назад» на уровень выше (смена уровня — после фактической остановки
+           слайда, onsettle); тап по папке/крошке — вход: цепочка растёт,
+           SwipeStrip (animateGrowth) анимированно доезжает к глубокому. -->
+      <SwipeStrip
+        bind:this={levelStrip}
+        items={folderLevels}
+        keyOf={levelKey}
+        initialIndex={levelInitialIndex}
+        animateGrowth
+        draggable={inFolder}
+        duration={stripSpeed()}
+        onsettle={onLevelSettled}
       >
-        {#each folderLevels as level, i (levelKey(level))}
+        {#snippet children(level: Folder | null, i: number)}
           {@const folderId = levelIdOf(level)}
           {@const isDeep = i === folderLevels.length - 1}
-          <swiper-slide class="block">
             {#if isDeep}
               <div
                 class="chat-scroll scroll-area h-full touch-pan-y overflow-y-auto"
@@ -1077,12 +949,11 @@
                 {/if}
               </div>
             {/if}
-          </swiper-slide>
-        {/each}
-      </swiper-container>
+          {/snippet}
+        </SwipeStrip>
     {:else}
       <!-- Слайд соседнего топика: статичное превью корня (из кеша) в своём
-           .chat-scroll. Вертикальный скролл — у самого слайда: свайпер выше
+           .chat-scroll. Вертикальный скролл — у самого слайда: лента выше
            не скроллится, контент начинается под «островком» (topPad). -->
       {@const preview = previewData(topic.id)}
       <div
@@ -1136,37 +1007,37 @@
       </button>
     </div>
   {:else}
-    <!-- Зона свайпера: слайд на каждый топик. Сам контейнер не скроллится
+    <!-- Зона ленты: слайд на каждый топик. Сама лента не скроллится
          (overflow скрыт) — вертикальный скролл живёт внутри слайдов
          (.chat-scroll): у соседних топиков прямо в слайде, у живого — в
-         слайдах вложенного свайпера уровней. Жесты делят два свайпера:
-         в корне топиков (папка не выбрана) ведёт внешний, внутри папки —
-         вложенный (уровни); выключенный не мешает включённому. -->
+         слайдах вложенной ленты уровней. Жесты делят две ленты (SwipeStrip
+         с draggable): в корне топиков (папка не выбрана) ведёт внешняя,
+         внутри папки — вложенная (уровни); «выключенная» (draggable=false)
+         не вешает обработчиков касаний и не мешает включённой. -->
     <div
       class="relative min-h-0 flex-1 overflow-hidden"
       role="region"
       aria-label="Список топиков"
     >
-      <swiper-container
-        bind:this={swiperEl}
-        class="chat-swiper block h-full w-full"
-        initial-slide={initialTopicIndex}
-        speed="360"
-        threshold="0"
-        touchReleaseOnEdges
+      <SwipeStrip
+        bind:this={topicStrip}
+        items={topicsStore.topics}
+        keyOf={(t: Topic) => String(t.id)}
+        initialIndex={initialTopicIndex}
+        draggable={!inFolder}
+        duration={stripSpeed()}
+        onchange={onTopicChange}
       >
-        {#each topicsStore.topics as topic (topic.id)}
-          <swiper-slide class="block" data-topic-id={String(topic.id)}>
-            {#if nearTopicIds.has(topic.id)}
-              {@render topicPane(topic)}
-            {:else}
-              <!-- Дальний слайд — пустая оболочка (ленивость): контент
-                   рендерится, когда слайд стал активным или соседним. -->
-              <div class="h-full"></div>
-            {/if}
-          </swiper-slide>
-        {/each}
-      </swiper-container>
+        {#snippet children(topic: Topic, _i: number)}
+          {#if nearTopicIds.has(topic.id)}
+            {@render topicPane(topic)}
+          {:else}
+            <!-- Дальний слайд — пустая оболочка (ленивость): контент
+                 рендерится, когда слайд стал активным или соседним. -->
+            <div class="h-full"></div>
+          {/if}
+        {/snippet}
+      </SwipeStrip>
     </div>
   {/if}
 
