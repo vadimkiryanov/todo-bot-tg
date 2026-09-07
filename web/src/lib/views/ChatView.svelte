@@ -481,6 +481,32 @@
   let topicStrip: StripHandle | undefined = $state();
   let levelStrip: StripHandle | undefined = $state();
 
+  /** Непрерывная позиция свайпа ленты топиков (дробный индекс из
+      SwipeStrip.ondragmove): капсула островка следует за пальцем.
+      null — жест завершён, островок живёт обычной логикой. */
+  let islandDragPos: number | null = $state(null);
+
+  function onTopicDragMove(position: number): void {
+    islandDragPos = position;
+  }
+
+  function onTopicDragEnd(finalPos?: number): void {
+    if (finalPos !== undefined) {
+      // Быстрый флик: последний rAF-кадр ondragmove мог отстать от пальца —
+      // SwipeStrip дослал точку отпускания. Сначала ставим капсулу ровно в
+      // неё (островок видит dragPos === finalPos и встаёт туда), затем
+      // отпускаем в покой отдельным микротаском: доезд к активному табу
+      // стартует с точки отпускания, синхронно с доводкой siema. В одном
+      // флаше Svelte схлопнул бы обе записи, и точка была бы потеряна.
+      islandDragPos = finalPos;
+      queueMicrotask(() => {
+        islandDragPos = null;
+      });
+      return;
+    }
+    if (islandDragPos !== null) islandDragPos = null;
+  }
+
   /** Внутри папки внешняя лента (топики) выключена — жесты у уровней. */
   const inFolder = $derived(navigation.activeFolderID !== null);
 
@@ -1043,6 +1069,8 @@
         draggable={!inFolder}
         duration={stripSpeed()}
         onchange={onTopicChange}
+        ondragmove={onTopicDragMove}
+        ondragend={onTopicDragEnd}
       >
         {#snippet children(topic: Topic, _i: number)}
           {#if nearTopicIds.has(topic.id)}
@@ -1070,6 +1098,8 @@
       onSelect={onIslandSelect}
       pathInTab={settings.pathMode === 'tab'}
       onOpenFolders={() => (folderSheetOpen = true)}
+      dragPos={islandDragPos}
+      duration={stripSpeed()}
     />
     {#if settings.pathMode === 'strip'}
       <FolderStrip onOpen={() => (folderSheetOpen = true)} />

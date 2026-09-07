@@ -31,6 +31,11 @@ declare module 'siema' {
     currentSlide: number;
     /** Контейнер (нормализован из конфига в элемент). */
     selector: HTMLElement;
+    /** Внутренний frame, который siema двигает через translate3d: позиция
+        ленты читается из его style.transform (непрерывный драг-индекс). */
+    sliderFrame: HTMLElement;
+    /** Ширина видимой области ленты (px) — один слайд при perPage=1. */
+    selectorWidth: number;
     /** Исходные слайды (siema перемещает их в свои float-обёртки). */
     innerElements: HTMLElement[];
     /** Идёт ли сейчас жест (mousedown/touchstart принят, mouseup ещё не был). */

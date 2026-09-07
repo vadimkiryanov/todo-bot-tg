@@ -59,6 +59,18 @@
     onchange?: (index: number) => void;
     /** Слайд встал после доезда (см. шапку). */
     onsettle?: (index: number) => void;
+    /** Непрерывная позиция жеста, дробный индекс слайда (0 = первый):
+        приходит каждый кадр, пока палец/мышь двигает ленту (драг-режим
+        siema, translate3d sliderFrame). Вне жеста не вызывается. */
+    ondragmove?: (position: number) => void;
+    /** Жест завершён (отпускание/отмена) — новых ondragmove не будет.
+        Вызывается и для клика без сдвига. finalPos — точка отпускания
+        (последний move), если последний rAF-кадр ondragmove отстал от
+        пальца (быстрый флик): считывать translate в этот момент уже нельзя
+        (siema поставил его на целевой слайд), поэтому точку несёт сам
+        ondragend — родитель ставит капсулу в неё и доезжает к активному
+        слайду синхронно с доводкой siema. undefined — капсула уже на точке. */
+    ondragend?: (finalPos?: number) => void;
   }
 
   let {
@@ -73,6 +85,8 @@
     scrollSel = '.chat-scroll',
     onchange,
     onsettle,
+    ondragmove,
+    ondragend,
   }: Props<T> = $props();
 
   // ── План пересборки ────────────────────────────────────────────────────
@@ -236,12 +250,127 @@
       };
       window.addEventListener('mouseup', finishMissedDrag);
 
+      // Непрерывная позиция жеста (капсула-подсветка островка топиков едет
+      // за пальцем): событий драга у siema нет, поэтому промежуточное
+      // смещение читается из translate3d sliderFrame в rAF-цикле, пока идёт
+      // жест (двигать может и тач, и мышь). Значение — дробный индекс
+      // слайда: -translateX / selectorWidth (perPage=1); вне драга siema
+      // ставит transform на границы слайдов — те же координаты, поэтому
+      // начало трека всегда совпадает с текущим слайдом.
+      const DRAG_POS_EPS = 0.001;
+      let dragTrackActive = false;
+      let dragTrackRAF = 0;
+      let lastDragPos = 0;
+      /** Позиция, прочитанная в последнем move-событии: это точка, где палец/
+          курсор находится СЕЙЧАС — от неё siema начнёт доезд при отпускании.
+          (В момент отпускания translate прочитать уже нельзя: siema в своём
+          touchend/mouseup сразу ставит style.transform на ЦЕЛЕВОЙ слайд,
+          CSS-transition анимирует только рендер — rAF прочитал бы финал.) */
+      let lastMovePos = 0;
+      let lastTouchAt = 0;
+
+      const readDragPos = (): number => {
+        const frame = instance.sliderFrame;
+        const m = /translate3d\((-?[\d.]+)px/.exec(frame.style.transform ?? '');
+        const w = instance.selectorWidth;
+        if (m === null || w === 0) return instance.currentSlide;
+        return -Number(m[1]) / w;
+      };
+
+      const noteMove = (): void => {
+        lastMovePos = readDragPos();
+      };
+
+      const stopDragTrack = (emit: boolean): void => {
+        if (!dragTrackActive) return;
+        dragTrackActive = false;
+        cancelAnimationFrame(dragTrackRAF);
+        if (!emit) return;
+        // Финальный rAF-кадр ondragmove мог отстать от пальца (быстрый
+        // флик), а в момент отпускания translate уже переписан siema на
+        // целевой слайд (читать его нельзя — rAF выдал бы финал). Точку
+        // отпускания несёт последний move: отдаём её через ondragend,
+        // чтобы родитель поставил капсулу ровно в неё (отдельным флашем,
+        // а не в батче с обнулением — иначе Svelte схлопнет обе записи)
+        // и доехал к активному слайду синхронно с доводкой siema.
+        if (Math.abs(lastMovePos - lastDragPos) > DRAG_POS_EPS) {
+          ondragend?.(lastMovePos);
+          return;
+        }
+        ondragend?.();
+      };
+
+      const startDragTrack = (): void => {
+        if (dragTrackActive) return;
+        dragTrackActive = true;
+        lastDragPos = readDragPos();
+        lastMovePos = lastDragPos;
+        const frame = (): void => {
+          if (!dragTrackActive) return;
+          const p = readDragPos();
+          if (Math.abs(p - lastDragPos) > DRAG_POS_EPS) {
+            lastDragPos = p;
+            ondragmove?.(p);
+          }
+          dragTrackRAF = requestAnimationFrame(frame);
+        };
+        dragTrackRAF = requestAnimationFrame(frame);
+      };
+
+      const onTrackTouchStart = (): void => {
+        lastTouchAt = Date.now();
+        startDragTrack();
+      };
+      const onTrackMouseDown = (e: MouseEvent): void => {
+        // Эмулированный после тача mousedown (быстрый тап) не должен
+        // перезапускать трек: в этот момент translate — промежуточный доезд
+        // siema, капсула «прилипла» бы к нему до эмулированного mouseup.
+        if (e.button !== 0 || Date.now() - lastTouchAt < 500) return;
+        startDragTrack();
+      };
+      const onTrackMove = (): void => {
+        if (dragTrackActive) noteMove();
+      };
+      const onTrackTouchEnd = (): void => stopDragTrack(true);
+      const onTrackMouseUp = (): void => stopDragTrack(true);
+      const onTrackMouseLeave = (): void => stopDragTrack(true);
+      host.addEventListener('touchstart', onTrackTouchStart);
+      // Завершение жеста ловим НА ХОСТЕ, а не на window: siema'шный
+      // touchend/mouseup вызывает stopPropagation — до window событие не
+      // доходит, а слушатели того же хоста, добавленные позже, вызываются.
+      // Наши обработчики идут ПОСЛЕ siema'шных: он уже переключил слайд
+      // (onChange) и поставил translate на цель — дальше работает родитель.
+      host.addEventListener('touchend', onTrackTouchEnd);
+      host.addEventListener('mouseup', onTrackMouseUp);
+      // window — фолбэк для отпускания ВНЕ хоста (stopPropagation не было):
+      // обработчик siema не сработал, жест завершаем здесь.
+      window.addEventListener('touchend', onTrackTouchEnd, { passive: true });
+      window.addEventListener('touchcancel', onTrackTouchEnd, { passive: true });
+      host.addEventListener('mousedown', onTrackMouseDown);
+      window.addEventListener('mouseup', onTrackMouseUp);
+      host.addEventListener('touchmove', onTrackMove, { passive: true });
+      host.addEventListener('mousemove', onTrackMove);
+      host.addEventListener('mouseleave', onTrackMouseLeave);
+
       removeMouseBridge.push(
         () => host.removeEventListener('mousedown', filterNonPrimary, true),
         () => host.removeEventListener('mousedown', trackMouseDown, true),
         () => host.removeEventListener('mousemove', trackMouseMove, true),
         () => host.removeEventListener('click', swallowDragClick, true),
         () => window.removeEventListener('mouseup', finishMissedDrag),
+        () => host.removeEventListener('touchstart', onTrackTouchStart),
+        () => host.removeEventListener('touchend', onTrackTouchEnd),
+        () => host.removeEventListener('mouseup', onTrackMouseUp),
+        () => window.removeEventListener('touchend', onTrackTouchEnd),
+        () => window.removeEventListener('touchcancel', onTrackTouchEnd),
+        () => host.removeEventListener('mousedown', onTrackMouseDown),
+        () => window.removeEventListener('mouseup', onTrackMouseUp),
+        () => host.removeEventListener('touchmove', onTrackMove),
+        () => host.removeEventListener('mousemove', onTrackMove),
+        () => host.removeEventListener('mouseleave', onTrackMouseLeave),
+        // Тихий стоп трекера при пересборке/размонтировании: ondragend
+        // родителю не нужен — он сам пересобирается вместе с лентой.
+        () => stopDragTrack(false),
       );
     }
 
