@@ -33,6 +33,16 @@ declare module 'siema' {
     selector: HTMLElement;
     /** Исходные слайды (siema перемещает их в свои float-обёртки). */
     innerElements: HTMLElement[];
+    /** Идёт ли сейчас жест (mousedown/touchstart принят, mouseup ещё не был). */
+    pointerDown: boolean;
+    /** Состояние текущего драга — для ручного завершения «потерянного» mouseup. */
+    drag: {
+      startX: number;
+      endX: number;
+      startY: number;
+      letItGo: number | null;
+      preventClick: boolean;
+    };
 
     goTo(index: number, callback?: () => void): void;
     prev(howManySlides?: number, callback?: () => void): void;
@@ -44,5 +54,9 @@ declare module 'siema' {
     enableTransition(): void;
     /** Выключить CSS-transition (следующий сдвиг мгновенный). */
     disableTransition(): void;
+    /** Завершить драг по накопленному смещению: prev/next/возврат (как mouseupHandler). */
+    updateAfterDrag(): void;
+    /** Сбросить состояние драга (startX/endX/startY/letItGo). */
+    clearDrag(): void;
   }
 }

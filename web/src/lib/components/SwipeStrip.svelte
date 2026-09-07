@@ -173,6 +173,78 @@
     siema = instance;
     lastHost = host;
 
+    // Мышиный драг (мост поверх хрупких mouse-хендлеров siema): siema не
+    // проверяет кнопку в mousedown (правый клик начал бы драг) и ловит mouseup
+    // только на хосте — отпускание над оверлеем поверх ленты (страница
+    // заметки, контекстное меню) оставило бы pointerDown «залипшим», и слайд
+    // ехал бы за курсором без нажатой кнопки. Чиним точечно:
+    //  • правый/средний mousedown глушим в capture на хосте — siema (bubble)
+    //    его не видит; левый клик, pointer-события и contextmenu не
+    //    затрагиваются (меню карточек/папок открываются на contextmenu);
+    //  • mouseup дублируем на window в bubble-фазе: siema обрабатывает
+    //    отпускание на хосте первым (хост глубже window) и сам сбрасывает
+    //    жест, сюда попадаем только когда siema события не видел — завершаем
+    //    жест его же методами (как mouseupHandler: pointerDown=false → cursor →
+    //    enableTransition → updateAfterDrag при сдвиге → clearDrag).
+    const removeMouseBridge: (() => void)[] = [];
+    if (draggable) {
+      const filterNonPrimary = (e: MouseEvent): void => {
+        if (e.button !== 0) e.stopPropagation();
+      };
+      host.addEventListener('mousedown', filterNonPrimary, true);
+
+      // Клик после драга, начатого на кликабельном содержимом слайда
+      // (карточка заметки/строка папки), надо гасить: siema подавляет click
+      // после драга только для ссылок (preventClick ставится при target 'A'),
+      // кнопки получают обычный click на отпускании — заметка/папка открылись
+      // бы после свайпа. Следим за жестом сами и глушим click в capture на
+      // хосте (раньше onclick содержимого), если курсор реально сдвинулся.
+      // Порог — как MOVE_THRESHOLD карточек/папок (10px): дрожание мыши при
+      // обычном клике драгом не считается.
+      const CLICK_DRAG_PX = 10;
+      let mouseDownX = 0;
+      let mouseDragged = false;
+      const trackMouseDown = (e: MouseEvent): void => {
+        if (e.button !== 0) return;
+        mouseDownX = e.clientX;
+        mouseDragged = false;
+      };
+      const trackMouseMove = (e: MouseEvent): void => {
+        if ((e.buttons & 1) === 0 || mouseDragged) return;
+        if (Math.abs(e.clientX - mouseDownX) > CLICK_DRAG_PX) mouseDragged = true;
+      };
+      const swallowDragClick = (e: MouseEvent): void => {
+        if (!mouseDragged) return;
+        mouseDragged = false;
+        // siema'шный preventClick тоже сбросить: этот click уже погашен,
+        // следующему клику по ссылке нечего подавлять.
+        instance.drag.preventClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      host.addEventListener('mousedown', trackMouseDown, true);
+      host.addEventListener('mousemove', trackMouseMove, true);
+      host.addEventListener('click', swallowDragClick, true);
+
+      const finishMissedDrag = (): void => {
+        if (instance.pointerDown !== true) return;
+        instance.pointerDown = false;
+        host.style.cursor = '-webkit-grab';
+        instance.enableTransition();
+        if (instance.drag.endX) instance.updateAfterDrag();
+        instance.clearDrag();
+      };
+      window.addEventListener('mouseup', finishMissedDrag);
+
+      removeMouseBridge.push(
+        () => host.removeEventListener('mousedown', filterNonPrimary, true),
+        () => host.removeEventListener('mousedown', trackMouseDown, true),
+        () => host.removeEventListener('mousemove', trackMouseMove, true),
+        () => host.removeEventListener('click', swallowDragClick, true),
+        () => window.removeEventListener('mouseup', finishMissedDrag),
+      );
+    }
+
     // Перенести скроллы пережившим пересборку слайдам (контент уже в DOM:
     // у превью из кеша он синхронный; у живых списков скролл и раньше
     // сбрасывался загрузкой — поведение не менялось).
@@ -202,6 +274,7 @@
     return () => {
       if (rafId !== 0) cancelAnimationFrame(rafId);
       if (settleTimer !== undefined) clearTimeout(settleTimer);
+      for (const off of removeMouseBridge) off();
       instance.destroy(true);
       if (siema === instance) siema = undefined;
     };

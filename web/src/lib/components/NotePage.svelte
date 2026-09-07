@@ -78,6 +78,10 @@
   let drag = $state(0);
   let dragging = $state(false);
   let swipeAxis: 'h' | 'v' | null = null;
+  /** Жест начат принятым pointerdown (touch). Мышь сюда не допускается:
+      иначе hover-pointermove при swipeStartX/Y = 0 «активирует» свайп от
+      (0,0) и страница едет за курсором без нажатия. */
+  let swipePointer = false;
   let swipeStartX = 0;
   let swipeStartY = 0;
   let swipeLastX = 0;
@@ -93,6 +97,7 @@
     if (e.pointerType !== 'touch' || closing) return;
     const target = e.target as HTMLElement | null;
     if (target?.closest('textarea, input, [data-no-swipe]')) return;
+    swipePointer = true;
     swipeStartX = e.clientX;
     swipeStartY = e.clientY;
     swipeAxis = null;
@@ -102,6 +107,10 @@
   }
 
   function onPointerMove(e: PointerEvent): void {
+    // Жест живёт только между принятым pointerdown и pointerup: без этого
+    // движения мыши по открытой странице (кнопка не нажата) считались бы
+    // свайпом от точки (0,0) — страница едет за курсором.
+    if (!swipePointer || closing) return;
     if (swipeAxis === null) {
       const dx = e.clientX - swipeStartX;
       const dy = e.clientY - swipeStartY;
@@ -126,6 +135,7 @@
   }
 
   function onPointerUp(e: PointerEvent): void {
+    swipePointer = false;
     if (swipeAxis !== 'h' || closing) return;
     const dx = e.clientX - swipeStartX;
     const close = dx >= SWIPE_CLOSE_PX || swipeVx >= FLING_PX_MS;
@@ -136,6 +146,7 @@
   }
 
   function onPointerCancel(): void {
+    swipePointer = false;
     swipeAxis = null;
     dragging = false;
     drag = 0;
