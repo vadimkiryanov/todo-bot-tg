@@ -337,6 +337,38 @@ export function markdownFromEntities(text: string, entities: NoteEntity[]): stri
   return out;
 }
 
+/**
+ * Смещение в markdown-разметке для каждой границы plain-текста (длина массива
+ * = text.length + 1). Разметка, которую строит markdownFromEntities, вставляет
+ * открывающий маркер на offset entity и закрывающий — на offset+length; зная,
+ * сколько символов разметки накопилось перед границей i, тап по отформатиро-
+ * ванному тексту (просмотр) ставит курсор в поле примерно в то же место.
+ */
+export function markdownDraftOffsets(text: string, entities: NoteEntity[]): number[] {
+  // Сумма длин маркеров, добавленных на каждой границе (как в
+  // markdownFromEntities: открывающий на e.offset, закрывающий на e.offset+e.length).
+  const adds = new Map<number, number>();
+  for (const e of entities) {
+    const m = markerFor(e.type, e.url);
+    if (m === null) continue;
+    adds.set(e.offset, (adds.get(e.offset) ?? 0) + m.open.length);
+    adds.set(e.offset + e.length, (adds.get(e.offset + e.length) ?? 0) + m.close.length);
+  }
+
+  const off = new Array<number>(text.length + 1);
+  let plain = 0;
+  let draft = 0;
+  for (const pos of [...adds.keys()].sort((a, b) => a - b)) {
+    // Границы [plain, pos) лежат до следующего маркера: длина разметки не растёт.
+    for (; plain < pos; plain++) off[plain] = draft++;
+    draft += adds.get(pos) ?? 0;
+  }
+  // Хвост после последнего маркера и финальная граница (конец текста).
+  for (; plain < text.length; plain++) off[plain] = draft++;
+  off[text.length] = draft;
+  return off;
+}
+
 // --- Приоритет: цикл и отображение (зеркало бота: None→Low→Medium→High→None) ---
 
 export const priorityOrder: Priority[] = ['none', 'low', 'medium', 'high'];

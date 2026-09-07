@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   firstLineHtml,
   formatReminderAt,
+  markdownDraftOffsets,
   markdownFromEntities,
   nextPriority,
   parseMarkdown,
@@ -173,5 +174,45 @@ describe('приоритет', () => {
     expect(priorityEmoji('none')).toBe('—');
     expect(priorityLabel('high')).toBe('высокий');
     expect(priorityLabel('none')).toBe('нет');
+  });
+});
+
+describe('markdownDraftOffsets', () => {
+  it('без entities смещения совпадают с длиной текста', () => {
+    expect(markdownDraftOffsets('просто', [])).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it('границы entity сдвигаются на длину маркеров **жирного**', () => {
+    const text = 'Купить молоко';
+    const offs = markdownDraftOffsets(text, [{ type: 'bold', offset: 7, length: 6 }]);
+    // «Купить » (7) + «**молоко**» (10) — разметка длиной 17.
+    expect(offs.slice(0, 7)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(offs[7]).toBe(9); // перед «м» — после открывающих **
+    expect(offs[8]).toBe(10);
+    expect(offs[12]).toBe(14); // перед закрывающими **
+    expect(offs[13]).toBe(17); // конец текста — после всех маркеров
+  });
+
+  it('каждая граница plain-текста указывает на тот же символ в разметке', () => {
+    const text = 'Купить молоко и хлеб';
+    const entities = [
+      { type: 'bold', offset: 7, length: 6 },
+      { type: 'text_link', offset: 16, length: 4, url: 'https://x.io' },
+    ];
+    const draft = markdownFromEntities(text, entities);
+    const offs = markdownDraftOffsets(text, entities);
+    expect(offs).toHaveLength(text.length + 1);
+    for (let i = 0; i < text.length; i++) {
+      expect(draft.charAt(offs[i])).toBe(text.charAt(i));
+    }
+    expect(offs[text.length]).toBe(draft.length);
+  });
+
+  it('считает UTF-16: эмодзи занимает две границы', () => {
+    const text = '🛒 молоко';
+    const offs = markdownDraftOffsets(text, [{ type: 'bold', offset: 3, length: 6 }]);
+    expect(offs[0]).toBe(0);
+    expect(offs[3]).toBe(5); // после «🛒 » и открывающих **
+    expect(offs[9]).toBe(13); // конец текста — после закрывающих **
   });
 });

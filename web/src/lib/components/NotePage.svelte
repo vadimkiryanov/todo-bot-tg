@@ -2,11 +2,16 @@
   // Полноэкранная «страница» заметки (как открытие чата в Telegram):
   // въезжает слайдом поверх списка, назад — стрелка в шапке или свайп вправо.
   //
-  // Текст заметки — всегда большое редактируемое поле (как в нативных
-  // заметках): тапнул — сразу печатай, отдельной кнопки ✏️ и режима
-  // «редактирование» нет. Кнопки «Сохранить»/«Отмена» появляются только
-  // когда текст изменён; панель форматирования — при фокусе поля или при
-  // изменённом тексте. Действия (✅/🔄/⏰/⋯) зависят от состояния заметки
+  // Текст заметки — большое редактируемое поле (как в нативных заметках):
+  // тапнул — сразу печатай, отдельной кнопки ✏️ нет. Пока поле не
+  // редактируется (не в фокусе и без правок) вместо markdown-разметки
+  // показывается отформатированный текст (заголовки # / ##, списки -,
+  // чеклист - [ ], жирный/курсив/код/ссылки из entities) — как заметка
+  // выглядит в чате; тап по тексту включает поле с курсором в месте тапа,
+  // тап по чекбоксу чеклиста переключает галочку без входа в поле.
+  // Кнопки «Сохранить»/«Отмена» появляются только когда текст изменён;
+  // панель форматирования — при фокусе поля или при изменённом тексте.
+  // Действия (✅/🔄/⏰/⋯) зависят от состояния заметки
   // (active/done/archived). Закрытие с несохранённым текстом спрашивает:
   // «Сохранить? / Не сохранять?».
   //
@@ -39,11 +44,13 @@
   import type { Note, ReminderRepeat } from '../types/api';
   import {
     formatReminderAt,
+    markdownDraftOffsets,
     markdownFromEntities,
     nextPriority,
     priorityEmoji,
     priorityLabel,
   } from '../utils/format';
+  import { parseNoteLines, renderNoteBlocksHtml } from '../utils/blocks';
 
   let {
     note,
@@ -62,7 +69,7 @@
 
   const owned = $derived(hasLoadedNote(pageNote.id));
 
-  // ── Текст заметки: редактируется сразу, отдельного «просмотра» нет ─────
+  // ── Текст: поле с markdown-разметкой (правка) + просмотр с форматированием ─
   // В поле показываем markdown-разметку (**жирный** и т.п.), восстановленную
   // из entities сервера (markdownFromEntities) — как в старом редакторе.
   const saved = $derived(markdownFromEntities(pageNote.text, pageNote.entities));
@@ -86,6 +93,15 @@
   let toolbarEl: HTMLDivElement | undefined;
   /** Попытка закрыть страницу с несохранённым текстом: диалог «Сохранить?». */
   let exitConfirm = $state(false);
+
+  // ── Просмотр с форматированием (когда поле не редактируется) ────────────
+  // viewMode: поле не в фокусе и без правок. Слой прячем style:display (не
+  // размонтированием), чтобы позиция скролла просмотра сохранялась при
+  // переключениях «тапнул — редактирую — вышел из поля».
+  let viewEl: HTMLDivElement | undefined;
+  /** Курсор поля, запомненный тапом по просмотру (смещение в разметке). */
+  let pendingCaret: number | null = null;
+  const viewMode = $derived(!focused && !dirty);
 
   // iOS не сжимает вьюпорт клавиатурой: поднимаем футер (тулбар и кнопки
   // «Сохранить/Отмена») над ней через visualViewport (как Modal).
@@ -153,6 +169,195 @@
     const next = e.relatedTarget;
     if (next instanceof Node && toolbarEl?.contains(next)) return;
     focused = false;
+  }
+
+  /** Фокус вошёл в поле: если есть отложенный курсор от тапа по просмотру —
+      применить в следующем кадре (после перерисовки вёрстки). */
+  function onEditorFocus(): void {
+    focused = true;
+    const caret = pendingCaret;
+    pendingCaret = null;
+    if (caret === null) return;
+    requestAnimationFrame(() => {
+      const ta = textarea;
+      if (ta === undefined) return;
+      const at = Math.min(Math.max(0, caret), ta.value.length);
+      ta.setSelectionRange(at, at);
+    });
+  }
+
+  // ── Просмотр → поле: тап по тексту ставит курсор в то же место ──────────
+  // Точка тапа → смещение в plain-тексте заметки (просмотр построен из него
+  // по строкам), затем граница plain→разметка через markdownDraftOffsets.
+  // В Chrome/Edge/Firefox offset даёт caretRangeFromPoint/caretPositionFromPoint
+  // (отсюда положение в текстовом узле блока), в Safari его нет — оцениваем
+  // по прямоугольникам текста блока. Служебные узлы структуры строки
+  // (буллет «•», чекбокс) в контент не входят — их пропускаем.
+
+  /** Текст служебного узла структуры строки (буллет, чекбокс) — такого текста
+      нет в контенте заметки, его нельзя считать в смещение тапа. */
+  function textInStructural(node: Node, block: HTMLElement): boolean {
+    let el = node.parentElement;
+    while (el !== null && el !== block) {
+      const cls = el.classList;
+      if (cls.contains('note-bullet') || cls.contains('note-cb') || cls.contains('note-cb-static')) {
+        return true;
+      }
+      el = el.parentElement;
+    }
+    return false;
+  }
+
+  /** Символов контента до текстового узла в блоке строки (в порядке обхода). */
+  function textLengthBefore(block: HTMLElement, node: Node): number {
+    const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    let acc = 0;
+    let cur = walker.nextNode();
+    while (cur !== null) {
+      if (cur === node) return acc;
+      if (!textInStructural(cur, block)) acc += (cur as Text).data.length;
+      cur = walker.nextNode();
+    }
+    return acc;
+  }
+
+  /** Точка (clientX/Y) → смещение в контенте блока строки (или null, если
+      попадание мимо текста — буллет, чекбокс, пустой блок). */
+  function contentCharAt(block: HTMLElement, x: number, y: number): number | null {
+    const doc = block.ownerDocument;
+    type DocWithCaret = Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    };
+    const d = doc as DocWithCaret;
+    let node: Node | null = null;
+    let offset = 0;
+    const range = d.caretRangeFromPoint !== undefined ? d.caretRangeFromPoint(x, y) : null;
+    if (range !== null) {
+      node = range.startContainer;
+      offset = range.startOffset;
+    } else {
+      const pos = d.caretPositionFromPoint !== undefined ? d.caretPositionFromPoint(x, y) : null;
+      if (pos !== null) {
+        node = pos.offsetNode;
+        offset = pos.offset;
+      }
+    }
+    if (node !== null) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (textInStructural(node, block)) return null;
+        return textLengthBefore(block, node) + offset;
+      }
+      return null;
+    }
+
+    // Fallback (Safari): оценка по прямоугольникам текстовых узлов блока.
+    // Перенос строки даёт несколько прямоугольников одного узла — делим длину
+    // узла по ним примерно поровну.
+    const walker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    let acc = 0;
+    let cur = walker.nextNode();
+    while (cur !== null) {
+      const t = cur as Text;
+      if (!textInStructural(t, block) && t.data.length > 0) {
+        const r = doc.createRange();
+        r.selectNodeContents(t);
+        const rects = Array.from(r.getClientRects());
+        r.detach();
+        const n = Math.max(rects.length, 1);
+        for (let j = 0; j < rects.length; j++) {
+          const rect = rects[j];
+          if (y < rect.top || y > rect.bottom) continue;
+          if (x <= rect.left) return acc + Math.round((j * t.data.length) / n);
+          if (x >= rect.right) return acc + Math.round(((j + 1) * t.data.length) / n);
+          const ratio = Math.max(0, Math.min(1, (x - rect.left) / (rect.width || 1)));
+          return acc + Math.round((j * t.data.length) / n) + Math.round((ratio * t.data.length) / n);
+        }
+        acc += t.data.length;
+      }
+      cur = walker.nextNode();
+    }
+    return null;
+  }
+
+  /** Тап по просмотру → смещение в plain-тексте заметки. */
+  function tapTextOffset(e: MouseEvent): number {
+    const view = viewEl;
+    const text = pageNote.text;
+    if (view === undefined || text.length === 0) return text.length;
+    const target = e.target as HTMLElement | null;
+    if (target === null) return text.length;
+    // Блок строки — прямой ребёнок контейнера просмотра: у renderNoteBlocksHtml
+    // блоки идут в том же порядке, что и строки разметки (parseNoteLines).
+    let block: HTMLElement = target;
+    while (block.parentElement !== null && block.parentElement !== view) block = block.parentElement;
+    if (block.parentElement !== view) return text.length; // пустое место контейнера
+    const index = Array.prototype.indexOf.call(view.children, block);
+    if (index < 0) return text.length;
+    const lines = parseNoteLines(text);
+    if (index >= lines.length) return text.length;
+    const line = lines[index];
+    const contentStart = line.start + line.markerLen;
+    const within = contentCharAt(block, e.clientX, e.clientY);
+    if (within === null) return contentStart; // тап по буллету/чекбоксу/пустому месту
+    return Math.min(line.end, contentStart + within);
+  }
+
+  /** Тап по просмотру: включить поле и поставить курсор в место тапа. */
+  function startEditAt(e: MouseEvent): void {
+    const plain = tapTextOffset(e);
+    pendingCaret = markdownDraftOffsets(pageNote.text, pageNote.entities)[plain] ?? null;
+    textarea?.focus();
+  }
+
+  /** Клик по просмотру: чекбокс чеклиста — переключить «[ ]»↔«[x]» и
+      сохранить, не входя в поле; ссылка — открывается браузером (поле не
+      включаем); остальной тап — включить поле с курсором в месте тапа. */
+  function onViewClick(e: MouseEvent): void {
+    const target = e.target as Element | null;
+    const cb = target?.closest('[data-cb]');
+    if (cb instanceof HTMLElement) {
+      const pos = Number(cb.dataset.cb);
+      if (!Number.isNaN(pos)) {
+        e.preventDefault();
+        void toggleCheck(pos);
+      }
+      return;
+    }
+    if (target?.closest('a[href]')) return;
+    e.preventDefault();
+    startEditAt(e);
+  }
+
+  /** Переключить галочку чеклиста из просмотра («- [ ] » → «- [x] » и
+      обратно): тап не входит в поле, правка сохраняется как обычная. Маркеры
+      одинаковой длины — entities и их офсеты не сдвигаются. */
+  async function toggleCheck(pos: number): Promise<void> {
+    const text = pageNote.text;
+    if (
+      text.charAt(pos) !== '-' ||
+      text.charAt(pos + 1) !== ' ' ||
+      text.charAt(pos + 2) !== '['
+    ) {
+      return;
+    }
+    const box = text.charAt(pos + 3);
+    if ((box !== ' ' && box !== 'x') || text.charAt(pos + 4) !== ']') return;
+    const value = text.slice(0, pos + 3) + (box === 'x' ? ' ' : 'x') + text.slice(pos + 4);
+    if (value === text) return;
+    saving = true;
+    error = '';
+    try {
+      if (owned) {
+        await saveText(pageNote, value);
+      } else {
+        pageNote = await apiUpdateNote(pageNote.id, { text: value });
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'ошибка';
+    } finally {
+      saving = false;
+    }
   }
 
   /** Сохранить текст; closeAfter — закрыть страницу после успеха. */
@@ -724,19 +929,39 @@
     <span class="w-10"></span>
   </header>
 
-  <!-- Текст заметки — большое редактируемое поле на всю высоту страницы
-       (тапнул и пиши, отдельного режима нет). Скролл — внутри поля;
-       touch-pan-y оставляет вертикальный скролл нативным, а горизонтальный
-       свайп (закрытие) достаётся странице. -->
-  <main class="flex min-h-0 flex-1 flex-col">
+  <!-- Текст заметки: под полем (всегда в markdown-разметке, скролл свой)
+       лежит «просмотр» — отформатированный текст, видимый, пока поле не
+       редактируется (не в фокусе и без правок). Просмотр поверх поля,
+       прячется display:none (не размонтируется) — своя позиция скролла
+       сохраняется при переключениях. Тап по тексту включает поле с курсором
+       в месте тапа; чекбоксы чеклиста и ссылки работают без входа в поле.
+       touch-pan-y: вертикальный скролл нативный, горизонтальный свайп
+       (закрытие страницы) достаётся корневому контейнеру. -->
+  <main class="relative min-h-0 flex-1">
     <textarea
       bind:this={textarea}
       bind:value={draft}
-      onfocus={() => (focused = true)}
+      onfocus={onEditorFocus}
       onblur={onEditorBlur}
-      class="min-h-0 w-full flex-1 resize-none touch-pan-y whitespace-pre-wrap bg-transparent px-4 py-4 text-[16px] leading-6 text-content caret-accent outline-none placeholder:text-muted"
+      class="absolute inset-0 h-full w-full resize-none touch-pan-y overflow-y-auto whitespace-pre-wrap bg-surface px-4 py-4 text-[16px] leading-6 text-content caret-accent outline-none placeholder:text-muted"
       placeholder="Начните печатать…"
     ></textarea>
+
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      bind:this={viewEl}
+      class="absolute inset-0 touch-pan-y overflow-y-auto whitespace-pre-wrap break-words bg-surface px-4 py-4 text-[16px] leading-6 text-content [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2"
+      class:note-done={isDone}
+      style:display={viewMode ? 'block' : 'none'}
+      onclick={onViewClick}
+    >
+      {#if pageNote.text === ''}
+        <p class="text-muted">Начните печатать…</p>
+      {:else}
+        {@html renderNoteBlocksHtml(pageNote.text, pageNote.entities, isActive)}
+      {/if}
+    </div>
   </main>
 
   <footer
