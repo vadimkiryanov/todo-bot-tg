@@ -28,6 +28,7 @@
     done = false,
     onClose,
     onEdit,
+    onMove,
   }: {
     note: Note;
     rect: DOMRect;
@@ -36,6 +37,8 @@
     onClose: () => void;
     /** Открыть редактор заметки (пункт «✏️ Редактировать»). */
     onEdit?: (note: Note) => void;
+    /** Открыть модалку перемещения (пункт «📂 Переместить»; только активные). */
+    onMove?: (note: Note) => void;
   } = $props();
 
   let busy = $state(false);
@@ -57,10 +60,30 @@
     };
   });
 
+  // Когда пунктов много, меню выше вьюпорта: ограничиваем высоту свободным
+  // местом и скроллим внутри. Раскрываем вверх, только если сверху места
+  // больше, чем снизу; высоту меряем ДО применения max-height (иначе
+  // offsetHeight оказался бы зажат предыдущим ограничением).
+  const MENU_MARGIN = 8;
+  let maxMenuHeight = $state<number | undefined>();
+
   $effect(() => {
-    if (menuEl) {
-      const below = window.innerHeight - rect.bottom - 6;
-      openUp = menuEl.offsetHeight > below;
+    const el = menuEl;
+    if (!el) return;
+    const below = window.innerHeight - rect.bottom - 6;
+    const above = rect.top - 6;
+    const natural = el.offsetHeight;
+    if (natural <= below) {
+      openUp = false;
+      maxMenuHeight = undefined;
+      return;
+    }
+    if (above > below) {
+      openUp = true;
+      maxMenuHeight = Math.max(MENU_MARGIN, above - MENU_MARGIN);
+    } else {
+      openUp = false;
+      maxMenuHeight = Math.max(MENU_MARGIN, below - MENU_MARGIN);
     }
   });
 
@@ -130,11 +153,12 @@
 
   <div
     bind:this={menuEl}
-    class="glass-menu menu-anim fixed z-50 flex flex-col gap-1 rounded-2xl p-2 shadow-xl"
+    class="glass-menu menu-anim fixed z-50 flex flex-col gap-1 overflow-y-auto rounded-2xl p-2 shadow-xl"
     style:left={`${pos.left}px`}
     style:width={`${pos.width}px`}
     style:top={openUp ? undefined : `${pos.top}px`}
     style:bottom={openUp ? `${pos.bottom}px` : undefined}
+    style:max-height={maxMenuHeight !== undefined ? `${maxMenuHeight}px` : undefined}
     role="menu"
   >
     {#if error}
@@ -229,6 +253,22 @@
         <span class="w-6 shrink-0 text-center text-base">📌</span>
         {note.pinned ? 'Открепить' : 'Закрепить'}
       </button>
+
+      {#if onMove !== undefined}
+        <button
+          type="button"
+          role="menuitem"
+          class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+          onclick={() => {
+            // Сначала действие с валидной заметкой; закрытие — после (как у onEdit).
+            onMove(note);
+            onClose();
+          }}
+        >
+          <span class="w-6 shrink-0 text-center text-base">📂</span>
+          Переместить
+        </button>
+      {/if}
 
       <button
         type="button"

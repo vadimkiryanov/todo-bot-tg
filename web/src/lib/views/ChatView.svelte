@@ -35,6 +35,7 @@
 
   import { onDestroy } from 'svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import Loader from '$lib/components/Loader.svelte';
   import CreateFolderModal from '$lib/components/CreateFolderModal.svelte';
   import CreateTopicModal from '$lib/components/CreateTopicModal.svelte';
   import FolderBar from '$lib/components/FolderBar.svelte';
@@ -43,6 +44,7 @@
   import FolderStrip from '$lib/components/FolderStrip.svelte';
   import InputBar from '$lib/components/InputBar.svelte';
   import Modal from '$lib/components/Modal.svelte';
+  import MoveModal from '$lib/components/MoveModal.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
   import NoteMenu from '$lib/components/NoteMenu.svelte';
   import NotePage from '$lib/components/NotePage.svelte';
@@ -97,6 +99,19 @@
   function closeMenu(): void {
     menuNoteId = null;
     menuRect = null;
+  }
+
+  // Перемещение заметки из контекстного меню карточки (пункт «📂
+  // Переместить»): модалка с выбором топика и деревом его папок открывается
+  // поверх списка. Папки грузит сама модалка — пункт виден всегда.
+  let moveTarget: Note | null = $state(null);
+
+  function requestMove(note: Note): void {
+    moveTarget = note;
+  }
+
+  function closeMove(): void {
+    moveTarget = null;
   }
 
   // Контекстное меню строки папки в списке (режим «в списке»): папка +
@@ -327,6 +342,21 @@
 
   /** Текущий список, разбитый на закреплённые/остальные (обычный режим). */
   const normalSplit = $derived(splitNotes(notesStore.notes));
+
+  /** Папки активного топика ещё не показаны (идёт первая загрузка без кеша:
+      topicId стора не совпал с активным топиком). Условие — как в FolderBar
+      (показ дерева в шторке): папки «готовы» после успешной загрузки, в т.ч.
+      когда их ноль; при ошибке загрузка останавливается и папки не блокируют
+      список. */
+  const foldersPending = $derived(
+    foldersStore.loading && foldersStore.topicId !== navigation.activeTopicID,
+  );
+
+  /** Глубокий уровень «занят»: грузятся заметки уровня ИЛИ папки активного
+      топика. Совместная загрузка: список не показывается, пока не приехали
+      обе части — строки папок (режим «в списке») и заметки появляются вместе,
+      папки не «доезжают» после списка заметок. */
+  const levelLoading = $derived(notesStore.loading || foldersPending);
 
   /** Разбить список заметок на закреплённые и остальные (порядок в списке). */
   function splitNotes(notes: Note[]): { pinned: Note[]; rest: Note[] } {
@@ -882,8 +912,8 @@
                 class="chat-scroll scroll-area h-full touch-pan-y overflow-y-auto"
                 style:padding-top={`${topPad}px`}
               >
-                {#if notesStore.loading}
-                  <EmptyState emoji="⏳" />
+                {#if levelLoading}
+                  <Loader />
                 {:else if notesStore.error}
                   <div class="flex flex-col items-center gap-4 px-6 py-16">
                     <EmptyState emoji="⚠️" text={notesStore.error} />
@@ -932,9 +962,9 @@
                 style:padding-top={`${topPad}px`}
               >
                 {#if p === undefined || p.state === 'pending'}
-                  <!-- Кеша уровня ещё нет — плейсхолдер (фоновая предзагрузка
+                  <!-- Кеша уровня ещё нет — спиннер (фоновая предзагрузка
                        наполнит превью, как только придут данные). -->
-                  <EmptyState emoji="⏳" />
+                  <Loader />
                 {:else}
                   <!-- Статичное превью уровня выше: без интерактива. -->
                   {@render noteList(
@@ -961,9 +991,9 @@
         style:padding-top={`${topPad}px`}
       >
         {#if preview === undefined || preview.state === 'pending'}
-          <!-- Кеша соседа ещё нет — плейсхолдер (фоновая предзагрузка
+          <!-- Кеша соседа ещё нет — спиннер (фоновая предзагрузка
                наполнит превью, как только придут данные). -->
-          <EmptyState emoji="⏳" />
+          <Loader />
         {:else}
           <!-- Статичное превью корня соседнего топика: без интерактива. -->
           {@render noteList(
@@ -982,7 +1012,7 @@
 
   {#if topicsStore.loading}
     <div class="flex flex-1 flex-col justify-center">
-      <EmptyState emoji="⏳" />
+      <Loader />
     </div>
   {:else if topicsStore.error}
     <div class="flex flex-1 flex-col items-center justify-center gap-4 px-6">
@@ -1084,7 +1114,12 @@
     rect={menuRect}
     onClose={closeMenu}
     onEdit={requestEdit}
+    onMove={requestMove}
   />
+{/if}
+
+{#if moveTarget !== null}
+  <MoveModal note={moveTarget} onClose={closeMove} />
 {/if}
 
 {#if folderMenu !== null}

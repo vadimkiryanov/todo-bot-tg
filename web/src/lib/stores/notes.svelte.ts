@@ -324,16 +324,27 @@ export function clearNoteHighlight(): void {
   notesStore.highlightedId = null;
 }
 
-/** Перемещение заметки в папку (folderId null — в корень) активного топика. */
-export async function moveNote(note: Note, folderId: number | null): Promise<void> {
-  const topicId = navigation.activeTopicID;
-  if (topicId === null) return;
+/** Перемещение заметки в топик/папку (folderId null — в корень топика).
+    Если заметка была в активном списке и ушла из него (или пришла в него
+    из другого топика/папки) — активный список перезагружаем. */
+export async function moveNote(
+  note: Note,
+  topicId: number,
+  folderId: number | null,
+): Promise<void> {
   if (note.topic_id === topicId && note.folder_id === folderId) return;
   await apiMoveNote(note.id, topicId, folderId);
+  const activeTopic = navigation.activeTopicID;
+  if (activeTopic === null) return;
   const activeFolder = navigation.activeFolderID;
-  if (activeFolder !== folderId) {
-    // Заметка покинула текущий список (или пришла в него извне) — перезагружаем.
-    await loadNotes(topicId, activeFolder, true);
+  // Список активного контекста: все заметки топика (folder null) или заметки
+  // активной папки. Перезагрузка нужна, если заметка в списке была или стала.
+  const wasInList =
+    note.topic_id === activeTopic && (activeFolder === null || note.folder_id === activeFolder);
+  const nowInList =
+    topicId === activeTopic && (activeFolder === null || folderId === activeFolder);
+  if (wasInList || nowInList) {
+    await loadNotes(activeTopic, activeFolder, true);
   }
 }
 

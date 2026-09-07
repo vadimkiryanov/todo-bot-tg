@@ -5,10 +5,14 @@
     open = $bindable(false),
     onClose,
     children,
+    z = 'z-50',
   }: {
     open?: boolean;
     onClose?: () => void;
     children?: Snippet;
+    /** Tailwind-класс слоя: модалка поверх страницы заметки (z-[70]) и её
+        меню (z-[72]) получает z-[80], остальные — стандартный z-50. */
+    z?: string;
   } = $props();
 
   // Закрытие с анимацией: вешаем обратные классы (.backdrop-out/.sheet-out),
@@ -61,7 +65,7 @@
 
 {#if open}
   <div
-    class="backdrop-glass fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center {closing ? 'backdrop-out' : 'backdrop-anim'}"
+    class="backdrop-glass fixed inset-0 {z} flex items-end justify-center bg-black/40 sm:items-center {closing ? 'backdrop-out' : 'backdrop-anim'}"
     style="padding-bottom: {keyboardInset}px"
     onclick={(event) => {
       if (event.target === event.currentTarget) requestClose();

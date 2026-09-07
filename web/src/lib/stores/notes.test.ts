@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { request } from '../api/client';
 import { resetMockStore, setMockDelay } from '../api/mock';
-import type { Folder, Priority, Topic } from '../types/api';
+import type { Folder, Note, Priority, Topic } from '../types/api';
 import { setActiveFolder, setActiveTopic } from './navigation.svelte';
 import {
   archivedStore,
@@ -286,7 +286,7 @@ describe('notes store', () => {
     await createNote('первая');
 
     const note = notesStore.notes[0];
-    await moveNote(note, folder.id);
+    await moveNote(note, topicId, folder.id);
 
     // Список корня перезагружен — заметка осталась (все заметки топика),
     // но её папка обновилась.
@@ -301,10 +301,41 @@ describe('notes store', () => {
     await createNote('в папке');
 
     const note = notesStore.notes[0];
-    await moveNote(note, null);
+    await moveNote(note, topicId, null);
 
     // Активная папка != целевой (null) — список перезагружен, заметка ушла.
     expect(notesStore.notes).toHaveLength(0);
+  });
+
+  it('moveNote переносит заметку в другой топик и убирает из активного списка', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('первая');
+    const second = await request<Topic>('POST', '/api/v1/topics', { name: 'Личное' });
+
+    const note = notesStore.notes[0];
+    await moveNote(note, second.id, null);
+
+    // Заметка ушла из активного топика — активный список перезагружен.
+    expect(notesStore.notes).toHaveLength(0);
+  });
+
+  it('moveNote заметки чужого топика не трогает активный список', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('в активном');
+    const second = await request<Topic>('POST', '/api/v1/topics', { name: 'Личное' });
+    // Заметка в «чужом» (не активном) топике.
+    const foreign = await request<Note>('POST', '/api/v1/notes', {
+      topic_id: second.id,
+      text: 'чужая',
+    });
+    const activeSnapshot = notesStore.notes;
+
+    await moveNote(foreign, second.id, null);
+
+    // Список активного топика не перезагружался: заметка в нём не была и не стала.
+    expect(notesStore.notes).toBe(activeSnapshot);
   });
 
   it('setReminder ставит напоминание (once в будущем)', async () => {

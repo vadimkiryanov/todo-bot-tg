@@ -106,6 +106,10 @@ export function folderChain(): Folder[] {
     предзагрузка соседа) не дублируются в сеть — ждут один запрос. */
 const foldersInFlight = new Map<number, Promise<void>>();
 
+/** Запросы getTopicFolders в полёте (модалка перемещения): повторный запрос
+    того же топика (быстрое переключение выбора) не дублируется в сеть. */
+const topicFoldersInFlight = new Map<number, Promise<Folder[]>>();
+
 /** Момент последнего успешного получения папок топика. */
 const foldersLoadedAt = new Map<number, number>();
 
@@ -170,6 +174,41 @@ export async function loadFolders(topicId: number, silent = false): Promise<void
   })();
   foldersInFlight.set(topicId, run);
   await run;
+}
+
+/** Папки произвольного топика — для модалки перемещения заметки (кеш или
+    загрузка). В foldersStore НЕ пишет: там всегда папки активного топика,
+    подгрузка «чужого» топика не должна менять список на экране под модалкой.
+    Кеш наполняет (setTopicFolders) — повторное открытие топика без сети. */
+export async function getTopicFolders(topicId: number): Promise<Folder[]> {
+  // Кеш свежий — сразу.
+  const cached = foldersByTopic.get(topicId);
+  const loadedAt = foldersLoadedAt.get(topicId);
+  if (cached !== undefined && loadedAt !== undefined && Date.now() - loadedAt < FOLDERS_FRESH_MS) {
+    return cached;
+  }
+  // Активный топик уже грузится (loadFolders) — ждём его результат.
+  const pending = foldersInFlight.get(topicId);
+  if (pending !== undefined) {
+    await pending;
+    return foldersByTopic.get(topicId) ?? [];
+  }
+  // Тот же запрос уже идёт (быстрое переключение выбора топика) — ждём его.
+  const own = topicFoldersInFlight.get(topicId);
+  if (own !== undefined) return own;
+
+  const run = (async () => {
+    const folders = await listAllFolders(topicId);
+    foldersLoadedAt.set(topicId, Date.now());
+    setTopicFolders(topicId, folders);
+    return folders;
+  })();
+  topicFoldersInFlight.set(topicId, run);
+  try {
+    return await run;
+  } finally {
+    topicFoldersInFlight.delete(topicId);
+  }
 }
 
 /** Создание папки на текущем уровне (в активной папке или в корне топика). */

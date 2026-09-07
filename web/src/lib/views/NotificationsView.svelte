@@ -5,6 +5,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import Loader from '$lib/components/Loader.svelte';
   import NotePage from '$lib/components/NotePage.svelte';
   import { getNote } from '$lib/api/notes';
   import { loadNotifications, markAllRead, notificationsStore } from '$lib/stores/notifications.svelte';
@@ -63,7 +64,7 @@
 
   <main class="scroll-area flex-1 overflow-y-auto">
     {#if notificationsStore.loading && notificationsStore.items.length === 0}
-      <EmptyState emoji="⏳" />
+      <Loader />
     {:else if notificationsStore.error && notificationsStore.items.length === 0}
       <div class="flex flex-col items-center gap-4 px-6 py-16">
         <EmptyState emoji="⚠️" text={notificationsStore.error} />

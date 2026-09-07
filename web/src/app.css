@@ -380,13 +380,31 @@ body.scroll-locked .scroll-area {
   vertical-align: -2px;
 }
 
+/* ── Лоадер экранов (загрузка списков/превью) ──────────────────
+   Крупный круглый спиннер акцентного цвета — для мест, где спиннер кнопки
+   слишком мелкий (Loader.svelte). Полупрозрачное кольцо с непрозрачной
+   «головой», как у системных индикаторов. */
+.loader {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  border-style: solid;
+  border-width: 3px;
+  border-color: color-mix(in srgb, var(--color-accent) 25%, transparent);
+  border-top-color: var(--color-accent);
+  animation: spin 0.8s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .backdrop-anim,
   .backdrop-out,
   .sheet-anim,
   .sheet-out,
   .menu-anim,
-  .empty-bob {
+  .empty-bob,
+  .loader,
+  .spinner {
     animation: none !important;
   }
   /* Подсветка без анимации: статичная акцентная заливка на время подсветки

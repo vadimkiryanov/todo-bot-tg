@@ -28,8 +28,6 @@
     unarchiveNote,
     undoneNote,
   } from '../stores/notes.svelte';
-  import { navigation } from '../stores/navigation.svelte';
-  import { foldersStore } from '../stores/folders.svelte';
   import type { Note, ReminderRepeat } from '../types/api';
   import {
     formatReminderAt,
@@ -160,9 +158,9 @@
   const isDone = $derived(pageNote.done);
   const isArchived = $derived(pageNote.archived);
   const isActive = $derived(!isDone && !isArchived);
-  const canMove = $derived(
-    isActive && pageNote.topic_id === navigation.activeTopicID && foldersStore.all.length > 0,
-  );
+  // «Переместить» — для любой активной заметки: MoveModal сама показывает
+  // папки выбранного топика (условие «в топике есть папки» не нужно).
+  const canMove = $derived(isActive);
 
   /**
    * Выполнить действие: store-мутация (заметка в списках) либо прямой API-вызов
@@ -655,6 +653,7 @@
   <ConfirmModal
     title="Удалить заметку?"
     text="Заметка будет удалена безвозвратно"
+    z="z-[80]"
     busy={busy === 'delete'}
     {error}
     onClose={() => {
@@ -668,6 +667,7 @@
 {#if showMove}
   <MoveModal
     note={pageNote}
+    z="z-[80]"
     onClose={() => {
       showMove = false;
       requestClose();

@@ -5,6 +5,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import Loader from '$lib/components/Loader.svelte';
   import NoteCard from '$lib/components/NoteCard.svelte';
   import NoteMenu from '$lib/components/NoteMenu.svelte';
   import NotePage from '$lib/components/NotePage.svelte';
@@ -91,7 +92,7 @@
 
   <main class="scroll-area flex-1 overflow-y-auto">
     {#if archivedStore.loading}
-      <EmptyState emoji="⏳" />
+      <Loader />
     {:else if archivedStore.error}
       <div class="flex flex-col items-center gap-4 px-6 py-16">
         <EmptyState emoji="⚠️" text={archivedStore.error} />

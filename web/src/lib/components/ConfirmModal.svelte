@@ -9,6 +9,7 @@
     confirmText = 'Удалить',
     busy = false,
     error = '',
+    z,
     onClose,
     onConfirm,
   }: {
@@ -17,12 +18,14 @@
     confirmText?: string;
     busy?: boolean;
     error?: string;
+    /** Слой поверх текущего экрана (см. Modal.z). */
+    z?: string;
     onClose: () => void;
     onConfirm: () => void;
   } = $props();
 </script>
 
-<Modal open {onClose}>
+<Modal open {onClose} {z}>
   <div class="flex flex-col gap-4 px-1 py-2">
     <div>
       <h2 class="text-lg font-semibold">{title}</h2>
