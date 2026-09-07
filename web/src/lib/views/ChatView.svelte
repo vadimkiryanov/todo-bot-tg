@@ -126,14 +126,6 @@
     folderMenu = null;
   }
 
-  // Редактирование из контекстного меню заметки (пункт «✏️ Редактировать»):
-  // открываем страницу заметки сразу в режиме редактирования.
-  let editRequestId: number | null = $state(null);
-
-  function requestEdit(note: Note): void {
-    openNote(note.id, true);
-  }
-
   // ── URL-синхронизация (?topic=&folder=&note=) ───────────────────────────
   // Навигация зеркалится в адресную строку: смена топика/папки — replaceState
   // (записей истории не плодим), открытие заметки — pushState (кнопка «назад»
@@ -195,9 +187,8 @@
   }
 
   /** Открыть заметку (страница). pushState: «назад» браузера вернёт к списку. */
-  function openNote(id: number, startEdit = false): void {
+  function openNote(id: number): void {
     noteOpenedViaPush = true;
-    editRequestId = startEdit ? id : null;
     selectedId = id;
     window.history.pushState(null, '', window.location.pathname + queryForState());
   }
@@ -206,7 +197,6 @@
   function closeNotePage(): void {
     const viaPush = noteOpenedViaPush;
     noteOpenedViaPush = false;
-    editRequestId = null;
     selectedId = null;
     if (viaPush) {
       // Открытие создало запись истории — возвращаемся к ней: popstate сам
@@ -256,7 +246,6 @@
           if (selectedId !== null) {
             noteOpenedViaPush = false;
             selectedId = null;
-            editRequestId = null;
           }
         }
       }
@@ -299,20 +288,17 @@
         if (selectedId !== null) {
           noteOpenedViaPush = false;
           selectedId = null;
-          editRequestId = null;
         }
         intent.noteDone = true;
       } else if (!levelChanged) {
         if (!intent.folderDone || notesStore.loading) return;
         if (notesStore.notes.some((x) => x.id === n)) {
           noteOpenedViaPush = false;
-          editRequestId = null;
           selectedId = n;
         } else if (selectedId !== null) {
           // Заметки нет в списке уровня (удалена/не на этом уровне) — закрыть.
           noteOpenedViaPush = false;
           selectedId = null;
-          editRequestId = null;
         }
         intent.noteDone = true;
       }
@@ -1101,11 +1087,7 @@
 </div>
 
 {#if selectedCache !== null}
-  <NotePage
-    note={selectedCache}
-    startEditing={editRequestId === selectedCache.id}
-    onClose={closeNotePage}
-  />
+  <NotePage note={selectedCache} onClose={closeNotePage} />
 {/if}
 
 {#if menuNote !== null && menuRect !== null}
@@ -1113,7 +1095,6 @@
     note={menuNote}
     rect={menuRect}
     onClose={closeMenu}
-    onEdit={requestEdit}
     onMove={requestMove}
   />
 {/if}

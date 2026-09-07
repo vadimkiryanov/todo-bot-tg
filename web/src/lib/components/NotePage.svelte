@@ -1,15 +1,23 @@
 <script lang="ts">
   // Полноэкранная «страница» заметки (как открытие чата в Telegram):
   // въезжает слайдом поверх списка, назад — стрелка в шапке или свайп вправо.
-  // Действия зависят от состояния заметки (active/done/archived): у «склада»
-  // и архива только уместные кнопки. Мутации owner-aware: если заметка лежит
-  // в одном из списков стора (активный/архив/выполненные/таймеры), обновляется
-  // он; иначе (заметка открыта из уведомления, списки не загружены) — прямые
-  // API-вызовы с локальным состоянием. Каждая busy-кнопка показывает спиннер.
+  //
+  // Текст заметки — всегда большое редактируемое поле (как в нативных
+  // заметках): тапнул — сразу печатай, отдельной кнопки ✏️ и режима
+  // «редактирование» нет. Кнопки «Сохранить»/«Отмена» появляются только
+  // когда текст изменён; панель форматирования — при фокусе поля или при
+  // изменённом тексте. Действия (✅/🔄/⏰/⋯) зависят от состояния заметки
+  // (active/done/archived). Закрытие с несохранённым текстом спрашивает:
+  // «Сохранить? / Не сохранять?».
+  //
+  // Мутации owner-aware: если заметка лежит в одном из списков стора
+  // (активный/архив/выполненные/таймеры), обновляется он; иначе (заметка
+  // открыта из уведомления, списки не загружены) — прямые API-вызовы с
+  // локальным состоянием. Каждая busy-кнопка показывает спиннер.
   import { onMount } from 'svelte';
   import ConfirmModal from './ConfirmModal.svelte';
+  import Modal from './Modal.svelte';
   import MoveModal from './MoveModal.svelte';
-  import NoteEditForm from './NoteEditForm.svelte';
   import ReminderForm from './ReminderForm.svelte';
   import Spinner from './Spinner.svelte';
   import { clearReminder as apiClearReminder, deleteNote as apiDeleteNote, setReminder as apiSetReminder, updateNote as apiUpdateNote } from '../api/notes';
@@ -31,20 +39,17 @@
   import type { Note, ReminderRepeat } from '../types/api';
   import {
     formatReminderAt,
+    markdownFromEntities,
     nextPriority,
     priorityEmoji,
     priorityLabel,
   } from '../utils/format';
-  import { renderNoteBlocksHtml } from '../utils/blocks';
 
   let {
     note,
-    startEditing = false,
     onClose,
   }: {
     note: Note;
-    /** Открыть сразу в режиме редактирования (пункт меню «✏️ Редактировать»). */
-    startEditing?: boolean;
     onClose: () => void;
   } = $props();
 
@@ -57,6 +62,49 @@
 
   const owned = $derived(hasLoadedNote(pageNote.id));
 
+  // ── Текст заметки: редактируется сразу, отдельного «просмотра» нет ─────
+  // В поле показываем markdown-разметку (**жирный** и т.п.), восстановленную
+  // из entities сервера (markdownFromEntities) — как в старом редакторе.
+  const saved = $derived(markdownFromEntities(pageNote.text, pageNote.entities));
+  let draft = $state(markdownFromEntities(pageNote.text, pageNote.entities));
+  /** Не-реактивная память: последнее значение, пришедшее снаружи. Пока draft
+      не разошёлся с ним, внешние обновления (родитель передал обновлённую
+      заметку) зеркалятся в draft; иначе локальные правки не затираются. */
+  let lastSeen = draft;
+  const dirty = $derived(draft !== saved);
+
+  $effect(() => {
+    if (draft === lastSeen && draft !== saved) draft = saved;
+    lastSeen = saved;
+  });
+
+  /** Поле в фокусе: под ним показываем панель форматирования. */
+  let focused = $state(false);
+  let saving = $state(false);
+  let textarea: HTMLTextAreaElement | undefined;
+  /** Корневой узел панели форматирования (сниппет toolbar). */
+  let toolbarEl: HTMLDivElement | undefined;
+  /** Попытка закрыть страницу с несохранённым текстом: диалог «Сохранить?». */
+  let exitConfirm = $state(false);
+
+  // iOS не сжимает вьюпорт клавиатурой: поднимаем футер (тулбар и кнопки
+  // «Сохранить/Отмена») над ней через visualViewport (как Modal).
+  let keyboardInset = $state(0);
+  $effect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = (): void => {
+      keyboardInset = Math.max(0, window.innerHeight - vv.height);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  });
+
   // ── Анимация: слайд справа (въезд) / вправо (закрытие) ──────────────────
   let visible = $state(false);
   onMount(() => {
@@ -65,11 +113,76 @@
   });
   let closing = $state(false);
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Закрыть страницу. С несохранённым текстом — сначала диалог. */
   function requestClose(): void {
+    if (closing) return;
+    if (dirty) {
+      // Клавиатуру прячем: диалог должен быть виден целиком.
+      textarea?.blur();
+      exitConfirm = true;
+      return;
+    }
+    closeNow();
+  }
+
+  /** Непосредственное закрытие (после подтверждения/сохранения). */
+  function closeNow(): void {
     if (closing) return;
     closing = true;
     clearTimeout(closeTimer);
     closeTimer = setTimeout(() => onClose(), 240);
+  }
+
+  /** Кнопка «Отмена»: вернуть текст к сохранённому (правки отменяются). */
+  function discard(): void {
+    if (saving) return;
+    draft = saved;
+    error = '';
+  }
+
+  /**
+   * Фокус ушёл с поля. Панель форматирования прячем, только если фокус ушёл
+   * за её пределы: тап по кнопке панели переводит фокус на кнопку, и без
+   * этой проверки панель исчезала бы под пальцем ДО click («нажал на панель —
+   * она пропала»), кнопки не срабатывали. Переход фокуса на кнопки тулбара
+   * не даёт и onmousedown preventDefault (см. toolbar); здесь страхуем
+   * программные переходы — инпут ссылки (autofocus), Tab-навигацию.
+   */
+  function onEditorBlur(e: FocusEvent): void {
+    const next = e.relatedTarget;
+    if (next instanceof Node && toolbarEl?.contains(next)) return;
+    focused = false;
+  }
+
+  /** Сохранить текст; closeAfter — закрыть страницу после успеха. */
+  async function save(closeAfter: boolean): Promise<void> {
+    const value = draft.trim();
+    if (value === '') {
+      error = 'текст не может быть пустым';
+      return;
+    }
+    if (value === pageNote.text) {
+      // Правки «схлопнулись» в исходный текст (например, лишние пробелы в
+      // конце) — сеть не дёргаем, просто возвращаем поле к сохранённому виду.
+      draft = saved;
+      if (closeAfter) closeNow();
+      return;
+    }
+    saving = true;
+    error = '';
+    try {
+      if (owned) {
+        await saveText(pageNote, value);
+      } else {
+        pageNote = await apiUpdateNote(pageNote.id, { text: value });
+      }
+      if (closeAfter) closeNow();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'ошибка';
+    } finally {
+      saving = false;
+    }
   }
 
   // ── Свайп вправо — закрыть (страница едет за пальцем) ───────────────────
@@ -95,8 +208,11 @@
 
   function onPointerDown(e: PointerEvent): void {
     if (e.pointerType !== 'touch' || closing) return;
+    // textarea намеренно НЕ в исключении: свайп вправо по тексту закрывает
+    // страницу, как жест «назад» поверх контента. Вертикальный скролл поля
+    // остаётся нативным (touch-action: pan-y на textarea).
     const target = e.target as HTMLElement | null;
-    if (target?.closest('textarea, input, [data-no-swipe]')) return;
+    if (target?.closest('input, [data-no-swipe]')) return;
     swipePointer = true;
     swipeStartX = e.clientX;
     swipeStartY = e.clientY;
@@ -153,8 +269,6 @@
   }
 
   // ── Состояние и действия ────────────────────────────────────────────────
-  let editing = $state(startEditing);
-  const openedFromMenu = startEditing;
   let error = $state('');
   let confirmDelete = $state(false);
   let showMove = $state(false);
@@ -321,77 +435,264 @@
     error = '';
   }
 
-  function startEdit(): void {
-    editing = true;
-    error = '';
+  // ── Форматирование: обёртки выделения markdown-маркерами ────────────────
+  // Работают с полем текста (draft). Кнопки: **жирный**, *курсив*, `код`,
+  // [ссылка](url); строковые маркеры # / ## / - / - [ ] — по текущей строке.
+  let linkOpen = $state(false);
+  let linkUrl = $state('');
+  let linkInput = $state<HTMLInputElement | undefined>();
+
+  function selection(): { start: number; end: number } {
+    const ta = textarea;
+    if (!ta) return { start: 0, end: 0 };
+    return { start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0 };
   }
 
-  function cancelEdit(): void {
-    if (openedFromMenu) {
-      // Пришли из контекстного меню сразу в редактор — закрываем страницу.
-      requestClose();
-      return;
-    }
-    editing = false;
-    error = '';
+  /** Обернуть выделение маркерами; пустое выделение — вставить с плейсхолдером. */
+  function wrap(open: string, close: string, placeholder = 'текст'): void {
+    const { start, end } = selection();
+    const sel = draft.slice(start, end);
+    const inner = sel === '' ? placeholder : sel;
+    draft = draft.slice(0, start) + open + inner + close + draft.slice(end);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      const selStart = start + open.length;
+      textarea?.setSelectionRange(selStart, selStart + inner.length);
+    });
   }
 
-  /** Сохранение текста для заметки не из списков (редактор в standalone). */
-  async function saveTextOverride(text: string): Promise<void> {
-    pageNote = await apiUpdateNote(pageNote.id, { text });
-  }
-
-  /**
-   * Клик по чекбоксу чеклиста: переключает «[ ]» ↔ «[x]» в тексте и сохраняет
-   * как обычную правку. Маркеры обоих состояний одной длины, поэтому смещения
-   * entities не сдвигаются — меняется один символ на позиции маркера (start+3).
-   */
-  async function toggleCheck(pos: number): Promise<void> {
-    const text = pageNote.text;
-    if (text.slice(pos, pos + 3) !== '- [') return;
-    const mark = text[pos + 3];
-    if (mark !== ' ' && mark !== 'x') return;
-    const nextText = text.slice(0, pos + 3) + (mark === ' ' ? 'x' : ' ') + text.slice(pos + 4);
-    error = '';
-    try {
-      if (owned) {
-        await saveText(pageNote, nextText);
-      } else {
-        pageNote = await apiUpdateNote(pageNote.id, { text: nextText });
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'ошибка';
+  function toggleLink(): void {
+    linkOpen = !linkOpen;
+    if (linkOpen) {
+      requestAnimationFrame(() => linkInput?.focus());
     }
   }
 
-  /** Делегированный клик по контейнеру текста: тап по чекбоксу чеклиста. */
-  function onBodyClick(e: MouseEvent): void {
-    const target = e.target as HTMLElement | null;
-    if (target === null) return;
-    const cb = target.closest<HTMLElement>('[data-cb]');
-    if (cb === null) return;
-    e.preventDefault();
-    void toggleCheck(Number(cb.dataset.cb));
+  /** Ссылка: [выделение](url), без выделения — [ссылка](url). */
+  function applyLink(): void {
+    const url = linkUrl.trim();
+    if (url === '') return;
+    const { start, end } = selection();
+    const sel = draft.slice(start, end);
+    const label = sel === '' ? 'ссылка' : sel;
+    draft = draft.slice(0, start) + `[${label}](${url})` + draft.slice(end);
+    linkOpen = false;
+    linkUrl = '';
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      // Курсор — после ]( (перед url), чтобы дописать/поправить адрес.
+      const caret = start + label.length + 2;
+      textarea?.setSelectionRange(caret, caret);
+    });
   }
 
-  // Escape: закрыть меню → форму напоминания → редактор → страницу.
+  const LINE_MARKERS = {
+    h1: '# ',
+    h2: '## ',
+    list: '- ',
+    check: '- [ ] ',
+  } as const;
+  type LineMarkerKind = keyof typeof LINE_MARKERS;
+
+  /** Границы строки под курсором (без учёта выделения в другие строки). */
+  function currentLine(): { start: number; end: number } {
+    const ta = textarea;
+    if (!ta) return { start: 0, end: 0 };
+    const caret = ta.selectionStart ?? 0;
+    const start = draft.lastIndexOf('\n', caret - 1) + 1;
+    const nl = draft.indexOf('\n', caret);
+    return { start, end: nl === -1 ? draft.length : nl };
+  }
+
+  /** Структурный маркер в начале строки, если есть (любой из четырёх). */
+  function existingMarker(raw: string): { kind: LineMarkerKind; marker: string } | null {
+    const defs: [LineMarkerKind, string][] = [
+      ['check', '- [x] '],
+      ['check', '- [ ] '],
+      ['list', '- '],
+      ['h2', '## '],
+      ['h1', '# '],
+    ];
+    for (const [kind, marker] of defs) {
+      if (raw.startsWith(marker)) return { kind, marker };
+    }
+    return null;
+  }
+
+  /** Поставить/снять маркер строки: один клик — маркер, повторный — убрать. */
+  function toggleLineMarker(kind: LineMarkerKind): void {
+    const { start, end } = currentLine();
+    const caret = textarea?.selectionStart ?? start;
+    const raw = draft.slice(start, end);
+    const cur = existingMarker(raw);
+    const target = LINE_MARKERS[kind];
+
+    let newLine: string;
+    let delta: number;
+    if (cur !== null && cur.marker === target) {
+      // Тот же маркер уже стоит — снимаем.
+      newLine = raw.slice(cur.marker.length);
+      delta = -cur.marker.length;
+    } else if (cur !== null) {
+      // Другой структурный маркер — заменяем на нужный.
+      newLine = target + raw.slice(cur.marker.length);
+      delta = target.length - cur.marker.length;
+    } else {
+      newLine = target + raw;
+      delta = target.length;
+    }
+    draft = draft.slice(0, start) + newLine + draft.slice(end);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      const inLine = Math.min(Math.max(caret - start + delta, 0), newLine.length);
+      textarea?.setSelectionRange(start + inLine, start + inLine);
+    });
+  }
+
+  // Escape: диалог → меню → форму напоминания → закрыть страницу (при
+  // изменённом тексте requestClose покажет диалог «Сохранить?»).
   $effect(() => {
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (editing) {
-        cancelEdit();
-      } else if (menuOpen) {
-        closeMenu();
-      } else if (showReminderForm) {
-        showReminderForm = false;
-      } else {
-        requestClose();
+      if (exitConfirm) {
+        exitConfirm = false;
+        error = '';
+        return;
       }
+      if (menuOpen) {
+        closeMenu();
+        return;
+      }
+      if (showReminderForm) {
+        showReminderForm = false;
+        return;
+      }
+      requestClose();
     };
     window.addEventListener('keydown', onKeydown);
     return () => window.removeEventListener('keydown', onKeydown);
   });
 </script>
+
+{#snippet toolbar()}
+  <!-- Корневой узел панели: onEditorBlur по нему отличает «фокус ушёл на
+       панель» от «ушёл совсем» (панель не исчезает под пальцем). -->
+  <div bind:this={toolbarEl} class="flex flex-col gap-1.5">
+    <div class="flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
+        aria-label="Жирный (**текст**)"
+        title="Жирный"
+        class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => wrap('**', '**')}
+      >
+        <span class="font-bold">B</span>
+      </button>
+      <button
+        type="button"
+        aria-label="Курсив (*текст*)"
+        title="Курсив"
+        class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => wrap('*', '*')}
+      >
+        <span class="italic">I</span>
+      </button>
+      <button
+        type="button"
+        aria-label="Код (`текст`)"
+        title="Код"
+        class="flex h-9 w-9 items-center justify-center rounded-lg bg-background font-mono text-[13px] transition-colors active:bg-border/60"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => wrap('`', '`', 'код')}
+      >
+        &lt;/&gt;
+      </button>
+      <button
+        type="button"
+        aria-label="Ссылка ([текст](url))"
+        title="Ссылка"
+        class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60 {linkOpen
+          ? 'bg-border/60'
+          : ''}"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={toggleLink}
+      >
+        🔗
+      </button>
+      <span class="mx-0.5 h-6 w-px bg-border" aria-hidden="true"></span>
+      <button
+        type="button"
+        aria-label="Заголовок (# в начале строки)"
+        title="Заголовок"
+        class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] font-bold transition-colors active:bg-border/60"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => toggleLineMarker('h1')}
+      >
+        #
+      </button>
+      <button
+        type="button"
+        aria-label="Подзаголовок (## в начале строки)"
+        title="Подзаголовок"
+        class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] font-semibold transition-colors active:bg-border/60"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => toggleLineMarker('h2')}
+      >
+        ##
+      </button>
+      <button
+        type="button"
+        aria-label="Список (- в начале строки)"
+        title="Список"
+        class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[17px] transition-colors active:bg-border/60"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => toggleLineMarker('list')}
+      >
+        ••
+      </button>
+      <button
+        type="button"
+        aria-label="Чеклист (- [ ] в начале строки)"
+        title="Чеклист"
+        class="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => toggleLineMarker('check')}
+      >
+        ☑
+      </button>
+    </div>
+
+    {#if linkOpen}
+      <div class="flex items-center gap-2">
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          bind:this={linkInput}
+          bind:value={linkUrl}
+          type="url"
+          placeholder="https://…"
+          autofocus
+          class="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-accent"
+        />
+        <button
+          type="button"
+          class="h-10 shrink-0 rounded-xl bg-accent-strong px-4 text-sm font-medium text-white disabled:opacity-40"
+          disabled={linkUrl.trim() === ''}
+          onmousedown={(e) => e.preventDefault()}
+          onclick={applyLink}
+        >
+          Вставить
+        </button>
+      </div>
+    {/if}
+
+    <p class="text-xs text-muted">
+      # заголовок · ## подзаголовок · - список · - [ ] чеклист · **жирный**, *курсив*, `код`,
+      [ссылка](https://…)
+    </p>
+  </div>
+{/snippet}
 
 <div
   class="notepage fixed inset-0 z-[70] flex touch-pan-y flex-col bg-surface"
@@ -423,41 +724,66 @@
     <span class="w-10"></span>
   </header>
 
-  <!-- touch-pan-y: вертикальный скролл остаётся нативным, а горизонтальный
-       свайп (закрытие) достаётся странице по всей площади, а не только шапке -->
-  <main class="scroll-area touch-pan-y flex-1 overflow-y-auto px-4 py-4">
-    {#if editing}
-      <NoteEditForm
-        note={pageNote}
-        saveOverride={owned ? undefined : saveTextOverride}
-        onCancel={cancelEdit}
-        onSaved={cancelEdit}
-      />
-    {:else}
-      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-      <div
-        class="whitespace-pre-wrap break-words text-[16px] leading-6 text-content [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2"
-        class:note-done={isDone}
-        onclick={onBodyClick}
-      >
-        {@html renderNoteBlocksHtml(pageNote.text, pageNote.entities, isActive)}
-      </div>
-    {/if}
+  <!-- Текст заметки — большое редактируемое поле на всю высоту страницы
+       (тапнул и пиши, отдельного режима нет). Скролл — внутри поля;
+       touch-pan-y оставляет вертикальный скролл нативным, а горизонтальный
+       свайп (закрытие) достаётся странице. -->
+  <main class="flex min-h-0 flex-1 flex-col">
+    <textarea
+      bind:this={textarea}
+      bind:value={draft}
+      onfocus={() => (focused = true)}
+      onblur={onEditorBlur}
+      class="min-h-0 w-full flex-1 resize-none touch-pan-y whitespace-pre-wrap bg-transparent px-4 py-4 text-[16px] leading-6 text-content caret-accent outline-none placeholder:text-muted"
+      placeholder="Начните печатать…"
+    ></textarea>
   </main>
 
-  {#if !editing}
-    <!-- Док действий: закреплён под контентом, главные кнопки всегда видны
-         (✅/↩️ выполнить, 🔄 приоритет, ⏰ напомнить, ✏️ править); остальное
-         (📌, 📂 Переместить, 🗄 В архив, 🗑 Удалить) — в меню ⋯. Чип
-         напоминания появляется только когда оно установлено; форма по ⏰
-         занимает док целиком. data-no-swipe: свайп по кнопкам не закрывает
-         страницу. -->
-    <footer
-      data-no-swipe
-      class="shrink-0 border-t border-border bg-bar px-3 pb-[env(safe-area-inset-bottom)] pt-2"
-    >
-      {#if error}
-        <p class="px-1 pb-2 text-xs text-danger">{error}</p>
+  <footer
+    data-no-swipe
+    class="shrink-0 border-t border-border bg-bar px-3 pt-2"
+    style:padding-bottom={`calc(${keyboardInset}px + env(safe-area-inset-bottom))`}
+  >
+    {#if error}
+      <p class="px-1 pb-2 text-xs text-danger">{error}</p>
+    {/if}
+
+    {#if dirty}
+      <!-- Текст изменён: вместо ряда действий — «Отмена» и «Сохранить»
+           (появляются, только когда есть несохранённые правки, как в
+           нативных заметках). Ряд действий скрыт: тап по ✅/⋯ не должен
+           «увести» несохранённый текст. -->
+      <div class="flex flex-col gap-3 pb-1">
+        {@render toolbar()}
+        <div class="flex gap-2">
+          <button
+            type="button"
+            class="h-11 flex-1 rounded-xl border border-border text-sm"
+            disabled={saving}
+            onclick={discard}
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            class="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-accent-strong text-sm font-medium text-white"
+            disabled={saving}
+            onclick={() => void save(false)}
+          >
+            {#if saving}
+              <Spinner size="16px" />
+            {:else}
+              Сохранить
+            {/if}
+          </button>
+        </div>
+      </div>
+    {:else}
+      {#if focused}
+        <!-- Поле в фокусе (клавиатура открыта): панель форматирования. -->
+        <div class="flex flex-col gap-1.5 pb-1">
+          {@render toolbar()}
+        </div>
       {/if}
 
       {#if isActive && showReminderForm}
@@ -508,6 +834,10 @@
           </div>
         {/if}
 
+        <!-- Док действий: закреплён под контентом, главные кнопки всегда
+             видны (✅/↩️ выполнить, 🔄 приоритет, ⏰ напомнить); остальное
+             (📌, 📂 Переместить, 🗄 В архив, 🗑 Удалить) — в меню ⋯.
+             data-no-swipe: свайп по кнопкам не закрывает страницу. -->
         <div class="flex items-center justify-between gap-1">
           {#if isActive || isDone}
             <button
@@ -574,15 +904,6 @@
             {/if}
             <button
               type="button"
-              aria-label="Редактировать"
-              class="flex h-12 w-12 items-center justify-center rounded-full bg-background text-lg"
-              disabled={busy !== null}
-              onclick={startEdit}
-            >
-              ✏️
-            </button>
-            <button
-              type="button"
               aria-label="Ещё действия"
               class="flex h-12 w-12 items-center justify-center rounded-full bg-background text-xl transition-transform active:scale-90"
               disabled={busy !== null}
@@ -593,8 +914,8 @@
           </div>
         </div>
       {/if}
-    </footer>
-  {/if}
+    {/if}
+  </footer>
 </div>
 
 {#if menuOpen}
@@ -673,6 +994,64 @@
     }}
     onConfirm={doDelete}
   />
+{/if}
+
+{#if exitConfirm}
+  <Modal
+    open
+    z="z-[80]"
+    onClose={() => {
+      exitConfirm = false;
+      error = '';
+    }}
+  >
+    <div class="flex flex-col gap-4 px-1 py-2">
+      <div>
+        <h2 class="text-lg font-semibold">Несохранённые изменения</h2>
+        <p class="mt-1 text-sm text-muted">Сохранить текст заметки перед закрытием?</p>
+      </div>
+      {#if error}
+        <p class="text-sm text-danger">{error}</p>
+      {/if}
+      <button
+        type="button"
+        class="flex h-11 items-center justify-center gap-2 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+        disabled={saving}
+        onclick={() => void save(true)}
+      >
+        {#if saving}
+          <Spinner size="16px" />
+        {:else}
+          Сохранить
+        {/if}
+      </button>
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="h-11 flex-1 rounded-xl border border-border text-sm disabled:opacity-50"
+          disabled={saving}
+          onclick={() => {
+            exitConfirm = false;
+            error = '';
+          }}
+        >
+          Отмена
+        </button>
+        <button
+          type="button"
+          class="h-11 flex-1 rounded-xl border border-border text-sm text-danger disabled:opacity-50"
+          disabled={saving}
+          onclick={() => {
+            exitConfirm = false;
+            error = '';
+            closeNow();
+          }}
+        >
+          Не сохранять
+        </button>
+      </div>
+    </div>
+  </Modal>
 {/if}
 
 {#if showMove}

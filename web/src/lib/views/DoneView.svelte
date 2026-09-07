@@ -43,18 +43,8 @@
     menuRect = null;
   }
 
-  // Редактирование из контекстного меню («✏️ Редактировать»): страница сразу
-  // в режиме редактирования.
-  let editRequestId: number | null = $state(null);
-
-  function requestEdit(note: Note): void {
-    editRequestId = note.id;
-    selectedId = note.id;
-  }
-
   function closePage(): void {
     selectedId = null;
-    editRequestId = null;
   }
 
   onMount(() => {
@@ -117,19 +107,9 @@
 </div>
 
 {#if selectedCache !== null}
-  <NotePage
-    note={selectedCache}
-    startEditing={editRequestId === selectedCache.id}
-    onClose={closePage}
-  />
+  <NotePage note={selectedCache} onClose={closePage} />
 {/if}
 
 {#if menuNote !== null && menuRect !== null}
-  <NoteMenu
-    note={menuNote}
-    rect={menuRect}
-    done
-    onClose={closeMenu}
-    onEdit={requestEdit}
-  />
+  <NoteMenu note={menuNote} rect={menuRect} done onClose={closeMenu} />
 {/if}

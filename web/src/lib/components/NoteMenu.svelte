@@ -27,7 +27,6 @@
     archived = false,
     done = false,
     onClose,
-    onEdit,
     onMove,
   }: {
     note: Note;
@@ -35,8 +34,6 @@
     archived?: boolean;
     done?: boolean;
     onClose: () => void;
-    /** Открыть редактор заметки (пункт «✏️ Редактировать»). */
-    onEdit?: (note: Note) => void;
     /** Открыть модалку перемещения (пункт «📂 Переместить»; только активные). */
     onMove?: (note: Note) => void;
   } = $props();
@@ -165,22 +162,6 @@
       <p class="px-3 py-1 text-xs text-danger">{error}</p>
     {/if}
 
-    <button
-      type="button"
-      role="menuitem"
-      class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
-      onclick={() => {
-        // Сначала действие с валидной заметкой; закрытие — после. Если закрыть
-        // меню раньше, проп note (живая привязка к derived menuNote родителя)
-        // к моменту onEdit уже будет null.
-        onEdit?.(note);
-        onClose();
-      }}
-    >
-      <span class="w-6 shrink-0 text-center text-base">✏️</span>
-      Редактировать
-    </button>
-
     {#if !archived && !done}
       <button
         type="button"
@@ -260,7 +241,9 @@
           role="menuitem"
           class="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
           onclick={() => {
-            // Сначала действие с валидной заметкой; закрытие — после (как у onEdit).
+            // Сначала действие с валидной заметкой; закрытие — после. Если
+            // закрыть меню раньше, проп note (живая привязка к derived menuNote
+            // родителя) к моменту onMove уже будет null.
             onMove(note);
             onClose();
           }}
