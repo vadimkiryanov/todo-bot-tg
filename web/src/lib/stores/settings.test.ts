@@ -3,7 +3,17 @@
 // папки «в списке» (как в боте) и путь «в табе»; переключение сохраняется
 // в localStorage и восстанавливается при старте модуля.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setFoldersMode, setPathMode, settings } from './settings.svelte';
+import { setFoldersMode, setPathMode, useSettingsStore } from './settings';
+
+/** Чтение zustand-состояния в синтаксисе прежнего $state-объекта. */
+const settings = {
+  get foldersMode() {
+    return useSettingsStore.getState().foldersMode;
+  },
+  get pathMode() {
+    return useSettingsStore.getState().pathMode;
+  },
+};
 
 /** Мини-хранилище для node-окружения (в тестах localStorage нет). */
 function createStorage(): Storage {
@@ -48,8 +58,8 @@ describe('settings store', () => {
   it('при старте восстанавливается сохранённый режим', async () => {
     localStorage.setItem('todo.foldersMode', 'button');
     vi.resetModules();
-    const mod = await import('./settings.svelte');
-    expect(mod.settings.foldersMode).toBe('button');
+    const mod = await import('./settings');
+    expect(mod.useSettingsStore.getState().foldersMode).toBe('button');
   });
 
   it('по умолчанию путь показывается в табе островка', () => {
@@ -69,7 +79,7 @@ describe('settings store', () => {
   it('при старте восстанавливается сохранённый режим пути', async () => {
     localStorage.setItem('todo.pathMode', 'strip');
     vi.resetModules();
-    const mod = await import('./settings.svelte');
-    expect(mod.settings.pathMode).toBe('strip');
+    const mod = await import('./settings');
+    expect(mod.useSettingsStore.getState().pathMode).toBe('strip');
   });
 });

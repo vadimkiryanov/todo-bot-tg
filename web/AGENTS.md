@@ -3,8 +3,7 @@
 > Фронтенд веб-приложения «todo» — мобильный PWA, отдельный сервис, не зависящий от
 > Telegram-бота. Аутентификация — логин + пароль; аккаунты независимы от бота.
 > Этот файл — свод правил и паттернов для работы с кодом в `web/`.
-> План работ — в [`docs/WEB_PLAN.md`](../docs/WEB_PLAN.md), контракт API —
-> в [`docs/BACKEND_API_PLAN.md`](../docs/BACKEND_API_PLAN.md).
+> Контракт API — в [`docs/BACKEND_API_PLAN.md`](../docs/BACKEND_API_PLAN.md).
 
 ## 1. Философия
 
@@ -12,107 +11,147 @@
 |---|---|
 | **Минимализм** | Один эмодзи вместо заголовков, минимум текста и кнопок. Каждый элемент должен пройти проверку «можно ли без него?». Убрать лишнее — нормально, это приветствуется. |
 | **Mobile-first** | Приложение живёт на телефоне. Проектируй под тач, не под курсор. Целевой viewport — 375px. |
-| **Скорость** | Мгновенный отклик интерфейса, оптимистичные обновления, лёгкий бандл. Svelte выбран именно за скорость работы и разработки. |
+| **Скорость** | Мгновенный отклик интерфейса, оптимистичные обновления, лёгкий бандл. |
 | **Один источник данных** | Бэкенд — единственный источник правды (REST `/api/v1`). Фронт — тонкий клиент: рендер, кэш, UX. |
-| **Дизайн как в Telegram-чате** | Верх — табы топиков, середина — список заметок, низ — поле ввода. Знакомый паттерн, никакой «сайтовости». |
-| **Никакой магии** | Минимум зависимостей, никаких «магических» библиотек. Обычный fetch + Svelte stores. |
+| **Дизайн как в Telegram-чате** | Верх — островок табов топиков, середина — список заметок, низ — поле ввода. Знакомый паттерн, никакой «сайтовости». |
+| **Никакой магии** | Минимум зависимостей, никаких «магических» библиотек. Обычный fetch + Zustand. |
 
 ## 2. Стек (зафиксирован)
 
-- **Vite** — сборка, dev-сервер
-- **Svelte 5** — runes (`$state`, `$derived`, `$effect`, `$props`), без legacy-синтаксиса
+- **Vite** — сборка, dev-сервер; вход `index.html` → `src/main.tsx` → `src/App.tsx`
+- **React 19** — функциональные компоненты, хуки; никаких классовых компонентов
+- **Zustand 5** — глобальное состояние (единственная state-библиотека)
 - **TypeScript** — `strict: true`, без `any` (кроме границ, где бэкенд отдаёт произвольные данные)
 - **Tailwind CSS v4** — утилитарные классы в разметке, дизайн-токены в `app.css`
-- **vite-plugin-pwa** — манифест, service worker, установка на телефон
+- **vite-plugin-pwa** — манифест, service worker (autoUpdate, `navigateFallbackDenylist /^\/api\//`), установка на телефон
 - **Vitest** — unit-тесты (stores, api-клиент)
 - **npm** — пакетный менеджер
 
-Не добавлять: UI-киты, CSS-фреймворки, state-библиотеки, роутеры, SvelteKit.
+Не добавлять: UI-киты, CSS-фреймворки, роутеры (react-router), другие state-библиотеки.
 
 ## 3. Структура директорий
 
 ```
 web/
 ├── public/
-│   ├── manifest.webmanifest   # PWA-манифест
-│   └── icons/                 # 192, 512, 180
+│   └── icons/                 # PWA-иконки 192, 512, 180
 └── src/
-    ├── main.ts                # bootstrap + SW
-    ├── app.css                # Tailwind-вход, токены
-    ├── App.svelte             # корень, переключатель экранов (login/chat)
+    ├── main.tsx               # bootstrap + registerSW
+    ├── App.tsx                # корень: guard-роутер, переключатель экранов
+    ├── app.css                # Tailwind-вход, токены, кастомные классы
     └── lib/
         ├── api/               # ВСЕ сетевые вызовы (клиент + по сущностям)
-        ├── stores/            # реактивное состояние
+        ├── stores/            # Zustand-сторы (по одному на сущность)
         ├── types/             # типы API (зеркало DTO бэкенда)
-        └── components/        # UI-компоненты
+        ├── utils/             # чистые функции (форматирование, блоки, click)
+        ├── router.ts          # микро-роутер (useRouteStore, navigate, replacePath)
+        ├── views/             # экраны: LoginView, ChatView, ArchivedView, DoneView,
+        │                      #   TimersView, NotificationsView
+        └── components/        # UI-компоненты (PascalCase.tsx)
 ```
 
 **Категорически запрещено:**
-- `utils/`, `helpers/`, `common/` — у каждого кода есть своё место в `lib/`
+- `helpers/`, `common/` — у каждого кода есть своё место в `lib/`
 - Сетевые вызовы (raw fetch) вне `lib/api/`
 - Циклические импорты между stores
+- Импорт компонентов с расширением (`.tsx` опускается): `from '../components/NoteCard'`
 
 ## 4. Соглашения по коду
 
-### 4.1 Svelte 5 (runes)
+### 4.1 React-компоненты
 
-```svelte
-<script lang="ts">
-  let { note, onDone }: { note: Note; onDone?: () => void } = $props();
+```tsx
+interface NoteCardProps {
+  note: Note;
+  onOpen: (note: Note) => void;
+  highlighted?: boolean;
+}
 
-  let expanded = $state(false);
-
-  const preview = $derived(note.text.split('\n')[0]);
-</script>
+export function NoteCard({ note, onOpen, highlighted = false }: NoteCardProps) {
+  // ...
+}
 ```
 
-- Только runes-синтаксис: `$state`, `$derived`, `$effect`, `$props`, `$bindable`
-- `let` + присваивание — только через `$state`; НЕ использовать `export let` (legacy)
-- `onMount`, `onDestroy`, `tick` — из `svelte` (legacy `createEventDispatcher` — не использовать)
-- Компоненты — PascalCase, файлы — `ComponentName.svelte`
+- Каждый компонент — **именованный экспорт** функции; интерфейс `XxxProps` — рядом
+- Маппинг рун из Svelte 5: `$props` → props-интерфейс, `$state` → `useState`, `$derived` →
+  вычисление/`useMemo`, `$effect` → `useEffect` (+cleanup), `onMount` → `useEffect([], ...)`,
+  `bind:this` → `useRef`, `on:event` → `onEvent`, `{#if}`/`{#each}` → условный рендер / `list.map`
+  с `key`, `{#snippet}`/`{@render}` → локальные функции, возвращающие JSX (вызывать как
+  функции, не как `<Comp/>` — иначе remount), `goto` → `navigate`, `{@const x}` → переменная
+  в map-колбэке
+- Ссылки на DOM — `useRef`; таймеры `window.setTimeout` типизировать явно как
+  `useRef<number | undefined>` (тип `number`, не `ReturnType<typeof setTimeout>` — иначе
+  @types/node резолвит `NodeJS.Timeout`)
+- Локальные scoped-стили из портированных `.svelte` переносятся в конец `src/app.css` блоком
+  с маркером `/* <Name>: scoped-стили из <Name>.svelte (портированы в React) */`; `:global()`
+  разворачивается
 
-### 4.2 TypeScript
+### 4.2 Zustand
+
+```ts
+// lib/stores/topics.ts
+interface TopicsState {
+  topics: Topic[];
+  loading: boolean;
+  error: string | null;
+}
+
+export const useTopicsStore = create<TopicsState>()(() => ({
+  topics: [],
+  loading: false,
+  error: null,
+}));
+
+export function loadTopics(): void { /* useTopicsStore.setState(...) */ }
+```
+
+- Стор: `create<State>()(() => ({...}))`; **действия — export-функции** (не методы стора),
+  мутируют через `useXStore.setState(...)`; `getState()` — только в обработчиках событий,
+  siema-колбэках и runtime-функциях (защита от stale closures), не в рендере
+- В компонентах — **только селекторы** `useXStore((s) => s.field)`; ui-флаги — через
+  `useUiStore.setState({...})`
+- `setState` асинхронен (батчинг) — синхронное чтение сразу после записи идёт через
+  ref-зеркало или `getState()`
+- Мутации списков — через store-функции с оптимистичным обновлением:
+  применить → запросить API → при ошибке откатить и показать ошибку
+- Тесты стора — `*.test.ts` рядом, с `resetXStore()`/свежим стором в `beforeEach`
+
+### 4.3 Роутинг
+
+- Микро-роутер `lib/router.ts`: `useRouteStore` (поле `path`), `navigate(path)` (pushState),
+  `replacePath(path)` (replaceState), `initRouter()` (popstate, cleanup), `currentPath()`
+- Query (`?topic=&folder=&note=`) роутер не трогает — им управляет `ChatView` через history
+- Guard'ы в `App.tsx`: гость на защищённом пути → `replacePath('/login')`, авторизованный
+  на `/login` → `replacePath('/')` (паритет с бывшими SvelteKit `load`-redirect'ами)
+
+### 4.4 TypeScript
 
 - `strict: true`; типы API в `lib/types/api.ts` — зеркалят DTO бэкенда (обновлять при изменении контракта)
 - Опциональные поля бэкенда (nil) — `foo: number | null`, не `foo?` без причины
-- `satisfies` для литералов конфигов; утилиты типов — локально, не `utility-types`
+- `verbatimModuleSyntax`: типы импортируются через `import type { ... }`
 
-### 4.3 Стили
+### 4.5 Стили
 
-- Утилиты Tailwind в разметке; кастомные стили — только токены в `app.css`
-  (`@theme` из Tailwind v4: цвета, радиусы, отступы)
-- Класс с «вариативной» логикой (активный таб и т.п.) — через `$derived` строку, не через `class:`
-  (там, где это чище), либо `class:active={cond}` если наглядно
-- Цвета приоритетов: 🔴 высокий, 🟡 средний, 🔵 низкий — должны быть различимы и в тёмной теме
+- Утилиты Tailwind в разметке; кастомные стили — только в `app.css`
+  (дизайн-токены `@theme` из Tailwind v4 + классы `island-glass`, `glass-card`, `glass-menu`,
+  `glass-sheet`, `sheet-*`, `backdrop-*`, `note-priority-*`, `loader`, `empty-bob`, `text-muted`,
+  `scroll-area` и др. — использовать их, не дублировать)
+- Цвета приоритетов — токены `--color-priority-*` (кольцо `note-priority-*`); различимы и в тёмной теме
 - Нижняя панель ввода всегда учитывает `env(safe-area-inset-bottom)`
 
-### 4.4 API-клиент
+### 4.6 API-клиент
 
 ```ts
 // lib/api/client.ts — единственная точка fetch
-export class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> { ... }
+export class ApiError extends Error { ... }
 ```
 
 - Каждый эндпоинт — функция в `lib/api/<entity>.ts` (`listTopics()`, `createNote(dto)`, …)
 - `credentials: 'same-origin'` (cookie-сессия)
-- Ошибка: `ApiError` со статусом; `401` — сигнал для `session` store (возврат на логин)
+- Ошибка: `ApiError` со статусом; `401` — сигнал для session store (возврат на логин)
 - Формат ответа/ошибки — строго по `BACKEND_API_PLAN.md`
 
-### 4.5 Состояние (stores)
-
-```ts
-// lib/stores/navigation.ts
-export const navigation = $state({ screen: 'chat', activeTopicID: 0 });
-```
-
-- Глобальное состояние — `$state` в модуле (runes) или классические `writable` из `svelte/store` —
-  выбирать по контексту; НЕ плодить обе парадигмы в одном store
-- Мутации списка заметок — через store-функции с оптимистичным обновлением:
-  применить → запросить API → при ошибке откатить и показать ошибку
-
-### 4.6 Обработка ошибок
+### 4.7 Обработка ошибок
 
 - Ошибки API — `ApiError`; текст из `{"error": ...}` показывать пользователю как есть (он уже на русском)
 - Сеть недоступна: `navigator.onLine` + единый компонент «нет сети» (не падать, не терять состояние)
@@ -122,8 +161,9 @@ export const navigation = $state({ screen: 'chat', activeTopicID: 0 });
 
 1. **Один эмодзи вместо заголовков** — «📝» в пустом топике, без текста «для красоты».
 2. **Карточки-кнопки** — заметка/топик = отдельная карточка с превью. Никакой нумерации.
-3. **Расположение как в чате**: верх — табы топиков (горизонтальный скролл), середина — список
-   заметок, низ — поле ввода (`Enter` = отправить, `Shift+Enter` = новая строка).
+3. **Расположение как в чате**: верх — островок табов топиков, середина — список заметок
+   (свайп между топиками, внутри папок свайп «назад»), низ — поле ввода
+   (`Enter` = отправить, `Shift+Enter` = новая строка).
 4. **Тач-цели ≥ 44px**, нижняя панель действий, `env(safe-area-inset-bottom)`.
 5. **Быстрые действия без лишних шагов**: ✅ / приоритет — одним тапом, с оптимистичным откликом.
 6. **Не перегружать** — если элемент не несёт информации, его нет. Это требование владельца проекта.
@@ -131,16 +171,16 @@ export const navigation = $state({ screen: 'chat', activeTopicID: 0 });
 
 ## 6. PWA-требования
 
-- Манифест: `name`, `short_name`, `display: standalone`, `theme_color`, иконки 192/512 + apple-touch 180
-- SW: precache shell; GET-запросы API для списков — stale-while-revalidate
-- `index.html`: `viewport-fit=cover`, `user-scalable=no` (телефонный UX)
-- Установка «Add to Home Screen» проверяется на реальном устройстве
+- Манифест и SW — в `vite.config.ts` (`VitePWA`, `registerType: 'autoUpdate'`)
+- Иконки 192/512 + apple-touch 180 генерируются `npm run gen:icons` (sharp) в `public/icons/`
+- `index.html`: `viewport-fit=cover`, theme-color для светлой/тёмной темы
+- SW не должен перехватывать `/api/*` (вход через Telegram-виджет) — `navigateFallbackDenylist`
 
 ## 7. Тестирование
 
-- Vitest: stores (мутации, оптимистичные откаты), api-клиент (мок fetch)
-- Компоненты: `@testing-library/svelte` (по необходимости)
-- Прогон перед сдачей: `npm run check` (svelte-check + tsc), `npm run test`, `npm run build`
+- Vitest: stores (мутации, оптимистичные откаты), api-клиент (мок fetch); среда `node`,
+  `VITE_USE_MOCK=true` принудительно (в `vite.config.ts`)
+- Прогон перед сдачей: `npm run check` (tsc --noEmit), `npm run test`, `npm run build`
 - После крупных изменений — Lighthouse (mobile): производительность ≥ 90, PWA installable
 
 ## 8. Антипаттерны
@@ -149,8 +189,9 @@ export const navigation = $state({ screen: 'chat', activeTopicID: 0 });
 |---|---|
 | Raw fetch в компоненте | Только через `lib/api/` |
 | `any` в коде | Типы в `lib/types/api.ts`, сужение через guards |
+| `useXStore.getState()` в рендере | Селекторы `useXStore((s) => s.field)`; `getState()` — в обработчиках |
 | Логика бизнес-правил на фронте | Правила (сортировка, валидация) — на бэкенде; фронт рендерит как есть |
-| Дублирование состояний | Один store на сущность; производные — `$derived` |
+| Дублирование состояний | Один стор на сущность; производные — через селекторы/`useMemo` |
 | «Красивый» текст-заголовки | Эмодзи, минимум слов |
 | Тяжёлые библиотеки ради одной фичи | Написать 20 строк самим |
 | Игнор безопасных зон экрана | `safe-area-inset` для нижней панели |

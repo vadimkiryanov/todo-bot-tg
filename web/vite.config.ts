@@ -1,11 +1,11 @@
-import { sveltekit } from '@sveltejs/kit/vite';
+import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   plugins: [
-    sveltekit(),
+    react(),
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -57,6 +57,15 @@ export default defineConfig({
     proxy: {
       // Во время разработки API бэкенда (cmd/bot, :8080)
       '/api': 'http://localhost:8080',
+    },
+  },
+  build: {
+    // Dockerfile копирует /web/build в Caddy (/srv)
+    outDir: 'build',
+  },
+  resolve: {
+    alias: {
+      '@': '/src',
     },
   },
   test: {

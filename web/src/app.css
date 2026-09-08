@@ -415,8 +415,15 @@ body.scroll-locked .scroll-area {
   }
 }
 
-/* SvelteKit рендерит layout в div[data-sveltekit-preload-data] с display:contents —
-   корневой layout занимает 100% высоты body (класс h-full). */
+/* React: корневой layout (App, класс h-full) живёт внутри #root. В Svelte
+   роль обёртки играл div[style="display:contents"] — layout резолвился прямо
+   от body (fixed, 100dvh), и цепочка h-full работала. #root — обычный блочный
+   элемент: без явной высоты все вложенные h-full (App → колонка чата → зона
+   ленты → слайды) схлопнулись бы к высоте контента (панель ввода не прижата,
+   списки не скроллятся). Даём корню высоту body — цепочка снова полная. */
+#root {
+  height: 100%;
+}
 
 body {
   /* PWA-оболочка: body «закреплён» на вьюпорте. position: fixed — ключ к
@@ -480,4 +487,92 @@ textarea {
 }
 *::-webkit-scrollbar {
   display: none;
+}
+
+/* FolderBar: scoped-стили из FolderBar.svelte (портированы в React) */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Дерево папок (до 4 рядов видно, дальше вертикальный скролл внутри
+   секции): долгий тап по папке открывает меню — выделение текста не
+   нужно; touch-action не ограничиваем — вертикальный свайп скроллит
+   секцию. WebKit игнорирует user-select на родителе для текста внутри
+   <button>, поэтому задаём и кнопкам. */
+.tree,
+.tree button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Шторка меню папки: долгий тап, открывший меню, может продолжаться уже
+   на контенте шторки — выделение текста там не нужно. */
+.sheet-menu,
+.sheet-menu button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* FolderStrip: scoped-стили из FolderStrip.svelte (портированы в React) */
+button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* NotePage: scoped-стили из NotePage.svelte (портированы в React) */
+/* Плавный слайд «как открытие чата»; при drag-жесте transition отключается,
+   чтобы страница ехала за пальцем без задержки. Без will-change: transform —
+   он вызывал временную перерисовку эмодзи запасным шрифтом. */
+.notepage-settle {
+  transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* TopicTabs: scoped-стили из TopicTabs.svelte (портированы в React) */
+/* Сетка топиков: долгий тап по топику открывает меню — выделение текста
+   не нужно (WebKit игнорирует user-select на родителе для текста внутри
+   <button>, поэтому задаём и кнопкам). */
+.topic-grid,
+.topic-grid button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* TopicIsland: scoped-стили из TopicIsland.svelte (портированы в React) */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Табы островка: долгий тап открывает меню топика — выделение текста
+   не нужно; touch-manipulation оставляет горизонтальный скролл ленты. */
+.no-scrollbar,
+.no-scrollbar button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-x;
+}
+/* Капсула-подсветка: rounded-full + фон задаёт класс bg-accent-strong;
+   здесь только мягкая тень, отделяющая её от стекла при езде. */
+.island-pill {
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.08),
+    0 1px 2px rgb(0 0 0 / 0.14);
+}
+
+/* SwipeStrip: scoped-стили из SwipeStrip.svelte (портированы в React) */
+/* siema строит sliderFrame и float-обёртки динамически, без классов —
+   цепочку высот задаём структурно: host (h-full) → frame → обёртки →
+   .swipe-strip-slide (h-full). Без этого слайды схлопнулись бы по высоте. */
+.swipe-strip-host > div {
+  height: 100%;
+}
+.swipe-strip-host > div > div {
+  height: 100%;
 }

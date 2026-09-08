@@ -570,6 +570,30 @@
 
 ---
 
+## Этап 55: Веб — порт островка топиков, ленты SwipeStrip и главного экрана на React (2026-09-08)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(в коммите)* | **Порт пяти компонентов Svelte 5 → React 19 (in-place, `.svelte`-файлы сохранены)**: `TopicTabs`, `TopicMenu`, `TopicIsland`, `SwipeStrip`, `ChatView` → одноимённые `.tsx` (именованные экспорты, импорты без расширений). Svelte-руны → React: `$state` → `useState` (+ref-зеркало для синхронного чтения — setState асинхронен), `$derived` → `useMemo`, `$effect` → `useEffect` (с `eslint-disable-next-line react-hooks/exhaustive-deps` на намеренных deps), сниппеты `{#snippet}`/`{@render}` → локальные функции, возвращающие JSX (вызываются как функции — не как `<Comp/>`, иначе remount), `bind:this` → callback-ref (handle ленты в state — реактивность для align-эффекта) |
+| — | *(в коммите)* | **Сторы читаются по месту**: в рендере — селекторы `useXStore((s) => s.field)`, в siema-колбэках и runtime-функциях — `useXStore.getState()` (защита от stale closures). Stale-чтение в Svelte и React не эквивалентно: Svelte-сторы в runes-режиме подписывали компонент целиком, Zustand — только выбранные слайсы, поэтому «будильники» (`applyUrlIntent`) переехали на один no-deps `useEffect` (early-return при `urlIntent === null` терминален) |
+| — | *(в коммите)* | **SwipeStrip**: хост-обёртка siema с `key={planKey}` — смена плана перемонтирует ленту (аналог `{#key}`); handle наружу через `useImperativeHandle` (`SwipeStripHandle`: `goTo`/`getIndex`/`getCount`), `ref` как prop (`React.Ref<SwipeStripHandle>`, React 19); жестовые колбэки `ondragmove`/`ondragend` сохранены для капсулы островка |
+| — | *(в коммите)* | **TopicIsland**: капсула-подсветка следует за пальцем (`dragPos`), доводка к активному табу, подкрутка ленты — портированы 1:1; scoped-стили (no-scrollbar, pill-тень) перенесены в `web/src/app.css` маркированными блоками (`/* TopicIsland: scoped-стили из TopicIsland.svelte ... */`), то же для `TopicTabs` (сетка без выделения текста) и `SwipeStrip` (структурная цепочка высот `.swipe-strip-host`) |
+| — | *(в коммите)* | **ChatView** (1177 строк Svelte → ~950 строк TSX, ядро экрана): URL-механика (`?topic=&folder=`, стартовый intent, `popstate`, `syncLocation`), `selectedId` через единый helper `setSelected` (state + ref-зеркало), слайды топиков/уровней папок с предзагрузкой соседей, шторки «Топики» (TopicTabs) и «Папки», TopicMenu, InputBar с `onNavigate` (navigate: `/archive`, `/done`, `/notifications`, `/timers`, `/login`), NotePage/NoteMenu/MoveModal/FolderMenu/QuickMenu, модалки создания топика/папки; drag-возврат островка (`onTopicDragEnd`) разносит `finalPos` и сброс по разным тикам (queueMicrotask) — React-батчинг иначе схлопнул бы записи |
+| — | *(в коммите)* | Проверки: `node node_modules/typescript/lib/tsc.js --noEmit -p tsconfig.json` (в `web/`) — 0 ошибок |
+
+---
+
+## Этап 55 (продолжение): Веб — фиксы багов прод-билда (2026-09-08)
+
+| # | Коммит | Что сделано |
+|---|--------|-------------|
+| — | *(в коммите)* | **fix: нижняя панель ввода не прижималась к низу** (`web/src/app.css`). Регрессия миграции Svelte → React: в Svelte роль обёртки корневого layout играл `<div style="display: contents">` — цепочка `h-full` резолвилась прямо от `body` (`position: fixed`, `height: 100dvh`). В React `#root` — обычный блочный div без высоты: все вложенные `h-full` (App → колонка чата → зона ленты → слайды SwipeStrip → `.chat-scroll`) схлопывались к высоте контента — панель ввода плавала на середине экрана (зазор 545–563 px), списки не скроллились. Схлопывание было с самого старта (замеры: 331/299/195 px вместо 844), а не следствием свайпа. Фикс — `#root { height: 100%; }`. Подтверждено замерами: цепочка высот 844 на всех шагах, `footer bottom = 844`, зазор 0 — до и после свайпа топиков |
+| — | *(в коммите)* | **fix: чёрный экран после подъёма «наверх» по папкам** (`SwipeStrip.tsx`). siema v1.5.1 (`buildSliderFrame`) забирает React-детей хоста в sliderFrame; при укорачивании items на живом хосте (возврат из папки) React делал `removeChild` слайда, который siema считает своим, — DOMException, размонтирование всего экрана. Фикс — render-phase update: при смене сигнатуры списка (`planKey`) хост перемонтируется целиком (`key={planKey}`), scrollTop старых слайдов сохраняется в `planRestoreRef` и восстанавливается после пересборки. Подтверждено прогонами: многократные подъёмы F2 → F1 → корень без краха |
+| — | *(в коммите)* | **Скролл заметки вверх/вниз (баг 1)**: в headless-проверках не воспроизводится — оба скролл-контейнера NotePage (view в режиме просмотра и textarea в режиме правки) скроллятся колесом, программно (`scrollTop`) и синтезированным жестом после начала скролла (1100→1600, 800→1400 и т.д.); жест «с нуля» скролл не запускает — артефакт headless-CDP (dispatchTouchEvent и synthesize с нуля нативный скролл не стартуют). Нужна проверка на реальном устройстве |
+| — | *(в коммите)* | Проверки: `npm run check` (tsc) — 0 ошибок, `npm test` (vitest) — 77/77, `npm run build` — успешен; bugcheck-прогоны: панель прижата (зазор 0) до и после свайпа А→Б, активный слайд после свайпа — Б, подъёмы из папок без краха |
+
+---
+
 ## Сводка по слоям
 
 | Слой | Файлы | Ключевые возможности |

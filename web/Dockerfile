@@ -1,4 +1,4 @@
-# Сборка статики Svelte (web/dist)
+# Сборка статики React (web/build)
 FROM node:22-alpine AS build
 
 WORKDIR /web

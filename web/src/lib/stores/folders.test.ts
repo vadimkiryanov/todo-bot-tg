@@ -3,20 +3,37 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { request } from '../api/client';
 import { resetMockStore, setMockDelay } from '../api/mock';
-import { loadNotes, notesStore, resetNotes } from './notes.svelte';
-import { navigation, setActiveFolder, setActiveTopic } from './navigation.svelte';
+import { loadNotes, resetNotes, useNotesStore } from './notes';
+import { setActiveFolder, setActiveTopic, useNavigationStore } from './navigation';
 import {
   createFolder,
   deleteFolder,
   folderChain,
-  foldersStore,
   levelFolders,
   loadFolders,
   renameFolder,
   resetFolders,
   treeFolders,
-} from './folders.svelte';
+  useFoldersStore,
+} from './folders';
 import type { Topic } from '../types/api';
+
+/** Чтение zustand-состояния в синтаксисе прежних $state-объектов. */
+const foldersStore = {
+  get all() {
+    return useFoldersStore.getState().all;
+  },
+};
+const navigation = {
+  get activeFolderID() {
+    return useNavigationStore.getState().activeFolderID;
+  },
+};
+const notesStore = {
+  get notes() {
+    return useNotesStore.getState().notes;
+  },
+};
 
 beforeEach(() => {
   resetMockStore();

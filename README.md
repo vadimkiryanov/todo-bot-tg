@@ -27,7 +27,7 @@
 | Telegram API | [go-telegram-bot-api/v5](https://github.com/go-telegram-bot-api/telegram-bot-api) |
 | REST API | stdlib `net/http` (Go 1.22+ паттерны `METHOD /path`), cookie-сессии, bcrypt |
 | База данных | PostgreSQL 16 ([pgx/v5](https://github.com/jackc/pgx)) |
-| Веб-фронтенд | Vite + Svelte 5 + Tailwind v4 (PWA, `web/`) |
+| Веб-фронтенд | Vite + React 19 + Tailwind v4 (PWA, `web/`) |
 | Веб-сервер | [Caddy](https://caddyserver.com/) — статика + прокси `/api`, авто-HTTPS |
 | Конфигурация | `.env` + [godotenv](https://github.com/joho/godotenv) |
 | Контейнеризация | Docker (multi-stage) + docker-compose (4 сервиса: `web`, `api`, `bot`, `db`) |
@@ -75,7 +75,7 @@ docker compose up -d --build
 ```
 
 Поднимаются четыре сервиса: `db` (PostgreSQL), `api` (REST API, `cmd/api`), `bot` (Telegram-бот),
-`web` (Caddy — статика Svelte + прокси `/api/*` на `api:8080`). Веб доступен на `http://localhost`
+`web` (Caddy — статика React + прокси `/api/*` на `api:8080`). Веб доступен на `http://localhost`
 (или `https://ваш-домен` при заданном `APP_BASE_URL` — Caddy получит сертификат Let's Encrypt сам).
 
 ### Веб-приложение и REST API
@@ -189,7 +189,7 @@ Caddy сам получит и обновит сертификат Let's Encrypt
 │   ├── middleware/                 # Logging, Recover, RequireAuth (cookie-сессии)
 │   ├── session/                    # Веб-сессии (токен → SHA-256, TTL)
 │   └── user/                       # Валидация username/пароля, bcrypt
-├── web/                            # Веб-фронтенд: Vite + Svelte 5 + Tailwind v4 (PWA)
+├── web/                            # Веб-фронтенд: Vite + React 19 + Tailwind v4 (PWA)
 │   ├── Dockerfile                  #   Сборка статики → Caddy
 │   └── Caddyfile                   #   Статика + прокси /api + авто-HTTPS
 ├── docs/ARCHITECTURE_GUIDE.md      # Руководство по архитектуре

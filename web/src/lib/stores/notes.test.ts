@@ -4,20 +4,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { request } from '../api/client';
 import { resetMockStore, setMockDelay } from '../api/mock';
 import type { Folder, Note, Priority, Topic } from '../types/api';
-import { setActiveFolder, setActiveTopic } from './navigation.svelte';
+import { setActiveFolder, setActiveTopic } from './navigation';
 import {
-  archivedStore,
   archiveNote,
   clearNoteHighlight,
   clearReminder,
   createNote,
-  doneStore,
   isNotesCached,
   loadArchived,
   loadDone,
   loadNotes,
   moveNote,
-  notesStore,
   preloadTopicNeighbors,
   removeDoneNote,
   removeNote,
@@ -29,7 +26,40 @@ import {
   togglePin,
   unarchiveNote,
   undoneNote,
-} from './notes.svelte';
+  useNotesStore,
+} from './notes';
+
+/** Чтение zustand-состояния в синтаксисе прежнего $state-объекта. */
+const notesStore = {
+  get notes() {
+    return useNotesStore.getState().notes;
+  },
+  get highlightedId() {
+    return useNotesStore.getState().highlightedId;
+  },
+  get loading() {
+    return useNotesStore.getState().loading;
+  },
+  get error() {
+    return useNotesStore.getState().error;
+  },
+};
+const archivedStore = {
+  get notes() {
+    return useNotesStore.getState().archivedNotes;
+  },
+  get error() {
+    return useNotesStore.getState().archivedError;
+  },
+};
+const doneStore = {
+  get notes() {
+    return useNotesStore.getState().doneNotes;
+  },
+  get error() {
+    return useNotesStore.getState().doneError;
+  },
+};
 
 beforeEach(() => {
   resetMockStore();
