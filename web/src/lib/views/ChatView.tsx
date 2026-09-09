@@ -971,6 +971,7 @@ export function ChatView() {
           items={folderLevels}
           keyOf={levelKey}
           initialIndex={levelInitialIndex}
+          animateGrowth
           draggable={inFolder}
           duration={stripSpeed()}
           onsettle={onLevelSettled}

@@ -35,29 +35,50 @@
 //    мгновенные переходы (jump / duration=0), где анимации нет и settle
 //    не эмитится.
 //
-// Программные переходы — goTo(index, animate): api.scrollTo(index, !animate)
-// (jump=true — мгновенно; иначе анимация движка с СКОНВЕРТИРОВАННЫМ
-// options.duration — см. JSDoc пропа duration: у Embla это коэффициент
-// мягкости, а не время в мс).
+// Программные переходы — goTo(index, animate). Мгновенный (animate=false) —
+// api.scrollTo(index, true) (jump). Анимированный — НАПРЯМУЮ через движок
+// (engine.scrollBody.useFriction(DRIVE_FRICTION).useDuration(DRIVE_DURATION);
+// engine.scrollTo.index(target, 0)), а не api.scrollTo(index, false):
+// api.scrollTo всегда ставит длительность из options.duration, а при ней
+// (÷40 от мс, см. JSDoc пропа duration) физика ScrollBody недодемпфирована
+// и дальней доезд перелетает цель — подробности в goTo.
 //
 // Драг — встроенный DragHandler Embla: фильтрует правую кнопку мыши,
 // гасит click после драга > dragThreshold (10px по умолчанию — как
 // MOVE_THRESHOLD карточек/папок) и ловит mouseup на ownerDocument, так что
 // «мышиный мост» siema-версии (filterNonPrimary/swallowDragClick/
-// finishMissedDrag) не нужен. Непрерывная позиция жеста (капсула островка
-// едет за пальцем) читается из api.scrollProgress() в rAF-цикле: слайды
-// 100% ширины, прогресс 0..1 между первым и последним, позиция =
-// progress * (count - 1).
+// finishMissedDrag) не нужен. Доводку после отпускания (релиз) DragHandler
+// ведёт своей парой (speed 15–25, friction 0.68 — медленный хвост);
+// релиз перехватываем по событию движка pointerUp (см. handlePointerUp) и
+// переводим доезд на DRIVE-пару — выбор цели (снап по силе флика)
+// остаётся за Embla.
+// Непрерывная позиция жеста (капсула островка едет за пальцем) читается из
+// api.scrollProgress() в rAF-цикле: слайды 100% ширины, прогресс 0..1 между
+// первым и последним, позиция = progress * (count - 1).
 import { useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type * as React from 'react';
 import EmblaCarousel from 'embla-carousel';
 import type { EmblaCarouselType } from 'embla-carousel';
 
+// Программные доезды (goTo, рост цепочки) идут напрямую через ScrollBody со
+// СВОЕЙ парой (friction, duration), а не options.duration/options.friction.
+// Та же пара перехватывает доводку после отпускания свайпа (релиз
+// DragHandler — по событию pointerUp, см. handlePointerUp). Движок —
+// интегратор 2-го порядка:
+// хвост доезда на критическом демпфировании убывает как √friction за кадр,
+// поэтому при базовой friction 0.68 даже критическая длительность (~22)
+// даёт медленный хвост (доезд ~0.7–0.8с, см. goTo). Сниженная friction 0.5
+// с критической длительностью ~6 (порог ≈5.8) ускоряет видимый доезд до
+// ~0.4–0.5с на любой дистанции и остаётся монотонным (перелёт 0 — замерено
+// на движке). Мгновенный доезд (duration=0, prefers-reduced-motion) — jump.
+const DRIVE_FRICTION = 0.5;
+const DRIVE_DURATION = 6;
+
 export interface SwipeStripHandle {
-  /** Программный переезд: animate=true — с анимацией движка (длительность
-      из duration), false — мгновенно. onchange/onsettle отработают как
-      обычно. */
+  /** Программный переезд: animate=true — с плавным монотонным доездом
+      движка (пара DRIVE_FRICTION/DRIVE_DURATION; при duration=0 — прыжок),
+      false — jump. onchange/onsettle отработают как обычно. */
   goTo(index: number, animate: boolean): void;
   /** Текущий индекс слайда (-1 — лента ещё не инициализирована). */
   getIndex(): number;
@@ -80,12 +101,12 @@ interface SwipeStripProps<T> {
   /** Листается ли лента жестом. Внешние топики выключены внутри папки,
       уровни — наоборот («ровно один включён»). */
   draggable?: boolean;
-  /** Длительность видимого доезда, мс (0 — программные переходы мгновенные).
-      В options.duration движка уходит СКОНВЕРТИРОВАННОЕ значение: у Embla
-      это не «время в мс», а коэффициент мягкости физики ScrollBody
-      (friction 0.68) — фактическое время программного scrollTo ≈ 71×
-      (до события settle) / ≈39× (до визуальной остановки). Делим на 40,
-      чтобы видимый доезд занимал ~duration мс (как CSS-переход siema). */
+  /** 0 — программные переходы мгновенные (prefers-reduced-motion); любое
+      ненулевое — анимированный доезд. Фактическое время анимации задаёт
+      НЕ это значение, а пара (DRIVE_FRICTION, DRIVE_DURATION) на ScrollBody
+      (см. шапку): у Embla options.duration — не «время в мс», а
+      коэффициент мягкости физики, и при нём (÷40) дальней доезд перелетает
+      цель. Проп сохранён как переключатель «анимация/прыжок». */
   duration?: number;
   /** Не используется: унаследован от siema-сигнатуры (порог смены слайда).
       У Embla снап решает позиция/скорость релиза (переход от ~20% ширины),
@@ -163,8 +184,8 @@ export function SwipeStrip<T>({
   const curIndexRef = useRef(0);
 
   // Свежие props для imperative API и колбэков движка (создаются один раз).
-  const latestRef = useRef({ items, keyOf, onchange, onsettle, ondragmove, ondragend });
-  latestRef.current = { items, keyOf, onchange, onsettle, ondragmove, ondragend };
+  const latestRef = useRef({ items, keyOf, duration, onchange, onsettle, ondragmove, ondragend });
+  latestRef.current = { items, keyOf, duration, onchange, onsettle, ondragmove, ondragend };
 
   // Пересборка: список изменился — снять скроллы со СТАРОГО DOM и сменить
   // ключ keyed-поддерева ПРЯМО В РЕНДЕРЕ (render-phase update), а не после
@@ -242,9 +263,10 @@ export function SwipeStrip<T>({
       axis: 'x',
       startIndex: Math.max(0, index),
       watchDrag: draggable,
-      // См. JSDoc пропа duration: физика Embla растягивает программный
-      // scrollTo в ~71× от options.duration (settle) — конвертируем
-      // «видимые мс» в коэффициент мягкости движка.
+      // Коэффициент мягкости ScrollBody (не «время в мс»). Программные
+      // доезды идут со своей парой (DRIVE_FRICTION/DRIVE_DURATION, см.
+      // шапку); options.duration остаётся запасным значением для
+      // внутренних api.scrollTo-путей.
       duration: duration === 0 ? 0 : Math.max(1, Math.round(duration / 40)),
     });
     apiRef.current = api;
@@ -258,6 +280,24 @@ export function SwipeStrip<T>({
     };
     api.on('select', handleSelect);
     api.on('settle', flushSettle);
+
+    // Релиз драга (свайп между топиками, свайп-выход из папки) DragHandler
+    // ведёт СВОЕЙ парой (speed 15–25 при friction 0.68 — медленный хвост;
+    // константы движка, опциями не задаются — см. шапку). Перехватываем её
+    // на DRIVE-пару по штатному событию pointerUp: оно эмитится в up()
+    // DragHandler ПОСЛЕ того, как тот поставил свою пару и выставил target
+    // (scrollTo.distance — выбор снапа по силе флика) и запустил анимацию,
+    // но ДО первого кадра доводки (первый seek происходит в следующем
+    // rAF-тике). Смена (friction, duration) до первого кадра только
+    // ускоряет текущий доезд, не трогая выбор цели. Порядок DOM-слушателей
+    // значения не имеет (у мыши up() на window регистрируется в момент
+    // down() — позже наших; у тача Embla держит touchend на viewport —
+    // внутри host): событие приходит из движка, а не из DOM-фазы.
+    const handlePointerUp = (): void => {
+      const engine = api.internalEngine();
+      engine.scrollBody.useFriction(DRIVE_FRICTION).useDuration(DRIVE_DURATION);
+    };
+    api.on('pointerUp', handlePointerUp);
 
     // Непрерывная позиция жеста (капсула-подсветка островка едет за
     // пальцем): промежуточного смещения как события у Embla нет, позиция
@@ -300,11 +340,10 @@ export function SwipeStrip<T>({
         // выдал бы финал). Точку отпускания несёт последний move: отдаём её
         // через ondragend, чтобы родитель поставил капсулу ровно в неё и
         // доехал к активному слайду синхронно с доводкой движка.
-        if (Math.abs(lastMovePos - lastDragPos) > DRAG_POS_EPS) {
-          latestRef.current.ondragend?.(lastMovePos);
-          return;
-        }
-        latestRef.current.ondragend?.();
+        // Перехват пары релиза тут не нужен: его делает handlePointerUp
+        // (событие движка в момент up() DragHandler — см. там).
+        const finalPos = Math.abs(lastMovePos - lastDragPos) > DRAG_POS_EPS ? lastMovePos : undefined;
+        latestRef.current.ondragend?.(finalPos);
       };
 
       const startDragTrack = (): void => {
@@ -394,7 +433,14 @@ export function SwipeStrip<T>({
       growthRaf = requestAnimationFrame(() => {
         growthRaf = requestAnimationFrame(() => {
           growthRaf = 0;
-          api.scrollTo(target);
+          // Рост цепочки — та же пара (friction, duration), что в goTo
+          // (api.scrollTo перелетал бы цель, см. комментарий там).
+          // duration=0 (prefers-reduced-motion) — мгновенный jump.
+          const engine = api.internalEngine();
+          engine.scrollBody
+            .useFriction(DRIVE_FRICTION)
+            .useDuration(duration === 0 ? 0 : DRIVE_DURATION);
+          engine.scrollTo.index(target, 0);
         });
       });
     }
@@ -404,6 +450,7 @@ export function SwipeStrip<T>({
       if (settleTimer !== undefined) clearTimeout(settleTimer);
       api.off('select', handleSelect);
       api.off('settle', flushSettle);
+      api.off('pointerUp', handlePointerUp);
       for (const off of removeTrack) off();
       api.destroy();
       if (apiRef.current === api) apiRef.current = null;
@@ -422,7 +469,30 @@ export function SwipeStrip<T>({
         if (len === 0) return;
         const target = Math.max(0, Math.min(index, len - 1));
         if (target === api.selectedScrollSnap()) return;
-        api.scrollTo(target, !animate);
+        // Анимированный доезд — напрямую через движок, а не api.scrollTo:
+        // api.scrollTo всегда ставит длительность ScrollBody из
+        // options.duration (~9 при duration=360мс). При базовой friction
+        // 0.68 и такой длительности физика Embla НЕДОДЕМПФИРОВАНА (порог
+        // критического демпфирования ≈22): на дальней дистанции (клик по
+        // табу через несколько топиков) скорость накапливается, лента
+        // перелетает цель и пружинно возвращается («наезд на последующий
+        // топик») — и со стоянки тоже, гашение скорости не спасает.
+        // (Свайп-релиз не показывал этого заметно: Embla режет его дистанцию
+        // до соседнего снапа, а его доводку мы и так перехватываем на ту же
+        // пару — см. handlePointerUp.) Хвост доезда на критическом
+        // демпфировании убывает как √friction за кадр — чтобы доезд был
+        // быстрым И монотонным, ведём его со сниженной friction (0.5) и
+        // критической длительностью (~6; порог ≈5.8): перелёт 0, видимый
+        // доезд ~0.4–0.5с на любой дистанции (замерено на движке).
+        // Внутренний движок — официальный API Embla (на нём строятся её
+        // плагины); ScrollBody/EngineType публичны в типах.
+        if (animate && latestRef.current.duration !== 0) {
+          const engine = api.internalEngine();
+          engine.scrollBody.useFriction(DRIVE_FRICTION).useDuration(DRIVE_DURATION);
+          engine.scrollTo.index(target, 0);
+        } else {
+          api.scrollTo(target, true);
+        }
       },
       getIndex(): number {
         return apiRef.current?.selectedScrollSnap() ?? -1;
