@@ -94,10 +94,10 @@ export function TopicMenu() {
               value={renameName}
               onChange={onRenameInput}
               maxLength={64}
-              className="h-11 rounded-xl border border-border bg-background px-4 text-base outline-none focus:border-accent"
+              className="h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
               autoFocus
             />
-            {renameError !== '' && <p className="text-sm text-danger">{renameError}</p>}
+            {renameError !== '' && <p className="text-sm text-destructive">{renameError}</p>}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -111,7 +111,7 @@ export function TopicMenu() {
               </button>
               <button
                 type="submit"
-                className="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+                className="h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
                 disabled={busy}
               >
                 Сохранить
@@ -140,7 +140,7 @@ export function TopicMenu() {
             </button>
             <button
               type="button"
-              className="flex h-12 items-center gap-3 rounded-xl px-2 text-base text-danger"
+              className="flex h-12 items-center gap-3 rounded-xl px-2 text-base text-destructive"
               onClick={() => {
                 setDeleteError('');
                 setShowDelete(true);

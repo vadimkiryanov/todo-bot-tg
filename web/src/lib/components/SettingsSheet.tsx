@@ -48,7 +48,7 @@ export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
     <Modal open={open} onClose={onClose}>
       <div className="flex flex-col gap-1 px-1 py-2">
         <h2 className="px-2 pb-2 pt-1 text-lg font-semibold">⚙️ Настройки</h2>
-        <h3 className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">📁 Папки</h3>
+        <h3 className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">📁 Папки</h3>
         {modes.map((mode) => (
           <button
             key={mode.value}
@@ -56,14 +56,14 @@ export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
             aria-pressed={foldersMode === mode.value}
             onClick={() => setFoldersMode(mode.value)}
             className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
-              foldersMode === mode.value ? 'bg-accent-strong text-white' : 'active:bg-border/50'
+              foldersMode === mode.value ? 'bg-primary text-white' : 'active:bg-border/50'
             }`}
           >
             <span className="min-w-0 flex-1">
               <span className="block text-[15px] font-medium leading-5">{mode.label}</span>
               <span
                 className={`block text-xs leading-4 ${
-                  foldersMode === mode.value ? 'text-white/75' : 'text-muted'
+                  foldersMode === mode.value ? 'text-white/75' : 'text-muted-foreground'
                 }`}
               >
                 {mode.caption}
@@ -72,7 +72,7 @@ export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
             {foldersMode === mode.value && <span className="shrink-0 text-sm">✓</span>}
           </button>
         ))}
-        <h3 className="px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted">
+        <h3 className="px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           🧭 Путь к папке
         </h3>
         {pathModes.map((mode) => (
@@ -82,14 +82,14 @@ export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
             aria-pressed={pathMode === mode.value}
             onClick={() => setPathMode(mode.value)}
             className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
-              pathMode === mode.value ? 'bg-accent-strong text-white' : 'active:bg-border/50'
+              pathMode === mode.value ? 'bg-primary text-white' : 'active:bg-border/50'
             }`}
           >
             <span className="min-w-0 flex-1">
               <span className="block text-[15px] font-medium leading-5">{mode.label}</span>
               <span
                 className={`block text-xs leading-4 ${
-                  pathMode === mode.value ? 'text-white/75' : 'text-muted'
+                  pathMode === mode.value ? 'text-white/75' : 'text-muted-foreground'
                 }`}
               >
                 {mode.caption}

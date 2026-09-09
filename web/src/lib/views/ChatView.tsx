@@ -971,7 +971,6 @@ export function ChatView() {
           items={folderLevels}
           keyOf={levelKey}
           initialIndex={levelInitialIndex}
-          animateGrowth
           draggable={inFolder}
           duration={stripSpeed()}
           onsettle={onLevelSettled}
@@ -1154,7 +1153,7 @@ export function ChatView() {
           {pathMode === 'strip' && <FolderStrip onOpen={() => setFolderSheetOpen(true)} />}
         </div>
 
-        <footer className="shrink-0 rounded-t-2xl border-t border-border bg-bar pb-[env(safe-area-inset-bottom)]">
+        <footer className="shrink-0 rounded-t-2xl border-t border-border bg-background pb-[env(safe-area-inset-bottom)]">
           <InputBar
             onOpenTopics={() => setTopicSheetOpen(true)}
             onOpenFolders={() => setFolderSheetOpen(true)}
@@ -1194,7 +1193,7 @@ export function ChatView() {
       {topicSheetOpen && (
         <Modal open onClose={() => setTopicSheetOpen(false)}>
           <div className="flex flex-col gap-2">
-            <h2 className="px-1 text-sm font-semibold uppercase tracking-wide text-muted">Топики</h2>
+            <h2 className="px-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Топики</h2>
             <TopicTabs />
           </div>
         </Modal>
@@ -1203,7 +1202,7 @@ export function ChatView() {
       {folderSheetOpen && (
         <Modal open onClose={() => setFolderSheetOpen(false)}>
           <div className="flex flex-col gap-2">
-            <h2 className="px-1 text-sm font-semibold uppercase tracking-wide text-muted">Папки</h2>
+            <h2 className="px-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Папки</h2>
             <FolderBar />
           </div>
         </Modal>

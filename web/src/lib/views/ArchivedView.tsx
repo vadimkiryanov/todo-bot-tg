@@ -65,7 +65,7 @@ export function ArchivedView() {
   return (
     <>
       <div className="flex h-full flex-col">
-        <header className="flex shrink-0 items-center justify-between border-b border-border bg-surface px-3 pt-[env(safe-area-inset-top)]">
+        <header className="flex shrink-0 items-center justify-between border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
           <button
             type="button"
             aria-label="Назад"

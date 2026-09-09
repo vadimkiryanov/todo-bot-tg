@@ -109,7 +109,7 @@ export function ReminderForm({
 
   return (
     <form
-      className="flex flex-col gap-2 rounded-xl border border-border bg-background p-3"
+      className="flex flex-col gap-2 rounded-xl border border-border bg-muted p-3"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
@@ -128,7 +128,7 @@ export function ReminderForm({
         onBlur={() => {
           setPickerOpen(false);
         }}
-        className="cursor-pointer rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+        className="cursor-pointer rounded-lg border border-border bg-muted px-3 py-2 text-sm outline-none focus:border-ring"
       />
       <div className="flex gap-1 rounded-lg bg-border/40 p-1">
         {REPEAT_ITEMS.map((item) => (
@@ -136,7 +136,7 @@ export function ReminderForm({
             key={item}
             type="button"
             className={`h-8 flex-1 rounded-md text-xs transition-colors ${
-              repeat === item ? 'bg-surface font-medium shadow-sm' : 'text-muted'
+              repeat === item ? 'bg-muted font-medium shadow-sm' : 'text-muted-foreground'
             }`}
             onClick={() => {
               setRepeat(item);
@@ -146,14 +146,14 @@ export function ReminderForm({
           </button>
         ))}
       </div>
-      {error !== '' && <p className="text-xs text-danger">{error}</p>}
+      {error !== '' && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
         <button type="button" className="h-10 flex-1 rounded-lg border border-border text-sm" onClick={onCancel}>
           Отмена
         </button>
         <button
           type="submit"
-          className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+          className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50"
           disabled={busy || value === ''}
         >
           {busy ? <Spinner size="15px" /> : 'Сохранить'}

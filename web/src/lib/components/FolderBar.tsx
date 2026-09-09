@@ -130,7 +130,7 @@ export function FolderBar() {
             <button
               type="button"
               className={`flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] ${
-                activeFolderID === null ? 'bg-accent-strong text-white' : 'bg-background text-muted'
+                activeFolderID === null ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'
               }`}
               onClick={() => setActiveFolder(null)}
             >
@@ -140,10 +140,10 @@ export function FolderBar() {
               <button
                 key={node.folder.id}
                 type="button"
-                className={`flex h-10 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm text-content transition-[background-color,transform] active:scale-[0.97] ${
+                className={`flex h-10 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm text-foreground transition-[background-color,transform] active:scale-[0.97] ${
                   node.folder.id === activeFolderID
-                    ? 'bg-accent-strong text-white'
-                    : 'bg-background active:bg-border'
+                    ? 'bg-primary text-white'
+                    : 'bg-muted active:bg-border'
                 }`}
                 style={
                   node.depth > 0 ? { paddingLeft: `${12 + node.depth * 16}px` } : undefined
@@ -178,10 +178,10 @@ export function FolderBar() {
                 value={renameName}
                 onChange={onRenameInput}
                 maxLength={64}
-                className="h-11 rounded-xl border border-border bg-background px-4 text-base outline-none focus:border-accent"
+                className="h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
                 autoFocus
               />
-              {menuError !== '' && <p className="text-sm text-danger">{menuError}</p>}
+              {menuError !== '' && <p className="text-sm text-destructive">{menuError}</p>}
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -192,7 +192,7 @@ export function FolderBar() {
                 </button>
                 <button
                   type="submit"
-                  className="h-11 flex-1 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+                  className="h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
                   disabled={busy}
                 >
                   Сохранить
@@ -202,7 +202,7 @@ export function FolderBar() {
           ) : (
             <div className="sheet-menu flex flex-col gap-1">
               <h2 className="px-2 pb-2 pt-1 text-lg font-semibold">{menuFolder.name}</h2>
-              {menuError !== '' && <p className="px-2 pb-2 text-sm text-danger">{menuError}</p>}
+              {menuError !== '' && <p className="px-2 pb-2 text-sm text-destructive">{menuError}</p>}
               <button
                 type="button"
                 className="flex h-12 items-center gap-3 rounded-xl px-2 text-base"
@@ -212,7 +212,7 @@ export function FolderBar() {
               </button>
               <button
                 type="button"
-                className="flex h-12 items-center gap-3 rounded-xl px-2 text-base text-danger"
+                className="flex h-12 items-center gap-3 rounded-xl px-2 text-base text-destructive"
                 onClick={() => {
                   setDeleteError('');
                   setShowDelete(true);

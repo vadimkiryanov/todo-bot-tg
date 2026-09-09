@@ -23,7 +23,7 @@ const NOTIFY_POLL_MS = 30_000;
 
 function OfflineBanner() {
   return (
-    <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-2 bg-danger px-3 pb-1 pt-[env(safe-area-inset-top)] text-sm text-white shadow">
+    <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-2 bg-destructive px-3 pb-1 pt-[env(safe-area-inset-top)] text-sm text-white shadow">
       <span>📡</span> Нет сети
     </div>
   );

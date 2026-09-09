@@ -9,7 +9,7 @@ export function Loader({ label }: { label?: string }) {
       aria-label="Загрузка"
     >
       <span className="loader" aria-hidden="true"></span>
-      {label !== undefined && <p className="text-sm text-muted">{label}</p>}
+      {label !== undefined && <p className="text-sm text-muted-foreground">{label}</p>}
     </div>
   );
 }

@@ -105,7 +105,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
     <Modal open onClose={onClose} z={z}>
       <div className="flex flex-col gap-2">
         <h2 className="px-2 pb-1 pt-1 text-lg font-semibold">Переместить</h2>
-        {error !== '' && <p className="px-2 pb-1 text-sm text-danger">{error}</p>}
+        {error !== '' && <p className="px-2 pb-1 text-sm text-destructive">{error}</p>}
 
         {/* Топик назначения: чипы (стиль шторки «Топики»), выбранный подсвечен.
             Клик по уже выбранному — без действия (папки и так его). */}
@@ -115,7 +115,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
               key={topic.id}
               type="button"
               className={`flex h-9 min-w-0 items-center gap-1.5 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] ${
-                topic.id === selectedTopicId ? 'bg-accent-strong text-white' : 'bg-background text-content'
+                topic.id === selectedTopicId ? 'bg-primary text-white' : 'bg-muted text-foreground'
               }`}
               disabled={busy}
               onClick={() => setSelectedTopicId(topic.id)}
@@ -138,7 +138,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
             <button
               type="button"
               className={`flex h-11 items-center rounded-xl px-2 text-base ${
-                hereRoot ? 'cursor-default text-muted' : 'active:bg-border/50'
+                hereRoot ? 'cursor-default text-muted-foreground' : 'active:bg-border/50'
               }`}
               disabled={busy || hereRoot}
               onClick={() => {
@@ -146,7 +146,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
               }}
             >
               <span className="w-7 shrink-0 text-center">📂</span> Корень
-              {hereRoot && <span className="ml-auto text-sm text-muted">здесь</span>}
+              {hereRoot && <span className="ml-auto text-sm text-muted-foreground">здесь</span>}
             </button>
 
             {tree.map(({ folder, depth }) => {
@@ -156,7 +156,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
                   key={folder.id}
                   type="button"
                   className={`flex h-11 items-center rounded-xl px-2 text-base ${
-                    active ? 'cursor-default text-muted' : 'active:bg-border/50'
+                    active ? 'cursor-default text-muted-foreground' : 'active:bg-border/50'
                   }`}
                   style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}
                   disabled={busy || active}
@@ -166,7 +166,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
                 >
                   <span className="w-7 shrink-0 text-center">📁</span>
                   <span className="truncate">{folder.name}</span>
-                  {active && <span className="ml-auto text-sm text-muted">здесь</span>}
+                  {active && <span className="ml-auto text-sm text-muted-foreground">здесь</span>}
                 </button>
               );
             })}

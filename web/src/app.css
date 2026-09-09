@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 
 /*
  * Дизайн-токены. Светлая тема в стиле Telegram:
@@ -6,23 +7,38 @@
  * акцент — Telegram blue.
  */
 @theme {
-  --color-background: #e7ebee;
-  --color-surface: #ffffff;
+  /* ── Каноничные роли shadcn/ui с нашими значениями (Telegram) ──
+     background — белые панели/шторки/меню (бывш. surface/bar);
+     muted — серый фон чата и «утопленные» поля (бывш. background);
+     muted-foreground — приглушённый текст (бывш. muted);
+     primary — тёмно-синий для кнопок с белым текстом (бывш. accent-strong);
+     ring — яркий синий фокусов/акцентов (бывш. accent). */
+  --color-background: #ffffff;
+  --color-foreground: #0f0f0f;
   /* Карточки списка (заметки, строки папок): в светлой теме совпадают с
-     surface, в тёмной — светлее, чтобы карточки выделялись на фоне чата. */
+     background, в тёмной — светлее, чтобы карточки выделялись на фоне чата. */
   --color-card: #ffffff;
-  /* Панель ввода (футер): в тёмной теме темнее surface, в тон фону чата */
-  --color-bar: #ffffff;
-  --color-content: #0f0f0f;
-  --color-muted: #707579;
+  --color-card-foreground: #0f0f0f;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0f0f0f;
+  --color-primary: #1f6fc2;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e8ebee;
+  --color-secondary-foreground: #0f0f0f;
+  /* Фон чата и серые поля внутри белых панелей */
+  --color-muted: #e7ebee;
+  --color-muted-foreground: #707579;
+  /* Нейтральная подложка hover/focus пунктов меню (канон bg-accent) */
+  --color-accent: #e1e6ea;
+  --color-accent-foreground: #0f0f0f;
+  --color-destructive: #e53935;
+  --color-destructive-foreground: #ffffff;
   --color-border: #dfe3e8;
-  --color-accent: #3390ec;
-  /* Затемнённый акцент для белого текста на кнопках: контраст ≥4.5:1 */
-  --color-accent-strong: #1f6fc2;
-  --color-danger: #e53935;
+  --color-input: #dfe3e8;
+  --color-ring: #3390ec;
   /* Приоритет заметки — обводка карточки вместо эмодзи-кружка (🔴🟡🔵).
-     Отдельные токены: danger зарезервирован за ошибками, а чистый жёлтый
-     на белой обводке почти не читается — medium тёплый янтарный. */
+     Отдельные токены: destructive зарезервирован за ошибками, а чистый
+     жёлтый на белой обводке почти не читается — medium тёплый янтарный. */
   --color-priority-high: #e5484d;
   --color-priority-medium: #f59e0b;
   --color-priority-low: #3390ec;
@@ -32,20 +48,30 @@
    на var(--color-*), поэтому достаточно переопределить токены. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-background: #0f1115;
-    --color-surface: #1b1e24;
-    /* Карточки списка: светлее поверхности, чтобы читались на тёмном фоне */
+    --color-background: #1b1e24;
+    --color-foreground: #e8e8e8;
+    /* Карточки списка: светлее панелей, чтобы читались на тёмном фоне */
     --color-card: #292e37;
-    /* Панель ввода: темнее карточек и поверхности, ближе к фону чата */
-    --color-bar: #161a20;
-    --color-content: #e8e8e8;
-    --color-muted: #8d9199;
+    --color-card-foreground: #e8e8e8;
+    --color-popover: #1b1e24;
+    --color-popover-foreground: #e8e8e8;
+    --color-primary: #236cce;
+    --color-primary-foreground: #ffffff;
+    --color-secondary: #262b33;
+    --color-secondary-foreground: #e8e8e8;
+    /* Фон чата: темнее панелей, чтобы лента отличалась от шторок */
+    --color-muted: #0f1115;
+    --color-muted-foreground: #8d9199;
+    /* Подложка hover/focus: светлее панели, заметна на ней */
+    --color-accent: #2a2e35;
+    --color-accent-foreground: #e8e8e8;
+    --color-destructive: #ef5350;
+    --color-destructive-foreground: #ffffff;
     --color-border: #2a2e35;
-    --color-accent: #5ea6f0;
-    --color-accent-strong: #236cce;
-    --color-danger: #ef5350;
+    --color-input: #2a2e35;
+    --color-ring: #5ea6f0;
     /* Приоритеты в тёмной теме — светлее, чтобы кольцо читалось на тёмных
-       карточках (как переопределены accent и danger). */
+       карточках (как переопределены destructive и ring). */
     --color-priority-high: #f87171;
     --color-priority-medium: #fbbf24;
     --color-priority-low: #60a5fa;
@@ -131,7 +157,7 @@ html {
    Плавающая стеклянная панель (как островок в Telegram): полупрозрачный
    фон с размытием — под ним виден скроллящийся список заметок. */
 .island-glass {
-  background: color-mix(in srgb, var(--color-surface) 74%, transparent);
+  background: color-mix(in srgb, var(--color-background) 74%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(1.5);
   backdrop-filter: blur(18px) saturate(1.5);
   border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
@@ -143,21 +169,21 @@ html {
 /* Строка текущей папки под островком: чуть менее «стеклянная»,
    чтобы визуально не спорила с островком. */
 .strip-glass {
-  background: color-mix(in srgb, var(--color-surface) 58%, transparent);
+  background: color-mix(in srgb, var(--color-background) 58%, transparent);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
   backdrop-filter: blur(14px) saturate(1.4);
   border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
 
-/* Вошли в папку (строка показывает путь из корня): лёгкая акцентная
+/* Вошли в папку (строка показывает путь из корня): лёгкая синяя
    обводка — видно, что список заметок сейчас из папки, а не из корня. */
 .strip-glass.in-folder {
-  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  border-color: color-mix(in srgb, var(--color-ring) 55%, transparent);
 }
 
 /* ── Стеклянные поверхности отдельных элементов ─────────────
    Тот же приём, что у островка/строки папки (полупрозрачный фон токена
-   surface + backdrop-blur), для элементов поверх списка. Плотность
+   background + backdrop-blur), для элементов поверх списка. Плотность
    подобрана под «шумность» подложки и читаемость контента:
    прозрачнее всего — плавающие кнопки (один символ), плотнее всего —
    шторки (много текста и форм). */
@@ -198,7 +224,7 @@ html {
 
 /* Плавающие круглые кнопки над панелью ввода (📁/📚). */
 .glass-fab {
-  background: color-mix(in srgb, var(--color-surface) 62%, transparent);
+  background: color-mix(in srgb, var(--color-background) 62%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(1.5);
   backdrop-filter: blur(18px) saturate(1.5);
   border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
@@ -209,7 +235,7 @@ html {
 
 /* Дропдауны-меню поверх списка (бургер, меню заметки, QuickMenu). */
 .glass-menu {
-  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+  background: color-mix(in srgb, var(--color-background) 82%, transparent);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
   backdrop-filter: blur(24px) saturate(1.4);
   border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
@@ -218,7 +244,7 @@ html {
 /* Шторки модалок: поверх затемнения, плотные (текст и формы), но с
    заметным «морозным» blur. */
 .glass-sheet {
-  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  background: color-mix(in srgb, var(--color-background) 88%, transparent);
   -webkit-backdrop-filter: blur(28px) saturate(1.4);
   backdrop-filter: blur(28px) saturate(1.4);
 }
@@ -234,7 +260,7 @@ html {
 /* ── Блочная разметка заметки (показ в вебе) ───────────────────
    Маркеры строк (# / ## / - / - [ ]) живут в тексте как обычные символы
    (их видит бот); здесь — их оформление. Размеры в em: наследуют размер
-   текста заметки. Цвета — токенами (content/muted/accent-strong). */
+   текста заметки. Цвета — токенами (foreground/muted-foreground/primary). */
 .note-h1 {
   font-size: 1.25em;
   font-weight: 700;
@@ -257,7 +283,7 @@ html {
 }
 .note-bullet {
   flex: none;
-  color: var(--color-muted);
+  color: var(--color-muted-foreground);
   width: 1em;
   text-align: center;
 }
@@ -267,7 +293,7 @@ html {
 }
 /* Отмеченный пункт чеклиста: приглушён и зачёркнут (как выполненная заметка). */
 .note-checked-text {
-  color: var(--color-muted);
+  color: var(--color-muted-foreground);
   text-decoration: line-through;
 }
 /* Квадратик чеклиста: кнопка при показе активной заметки (переключение
@@ -280,7 +306,7 @@ html {
   padding: 0;
   display: grid;
   place-items: center;
-  border: 1.5px solid color-mix(in srgb, var(--color-content) 45%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--color-foreground) 45%, transparent);
   border-radius: 0.32em;
   background: transparent;
   color: #fff;
@@ -295,7 +321,7 @@ html {
   content: '';
 }
 .note-li.checked .note-cb {
-  background: var(--color-accent-strong);
+  background: var(--color-primary);
   border-color: transparent;
 }
 .note-li.checked .note-cb::after {
@@ -310,7 +336,7 @@ html {
 .note-done .note-li,
 .note-done .note-bullet,
 .note-done .note-li-text {
-  color: var(--color-muted);
+  color: var(--color-muted-foreground);
 }
 .note-done .note-line,
 .note-done .note-h1,
@@ -331,16 +357,16 @@ body.scroll-locked .scroll-area {
   -webkit-overflow-scrolling: auto;
 }
 
-/* Подсветка только что добавленной заметки: акцентная заливка карточки,
+/* Подсветка только что добавленной заметки: синяя заливка карточки,
    плавно уходящая в тон стеклянной карточки (.glass-card: полупрозрачный
-   surface над фоном чата) — иначе в конце вспышки был бы виден сплошной
+   card над фоном чата muted) — иначе в конце вспышки был бы виден сплошной
    непрозрачный прямоугольник. */
 @keyframes note-flash {
   from {
-    background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-card));
+    background-color: color-mix(in srgb, var(--color-ring) 26%, var(--color-card));
   }
   to {
-    background-color: color-mix(in srgb, var(--color-card) 74%, var(--color-background));
+    background-color: color-mix(in srgb, var(--color-card) 74%, var(--color-muted));
   }
 }
 .note-highlight {
@@ -381,7 +407,7 @@ body.scroll-locked .scroll-area {
 }
 
 /* ── Лоадер экранов (загрузка списков/превью) ──────────────────
-   Крупный круглый спиннер акцентного цвета — для мест, где спиннер кнопки
+   Крупный круглый спиннер синего цвета — для мест, где спиннер кнопки
    слишком мелкий (Loader.svelte). Полупрозрачное кольцо с непрозрачной
    «головой», как у системных индикаторов. */
 .loader {
@@ -391,8 +417,8 @@ body.scroll-locked .scroll-area {
   border-radius: 9999px;
   border-style: solid;
   border-width: 3px;
-  border-color: color-mix(in srgb, var(--color-accent) 25%, transparent);
-  border-top-color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-ring) 25%, transparent);
+  border-top-color: var(--color-ring);
   animation: spin 0.8s linear infinite;
 }
 
@@ -411,7 +437,7 @@ body.scroll-locked .scroll-area {
      (класс снимается таймером, поэтому плавного ухода не требуется). */
   .note-highlight {
     animation: none;
-    background-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-card));
+    background-color: color-mix(in srgb, var(--color-ring) 26%, var(--color-card));
   }
 }
 
@@ -440,8 +466,8 @@ body {
      скроллится только список заметок. */
   height: 100dvh;
   margin: 0;
-  background: var(--color-background);
-  color: var(--color-content);
+  background: var(--color-muted);
+  color: var(--color-foreground);
   font-family:
     system-ui,
     -apple-system,
@@ -558,7 +584,7 @@ button {
   user-select: none;
   touch-action: pan-x;
 }
-/* Капсула-подсветка: rounded-full + фон задаёт класс bg-accent-strong;
+/* Капсула-подсветка: rounded-full + фон задаёт класс bg-primary;
    здесь только мягкая тень, отделяющая её от стекла при езде. */
 .island-pill {
   box-shadow:
@@ -567,12 +593,18 @@ button {
 }
 
 /* SwipeStrip: scoped-стили из SwipeStrip.svelte (портированы в React) */
-/* siema строит sliderFrame и float-обёртки динамически, без классов —
-   цепочку высот задаём структурно: host (h-full) → frame → обёртки →
-   .swipe-strip-slide (h-full). Без этого слайды схлопнулись бы по высоте. */
+/* Структура v2 (Embla): host → viewport (root движка, overflow-hidden) →
+   container (первый ребёнок root, flex) → .swipe-strip-slide. Цепочку
+   высот задаём структурно: viewport и container — 100% высоты хоста.
+   Слайды — flex-элементы полной ширины: до инициализации виден первый,
+   остальные выстроены в ряд для translate контейнера. */
 .swipe-strip-host > div {
   height: 100%;
 }
 .swipe-strip-host > div > div {
   height: 100%;
+}
+.swipe-strip-host .swipe-strip-slide {
+  flex: 0 0 100%;
+  min-width: 0;
 }

@@ -61,8 +61,8 @@ export function TopicTabs() {
             type="button"
             className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] ${
               topic.id === activeTopicID
-                ? 'bg-accent-strong text-white'
-                : 'bg-background text-content'
+                ? 'bg-primary text-white'
+                : 'bg-muted text-foreground'
             }`}
             onPointerDown={() => handlePointerDown(topic.id)}
             onPointerUp={cancelLongPress}

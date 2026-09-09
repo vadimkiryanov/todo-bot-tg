@@ -484,7 +484,7 @@ export function TopicIsland({
           ними при переключении и за пальцем при свайпе контента (dragPos). */}
       {pillState !== null && (
         <div
-          className="island-pill pointer-events-none absolute z-0 rounded-full bg-accent-strong"
+          className="island-pill pointer-events-none absolute z-0 rounded-full bg-primary"
           style={{
             left: `${pillState.left}px`,
             top: `${pillState.top}px`,
@@ -512,7 +512,7 @@ export function TopicIsland({
             title={extended ? `${topic.name} › ${chainNames.join(' › ')}` : topic.name}
             className={`relative z-10 flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm ${
               extended ? 'max-w-full' : ''
-            } ${w >= 1 ? 'text-white' : 'text-content'}`}
+            } ${w >= 1 ? 'text-white' : 'text-foreground'}`}
             style={{ color: w > 0 && w < 1 ? textMix(w) : undefined }}
             onPointerDown={(e) => handlePointerDown(topic.id, e)}
             onPointerUp={clearTimer}

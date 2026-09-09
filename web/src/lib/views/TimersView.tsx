@@ -48,7 +48,7 @@ export function TimersView() {
   return (
     <>
       <div className="flex h-full flex-col">
-        <header className="flex shrink-0 items-center justify-between border-b border-border bg-surface px-3 pt-[env(safe-area-inset-top)]">
+        <header className="flex shrink-0 items-center justify-between border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
           <button
             type="button"
             aria-label="Назад"
@@ -106,12 +106,12 @@ export function TimersView() {
                     {note.done && <span className="w-5 shrink-0 text-center text-sm leading-6">✅</span>}
                     <span
                       className={`line-clamp-2 min-w-0 flex-1 break-words text-[15px] leading-6 ${
-                        note.done ? 'text-muted line-through' : 'text-content'
+                        note.done ? 'text-muted-foreground line-through' : 'text-foreground'
                       }`}
                       dangerouslySetInnerHTML={{ __html: firstLineHtml(note.text, note.entities) }}
                     />
                   </span>
-                  <span className="pl-7 text-xs text-muted">
+                  <span className="pl-7 text-xs text-muted-foreground">
                     ⏰ {formatReminderAt(note.reminder_at!, note.reminder_repeat)}
                     {note.reminder_repeat === 'daily' ? '· 🔁 ежедневно' : '· 🔂 один раз'}
                   </span>

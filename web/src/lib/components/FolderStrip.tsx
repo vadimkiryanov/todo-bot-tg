@@ -71,7 +71,7 @@ export function FolderStrip({ onOpen }: FolderStripProps) {
       <button
         type="button"
         title={inFolder && chain.length > 0 ? chain.join(' › ') : 'Корень'}
-        className={`strip-glass pointer-events-auto mx-auto flex h-9 w-full max-w-md select-none items-center gap-2 rounded-xl px-3 text-left text-[13px] text-muted transition-colors active:bg-black/5 dark:active:bg-white/10${
+        className={`strip-glass pointer-events-auto mx-auto flex h-9 w-full max-w-md select-none items-center gap-2 rounded-xl px-3 text-left text-[13px] text-muted-foreground transition-colors active:bg-black/5 dark:active:bg-white/10${
           inFolder ? ' in-folder' : ''
         }`}
         onPointerDown={handlePointerDown}

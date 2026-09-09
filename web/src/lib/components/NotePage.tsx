@@ -843,7 +843,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
   // renderNoteBlocksHtml каждый раз пересоздаёт строку — не хочется дергать её
   // на каждом кадре свайпа. Пустой текст — та же подсказка, что и в поле.
   const viewHtml = useMemo(() => {
-    if (pageNote.text === '') return '<p class="text-muted">Начните печатать…</p>';
+    if (pageNote.text === '') return '<p class="text-muted-foreground">Начните печатать…</p>';
     return renderNoteBlocksHtml(pageNote.text, pageNote.entities, isActive);
   }, [pageNote.text, pageNote.entities, isActive]);
 
@@ -861,7 +861,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           type="button"
           aria-label="Жирный (**текст**)"
           title="Жирный"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] transition-colors active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => wrap('**', '**')}
         >
@@ -871,7 +871,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           type="button"
           aria-label="Курсив (*текст*)"
           title="Курсив"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] transition-colors active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => wrap('*', '*')}
         >
@@ -881,7 +881,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           type="button"
           aria-label="Код (`текст`)"
           title="Код"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-background font-mono text-[13px] transition-colors active:bg-border/60"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted font-mono text-[13px] transition-colors active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => wrap('`', '`', 'код')}
         >
@@ -891,7 +891,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           type="button"
           aria-label="Ссылка ([текст](url))"
           title="Ссылка"
-          className={`flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60 ${
+          className={`flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] transition-colors active:bg-border/60 ${
             linkOpen ? 'bg-border/60' : ''
           }`}
           onMouseDown={(e) => e.preventDefault()}
@@ -904,7 +904,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           type="button"
           aria-label="Заголовок (# в начале строки)"
           title="Заголовок"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] font-bold transition-colors active:bg-border/60"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] font-bold transition-colors active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => toggleLineMarker('h1')}
         >
@@ -914,7 +914,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           type="button"
           aria-label="Подзаголовок (## в начале строки)"
           title="Подзаголовок"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] font-semibold transition-colors active:bg-border/60"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] font-semibold transition-colors active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => toggleLineMarker('h2')}
         >
@@ -924,7 +924,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           type="button"
           aria-label="Список (- в начале строки)"
           title="Список"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[17px] transition-colors active:bg-border/60"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[17px] transition-colors active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => toggleLineMarker('list')}
         >
@@ -934,7 +934,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           type="button"
           aria-label="Чеклист (- [ ] в начале строки)"
           title="Чеклист"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-[15px] transition-colors active:bg-border/60"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] transition-colors active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => toggleLineMarker('check')}
         >
@@ -951,11 +951,11 @@ export function NotePage({ note, onClose }: NotePageProps) {
             type="url"
             placeholder="https://…"
             autoFocus
-            className="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-accent"
+            className="h-10 min-w-0 flex-1 rounded-xl border border-border bg-muted px-3 text-sm outline-none focus:border-ring"
           />
           <button
             type="button"
-            className="h-10 shrink-0 rounded-xl bg-accent-strong px-4 text-sm font-medium text-white disabled:opacity-40"
+            className="h-10 shrink-0 rounded-xl bg-primary px-4 text-sm font-medium text-white disabled:opacity-40"
             disabled={linkUrl.trim() === ''}
             onMouseDown={(e) => e.preventDefault()}
             onClick={applyLink}
@@ -965,7 +965,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
         </div>
       )}
 
-      <p className="text-xs text-muted">
+      <p className="text-xs text-muted-foreground">
         # заголовок · ## подзаголовок · - список · - [ ] чеклист · **жирный**, *курсив*, `код`,
         [ссылка](https://…)
       </p>
@@ -975,7 +975,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
   return (
     <>
     <div
-      className={`notepage fixed inset-0 z-[70] flex touch-pan-y flex-col bg-surface ${
+      className={`notepage fixed inset-0 z-[70] flex touch-pan-y flex-col bg-background ${
         !dragging && !closing ? 'notepage-settle' : ''
       }`}
       style={{ transform }}
@@ -997,7 +997,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
         >
           ←
         </button>
-        <span className="truncate px-2 text-sm text-muted">
+        <span className="truncate px-2 text-sm text-muted-foreground">
           {isDone ? '✅ Выполнена' : isArchived ? '🗄 Архив' : '📝 Заметка'}
         </span>
         <span className="w-10"></span>
@@ -1018,13 +1018,13 @@ export function NotePage({ note, onClose }: NotePageProps) {
           onChange={(e) => setDraft(e.target.value)}
           onFocus={onEditorFocus}
           onBlur={onEditorBlur}
-          className="absolute inset-0 h-full w-full resize-none touch-pan-y overflow-y-auto whitespace-pre-wrap bg-surface px-4 py-4 text-[16px] leading-6 text-content caret-accent outline-none placeholder:text-muted"
+          className="absolute inset-0 h-full w-full resize-none touch-pan-y overflow-y-auto whitespace-pre-wrap bg-background px-4 py-4 text-[16px] leading-6 text-foreground caret-primary outline-none placeholder:text-muted-foreground"
           placeholder="Начните печатать…"
         ></textarea>
 
         <div
           ref={viewElRef}
-          className={`absolute inset-0 touch-pan-y overflow-y-auto whitespace-pre-wrap break-words bg-surface px-4 py-4 text-[16px] leading-6 text-content [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2 ${
+          className={`absolute inset-0 touch-pan-y overflow-y-auto whitespace-pre-wrap break-words bg-background px-4 py-4 text-[16px] leading-6 text-foreground [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2 ${
             isDone ? 'note-done' : ''
           }`}
           style={{ display: viewMode ? 'block' : 'none' }}
@@ -1035,10 +1035,10 @@ export function NotePage({ note, onClose }: NotePageProps) {
 
       <footer
         data-no-swipe
-        className="shrink-0 border-t border-border bg-bar px-3 pt-2"
+        className="shrink-0 border-t border-border bg-background px-3 pt-2"
         style={{ paddingBottom: `calc(${keyboardInset}px + env(safe-area-inset-bottom))` }}
       >
-        {error !== '' && <p className="px-1 pb-2 text-xs text-danger">{error}</p>}
+        {error !== '' && <p className="px-1 pb-2 text-xs text-destructive">{error}</p>}
 
         {dirty ? (
           // Текст изменён: вместо ряда действий — «Отмена» и «Сохранить»
@@ -1058,7 +1058,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
               </button>
               <button
                 type="button"
-                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-accent-strong text-sm font-medium text-white"
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-white"
                 disabled={saving}
                 onClick={() => void save(false)}
               >
@@ -1089,14 +1089,14 @@ export function NotePage({ note, onClose }: NotePageProps) {
             ) : (
               <>
                 {isActive && reminderAt !== null && (
-                  <div className="mb-2 flex flex-col gap-1.5 rounded-xl border border-border bg-background px-3 py-2.5">
+                  <div className="mb-2 flex flex-col gap-1.5 rounded-xl border border-border bg-muted px-3 py-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="min-w-0 truncate text-sm" title={reminderAt}>
                         ⏰ {formatReminderAt(reminderAt, pageNote.reminder_repeat)}
                       </span>
                       <button
                         type="button"
-                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted transition-colors active:bg-border/60"
+                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors active:bg-border/60"
                         disabled={busy !== null}
                         onClick={doClearReminder}
                       >
@@ -1108,7 +1108,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
                         <button
                           key={minutes}
                           type="button"
-                          className="h-8 flex-1 rounded-lg border border-border bg-background text-xs transition-transform active:scale-95"
+                          className="h-8 flex-1 rounded-lg border border-border bg-muted text-xs transition-transform active:scale-95"
                           disabled={busy !== null}
                           onClick={() => void snooze(minutes)}
                         >
@@ -1129,7 +1129,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
                       type="button"
                       aria-label={isDone ? 'Вернуть в работу' : 'Выполнить'}
                       className={`flex h-12 w-12 items-center justify-center rounded-full text-xl transition-transform active:scale-90 ${
-                        isDone ? 'bg-border/60' : 'bg-accent/15'
+                        isDone ? 'bg-border/60' : 'bg-primary/15'
                       }`}
                       disabled={busy !== null}
                       onClick={isDone ? doUndone : doToggleDone}
@@ -1140,7 +1140,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
                     <button
                       type="button"
                       aria-label="Вернуть из архива"
-                      className="flex h-12 items-center gap-2 rounded-full bg-accent/15 px-5 text-base disabled:opacity-50"
+                      className="flex h-12 items-center gap-2 rounded-full bg-primary/15 px-5 text-base disabled:opacity-50"
                       disabled={busy !== null}
                       onClick={doUnarchive}
                     >
@@ -1155,7 +1155,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
                           type="button"
                           aria-label={`Приоритет: ${priorityLabel(pageNote.priority)}`}
                           title={`Приоритет: ${priorityLabel(pageNote.priority)}`}
-                          className="flex h-12 min-w-12 items-center justify-center gap-0.5 rounded-full bg-background px-2 text-base transition-transform active:scale-90"
+                          className="flex h-12 min-w-12 items-center justify-center gap-0.5 rounded-full bg-muted px-2 text-base transition-transform active:scale-90"
                           disabled={busy !== null}
                           onClick={doCyclePriority}
                         >
@@ -1172,7 +1172,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
                           }
                           title={reminderAt !== null ? 'Изменить напоминание' : 'Напомнить'}
                           className={`flex h-12 w-12 items-center justify-center rounded-full text-lg transition-transform active:scale-90 ${
-                            reminderAt !== null ? 'bg-accent/15' : 'bg-background'
+                            reminderAt !== null ? 'bg-primary/15' : 'bg-muted'
                           }`}
                           disabled={busy !== null}
                           onClick={toggleReminderForm}
@@ -1184,7 +1184,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
                     <button
                       type="button"
                       aria-label="Ещё действия"
-                      className="flex h-12 w-12 items-center justify-center rounded-full bg-background text-xl transition-transform active:scale-90"
+                      className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-xl transition-transform active:scale-90"
                       disabled={busy !== null}
                       onClick={openMenu}
                     >
@@ -1253,7 +1253,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
           <button
             type="button"
             role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] text-danger transition-colors active:bg-danger/10"
+            className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] text-destructive transition-colors active:bg-destructive/10"
             onClick={() =>
               pickMenu(() => {
                 setConfirmDelete(true);
@@ -1295,12 +1295,12 @@ export function NotePage({ note, onClose }: NotePageProps) {
         <div className="flex flex-col gap-4 px-1 py-2">
           <div>
             <h2 className="text-lg font-semibold">Несохранённые изменения</h2>
-            <p className="mt-1 text-sm text-muted">Сохранить текст заметки перед закрытием?</p>
+            <p className="mt-1 text-sm text-muted-foreground">Сохранить текст заметки перед закрытием?</p>
           </div>
-          {error !== '' && <p className="text-sm text-danger">{error}</p>}
+          {error !== '' && <p className="text-sm text-destructive">{error}</p>}
           <button
             type="button"
-            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
             disabled={saving}
             onClick={() => void save(true)}
           >
@@ -1320,7 +1320,7 @@ export function NotePage({ note, onClose }: NotePageProps) {
             </button>
             <button
               type="button"
-              className="h-11 flex-1 rounded-xl border border-border text-sm text-danger disabled:opacity-50"
+              className="h-11 flex-1 rounded-xl border border-border text-sm text-destructive disabled:opacity-50"
               disabled={saving}
               onClick={() => {
                 setExitConfirm(false);

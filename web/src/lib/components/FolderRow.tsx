@@ -119,7 +119,7 @@ export function FolderRow({ folder, onOpen, onMenu }: FolderRowProps) {
       onContextMenu={onContextMenu}
     >
       <span className="w-5 shrink-0 text-center text-sm leading-6">📁</span>
-      <span className="min-w-0 flex-1 truncate text-[15px] leading-6 text-content">
+      <span className="min-w-0 flex-1 truncate text-[15px] leading-6 text-foreground">
         {folder.name}
       </span>
     </button>

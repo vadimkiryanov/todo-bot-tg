@@ -180,7 +180,7 @@ export function NoteMenu({
         }}
         role="menu"
       >
-        {error !== '' && <p className="px-3 py-1 text-xs text-danger">{error}</p>}
+        {error !== '' && <p className="px-3 py-1 text-xs text-destructive">{error}</p>}
 
         {!archived && !done && (
           <button
@@ -304,7 +304,7 @@ export function NoteMenu({
         <button
           type="button"
           role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left text-danger transition-colors active:bg-border/50"
+          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left text-destructive transition-colors active:bg-border/50"
           onClick={() => {
             setConfirmDelete(true);
             setError('');

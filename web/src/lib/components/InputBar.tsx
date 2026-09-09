@@ -221,7 +221,7 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
               <span className="relative w-6 shrink-0 text-center text-base">
                 🔔
                 {badgeCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold leading-none text-white">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-white">
                     {badgeCount > 99 ? '99+' : badgeCount}
                   </span>
                 )}
@@ -294,7 +294,7 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
           }}
         >
           <div className="flex flex-col gap-1 px-1 py-2">
-            <h2 className="text-center text-sm text-muted">⏰ Напоминание</h2>
+            <h2 className="text-center text-sm text-muted-foreground">⏰ Напоминание</h2>
             <ReminderForm
               initial={reminderAt ?? ''}
               initialRepeat={reminderRepeat}
@@ -339,7 +339,7 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
             aria-expanded={folderActive}
             title={folderActive ? 'Вы в папке — открыть папки' : 'Открыть папки'}
             className={`glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
-              folderActive ? 'text-accent' : 'text-muted'
+              folderActive ? 'text-primary' : 'text-muted-foreground'
             }`}
             onClick={() => press(() => onOpenFolders?.())}
           >
@@ -349,7 +349,7 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
         <button
           type="button"
           aria-label="Топики"
-          className="glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted transition-[background-color,transform] active:scale-90"
+          className="glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
           onClick={() => press(() => onOpenTopics?.())}
         >
           📚
@@ -367,7 +367,7 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
               aria-pressed={priority !== 'none'}
               title={`Приоритет: ${priorityLabel(priority)}`}
               className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
-                priority !== 'none' ? 'bg-border/60' : 'bg-background'
+                priority !== 'none' ? 'bg-border/60' : 'bg-muted'
               }`}
               onClick={() => press(() => setPriority(nextPriority(priority)))}
             >
@@ -378,7 +378,7 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
               aria-label={reminderAt !== null ? 'Снять напоминание' : 'Добавить напоминание'}
               aria-pressed={reminderAt !== null}
               className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
-                reminderAt !== null ? 'bg-border/60' : 'bg-background'
+                reminderAt !== null ? 'bg-border/60' : 'bg-muted'
               }`}
               onClick={() => press(toggleReminderForm)}
             >
@@ -389,7 +389,7 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
               aria-label={pinned ? 'Открепить' : 'Закрепить'}
               aria-pressed={pinned}
               className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
-                pinned ? 'bg-border/60' : 'bg-background'
+                pinned ? 'bg-border/60' : 'bg-muted'
               }`}
               onClick={() => press(() => setPinned(!pinned))}
             >
@@ -403,14 +403,14 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
             type="button"
             aria-label={badgeCount > 0 ? `Меню (${badgeCount} непрочитанных уведомлений)` : 'Меню'}
             aria-expanded={menuOpen}
-            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-background text-lg text-muted transition-[background-color,transform] active:scale-90 active:bg-border"
+            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground transition-[background-color,transform] active:scale-90 active:bg-border"
             onClick={toggleMenu}
           >
             ☰
             {badgeCount > 0 && (
               /* Бейдж непрочитанных на самом бургере: видно, что в 🔔 что-то есть */
               <span
-                className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold leading-none text-white"
+                className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-white"
                 aria-hidden="true"
               >
                 {badgeCount > 99 ? '99+' : badgeCount}
@@ -427,12 +427,12 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
               autoResize();
             }}
             onKeyDown={onKeydown}
-            className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-5 outline-none focus:border-accent placeholder:text-muted"
+            className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-muted px-4 py-3 text-base leading-5 outline-none focus:border-ring placeholder:text-muted-foreground"
           ></textarea>
           <button
             type="button"
             aria-label="Отправить"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-strong text-white transition-[opacity,transform] active:scale-90 disabled:opacity-40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-[opacity,transform] active:scale-90 disabled:opacity-40"
             disabled={sending || text.trim() === ''}
             onClick={() => {
               void send();

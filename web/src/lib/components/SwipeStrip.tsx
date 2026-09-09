@@ -1,41 +1,63 @@
-// Горизонтальная лента свайпов на базе siema (npm, ~13КБ) — замена SwiperJS
-// ради лёгкости и простоты (см. CHANGELOG, этап 50). Слайд = элемент items.
+// Горизонтальная лента свайпов на базе embla-carousel — тот же движок, что
+// у shadcn Carousel (этап 56, см. CHANGELOG); замена siema (этап 50).
+// Слайд = элемент items.
 //
-// Почему не простой маппинг слайдов внутри контейнера siema: buildSliderFrame
-// чистит контейнер через selector.innerHTML='' и заворачивает слайды во
-// float-обёртки sliderFrame — якорь реконсиляции React уничтожается, и любая
-// структурная мутация списка ломает DOM. Поэтому слайды живут в keyed-поддереве
-// (key={planKey} на хосте), которое при изменении списка перемонтируется
-// ЦЕЛИКОМ по плану (planKey/planIndex/planAnimateTo), а вертикальные скроллы
-// живых слайдов (scrollSel) переносятся между пересборками (скролл уровня
-// переживает вход/выход из папок).
+// Почему Embla напрямую, а не хук useEmblaCarousel / обёртка shadcn
+// Carousel: лента живёт по ключу keyed-поддерева (key={planKey}) и
+// пересоздаёт движок «на месте» при смене конфига — api нужен синхронно
+// до paint (useLayoutEffect), а хук отдаёт api только после повторного
+// рендера. Каноническая обвязка Carousel (контекст/стрелки/отступы) для
+// кастомного keyed-стрипа неприменима; движок при этом тот же
+// (embla-carousel), чего достаточно для ухода от siema.
 //
-// Конфиг, который siema читает только в конструкторе (draggable/duration),
-// меняется пересозданием инстанса «на месте»: teardown эффекта
-// destroy(restoreMarkup=true) возвращает слайды в контейнер без обёрток,
-// новый конструктор строит frame заново с той же позицией — DOM слайдов
-// (и их скроллы) не трогается, визуального сброса нет.
+// Структура DOM (цепочка высот — структурные правила в app.css):
+//   host (key={planKey}) > viewport (root движка, overflow-hidden)
+//     > container (первый ребёнок root: flex h-full) > слайды .swipe-strip-slide
+// Embla позиционирует container transform'ом; слайды 100% ширины
+// (flex: 0 0 100% — в app.css), поэтому до инициализации виден первый.
+//
+// Пересборка списка — keyed-remount хоста по плану (planKey/planIndex/
+// planAnimateTo), вертикальные скроллы живых слайдов (scrollSel)
+// переносятся между пересборками (скролл уровня переживает вход/выход из
+// папок). Конфиг (draggable/duration), который Embla читает только в
+// конструкторе, меняется пересозданием инстанса «на месте»: destroy + новый
+// EmblaCarousel — Embla не трогает DOM слайдов, стартуем с текущей позиции
+// (curIndex), визуального сброса нет.
 //
 // События:
-//  • onchange(index) — синхронно в момент смены currentSlide (релиз драга
-//    или программный goTo) — как slideChange у Swiper (до конца доезда);
-//  • onsettle(index) — после конца CSS-transition доезда: момент, когда
-//    слайд физически встал (аналог slideChangeTransitionEnd). Нужен уровням
-//    папок: смена уровня стора только после фактической остановки, чтобы
-//    укорачивание цепочки не снесло уезжающий слайд посреди движения.
+//  • onchange(index) — синхронно в момент select: у Embla select эмитится
+//    при релизе драга (up()) или программном scrollTo, до конца доезда —
+//    как slideChange у Swiper / onChange у siema;
+//  • onsettle(index) — по событию settle (движок физически остановился),
+//    так что смена уровня стора (уровни папок) происходит только после
+//    фактической остановки и укорачивание цепочки не сносит уезжающий
+//    слайд посреди движения. Страховочный таймер (1200 мс) покрывает
+//    мгновенные переходы (jump / duration=0), где анимации нет и settle
+//    не эмитится.
 //
-// Программные переходы — goTo(index, animate): у siema без loop переход это
-// установка translate, а анимацию даёт CSS-transition на sliderFrame
-// (enableTransition/disableTransition). Мгновенные переходы (prefers-
-// reduced-motion) достигаются duration=0.
-import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+// Программные переходы — goTo(index, animate): api.scrollTo(index, !animate)
+// (jump=true — мгновенно; иначе анимация движка с СКОНВЕРТИРОВАННЫМ
+// options.duration — см. JSDoc пропа duration: у Embla это коэффициент
+// мягкости, а не время в мс).
+//
+// Драг — встроенный DragHandler Embla: фильтрует правую кнопку мыши,
+// гасит click после драга > dragThreshold (10px по умолчанию — как
+// MOVE_THRESHOLD карточек/папок) и ловит mouseup на ownerDocument, так что
+// «мышиный мост» siema-версии (filterNonPrimary/swallowDragClick/
+// finishMissedDrag) не нужен. Непрерывная позиция жеста (капсула островка
+// едет за пальцем) читается из api.scrollProgress() в rAF-цикле: слайды
+// 100% ширины, прогресс 0..1 между первым и последним, позиция =
+// progress * (count - 1).
+import { useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type * as React from 'react';
-import Siema from 'siema';
+import EmblaCarousel from 'embla-carousel';
+import type { EmblaCarouselType } from 'embla-carousel';
 
 export interface SwipeStripHandle {
-  /** Программный переезд: animate=true — с CSS-transition (длительность из
-      duration), false — мгновенно. onchange/onsettle отработают как обычно. */
+  /** Программный переезд: animate=true — с анимацией движка (длительность
+      из duration), false — мгновенно. onchange/onsettle отработают как
+      обычно. */
   goTo(index: number, animate: boolean): void;
   /** Текущий индекс слайда (-1 — лента ещё не инициализирована). */
   getIndex(): number;
@@ -58,9 +80,16 @@ interface SwipeStripProps<T> {
   /** Листается ли лента жестом. Внешние топики выключены внутри папки,
       уровни — наоборот («ровно один включён»). */
   draggable?: boolean;
-  /** Длительность доезда, мс (0 — всё мгновенно). */
+  /** Длительность видимого доезда, мс (0 — программные переходы мгновенные).
+      В options.duration движка уходит СКОНВЕРТИРОВАННОЕ значение: у Embla
+      это не «время в мс», а коэффициент мягкости физики ScrollBody
+      (friction 0.68) — фактическое время программного scrollTo ≈ 71×
+      (до события settle) / ≈39× (до визуальной остановки). Делим на 40,
+      чтобы видимый доезд занимал ~duration мс (как CSS-переход siema). */
   duration?: number;
-  /** Порог драга до смены слайда, px. */
+  /** Не используется: унаследован от siema-сигнатуры (порог смены слайда).
+      У Embla снап решает позиция/скорость релиза (переход от ~20% ширины),
+      аналога порога нет — значение игнорируется. */
   threshold?: number;
   /** Селектор скролл-контейнера внутри слайда: его scrollTop переносится
       между пересборками. */
@@ -70,16 +99,16 @@ interface SwipeStripProps<T> {
   /** Слайд встал после доезда (см. шапку). */
   onsettle?: (index: number) => void;
   /** Непрерывная позиция жеста, дробный индекс слайда (0 = первый):
-      приходит каждый кадр, пока палец/мышь двигает ленту (драг-режим
-      siema, translate3d sliderFrame). Вне жеста не вызывается. */
+      приходит каждый кадр, пока палец/мышь двигает ленту. Вне жеста не
+      вызывается. */
   ondragmove?: (position: number) => void;
   /** Жест завершён (отпускание/отмена) — новых ondragmove не будет.
       Вызывается и для клика без сдвига. finalPos — точка отпускания
       (последний move), если последний rAF-кадр ondragmove отстал от
-      пальца (быстрый флик): считывать translate в этот момент уже нельзя
-      (siema поставил его на целевой слайд), поэтому точку несёт сам
+      пальца (быстрый флик): позицию движка в этот момент читать уже нельзя
+      (Embla начал доводку к целевому слайду), поэтому точку несёт сам
       ondragend — родитель ставит капсулу в неё и доезжает к активному
-      слайду синхронно с доводкой siema. undefined — капсула уже на точке. */
+      слайду синхронно с доводкой. undefined — капсула уже на точке. */
   ondragend?: (finalPos?: number) => void;
 }
 
@@ -101,7 +130,6 @@ export function SwipeStrip<T>({
   animateGrowth = false,
   draggable = true,
   duration = 360,
-  threshold = 0,
   scrollSel = '.chat-scroll',
   onchange,
   onsettle,
@@ -122,17 +150,19 @@ export function SwipeStrip<T>({
   /** Скроллы живых слайдов старого DOM (ключ слайда → scrollTop). */
   const planRestoreRef = useRef<Map<string, number>>(new Map());
 
-  // ── Состояние siema ────────────────────────────────────────────────────
+  // ── Состояние Embla ────────────────────────────────────────────────────
   /** Хост keyed-поддерева: реф (не state) — перемонтирование по planKey
-      меняет node, siema-эффект следит за planKey в deps. */
+      меняет node, эффект движка следит за planKey в deps. */
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const siemaRef = useRef<Siema | undefined>(undefined);
+  /** Viewport — root движка (первый ребёнок root = container). */
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const apiRef = useRef<EmblaCarouselType | null>(null);
   /** Хост текущего инстанса (сравнением отличаем пересборку от смены конфига). */
   const lastHostRef = useRef<HTMLElement | undefined>(undefined);
   /** Текущий индекс — переживает пересоздание инстанса (конфиг-эффект). */
   const curIndexRef = useRef(0);
 
-  // Свежие props для imperative API (handle создаётся один раз).
+  // Свежие props для imperative API и колбэков движка (создаются один раз).
   const latestRef = useRef({ items, keyOf, onchange, onsettle, ondragmove, ondragend });
   latestRef.current = { items, keyOf, onchange, onsettle, ondragmove, ondragend };
 
@@ -140,16 +170,15 @@ export function SwipeStrip<T>({
   // ключ keyed-поддерева ПРЯМО В РЕНДЕРЕ (render-phase update), а не после
   // commit. Иначе React успел бы согласовать новые items в старом хосте:
   // укорачивание цепочки (выход из папки свайпом-вправо) удалило бы fiber
-  // хвостового слайда на живом хосте, а физически слайд лежит внутри
-  // sliderFrame siema (buildSliderFrame забирает детей хоста) — removeChild
-  // бросил бы DOMException и React размонтировал бы всё дерево (чёрный
-  // экран). Смена ключа в том же рендере заставляет React заменить хост
-  // целиком (старый удаляется одним узлом вместе с sliderFrame), без
-  // промежуточной реконсиляции слайдов. Скроллы читаются из старого хоста,
-  // который ещё в DOM (это поведение Svelte-$effect.pre). Рост цепочки
-  // (вход в папку) планирует старт на слайде родителя и анимированный
-  // доезд к глубокому; прочие изменения — сразу на initialIndex, без
-  // анимации.
+  // хвостового слайда на живом хосте, а контейнер позиционируется Embla
+  // transform'ом — removeChild на лету сдвинул бы оставшиеся слайды
+  // (transform контейнера не пересчитан) и лента «прыгнула» бы. Смена ключа
+  // в том же рендере заставляет React заменить хост целиком (старый
+  // удаляется одним узлом), без промежуточной реконсиляции слайдов.
+  // Скроллы читаются из старого хоста, который ещё в DOM (это поведение
+  // Svelte-$effect.pre). Рост цепочки (вход в папку) планирует старт на
+  // слайде родителя и анимированный доезд к глубокому; прочие изменения —
+  // сразу на initialIndex, без анимации.
   const sig = sigOf();
   if (sig !== planKey) {
     const host = hostRef.current;
@@ -171,128 +200,90 @@ export function SwipeStrip<T>({
     setPlanKey(sig);
   }
 
-  // Жизненный цикл siema на текущем keyed-хосте. Зависимости: planKey (новая
+  // Жизненный цикл Embla на текущем keyed-хосте. Зависимости: planKey (новая
   // пересборка — новый хост) и конфиг конструктора (draggable/duration/
-  // threshold/scrollSel). При перезапуске cleanup сначала гасит старый
-  // инстанс (restoreMarkup=true — слайды возвращаются в контейнер «как
-  // были»), затем тело строит новый. Для нового хоста стартуем с planIndex
-  // (и доезжаем до planAnimateTo при росте цепочки), для старого —
-  // сохраняем текущую позицию (curIndex).
-  useEffect(() => {
+  // scrollSel). При перезапуске cleanup гасит старый инстанс, тело строит
+  // новый на том же DOM (слайды Embla не трогает). Для нового хоста
+  // стартуем с planIndex (и доезжаем до planAnimateTo при росте цепочки),
+  // для старого — сохраняем текущую позицию (curIndex).
+  useLayoutEffect(() => {
     const host = hostRef.current;
-    if (host === null) return;
+    const viewport = viewportRef.current;
+    if (host === null || viewport === null) return;
 
     const fresh = host !== lastHostRef.current;
     const index = fresh ? planIndexRef.current : curIndexRef.current;
+    let growthRaf = 0;
 
+    // onsettle: settle движка (фактическая остановка) + страховочный таймер
+    // на мгновенные переходы (jump / duration=0), где анимации нет и settle
+    // не эмитится. pendingSettle сбрасывается первым пришедшим сигналом,
+    // так что settle «возврата без смены слайда» (select не было) ничего
+    // не вызывает — как scheduleSettle siema-версии после onChange.
+    let pendingSettle = -1;
     let settleTimer: number | undefined;
-    let rafId = 0;
-
-    const scheduleSettle = (idx: number): void => {
-      if (settleTimer !== undefined) clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => {
+    const flushSettle = (): void => {
+      if (settleTimer !== undefined) {
+        clearTimeout(settleTimer);
         settleTimer = undefined;
-        onsettle?.(idx);
-      }, duration + 60);
+      }
+      if (pendingSettle < 0) return;
+      const idx = pendingSettle;
+      pendingSettle = -1;
+      latestRef.current.onsettle?.(idx);
+    };
+    const scheduleSettle = (idx: number): void => {
+      pendingSettle = idx;
+      if (settleTimer !== undefined) clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(flushSettle, 1200);
     };
 
-    const instance = new Siema({
-      selector: host,
+    const api = EmblaCarousel(viewport, {
+      axis: 'x',
       startIndex: Math.max(0, index),
-      draggable,
-      duration,
-      easing: 'ease-out',
-      threshold,
-      onChange: () => {
-        curIndexRef.current = instance.currentSlide;
-        onchange?.(instance.currentSlide);
-        scheduleSettle(instance.currentSlide);
-      },
+      watchDrag: draggable,
+      // См. JSDoc пропа duration: физика Embla растягивает программный
+      // scrollTo в ~71× от options.duration (settle) — конвертируем
+      // «видимые мс» в коэффициент мягкости движка.
+      duration: duration === 0 ? 0 : Math.max(1, Math.round(duration / 40)),
     });
-    siemaRef.current = instance;
+    apiRef.current = api;
     lastHostRef.current = host;
 
-    // Мышиный драг (мост поверх хрупких mouse-хендлеров siema): siema не
-    // проверяет кнопку в mousedown (правый клик начал бы драг) и ловит mouseup
-    // только на хосте — отпускание над оверлеем поверх ленты (страница
-    // заметки, контекстное меню) оставило бы pointerDown «залипшим», и слайд
-    // ехал бы за курсором без нажатой кнопки. Чиним точечно (см. .svelte).
-    const removeMouseBridge: (() => void)[] = [];
+    const handleSelect = (): void => {
+      const idx = api.selectedScrollSnap();
+      curIndexRef.current = idx;
+      latestRef.current.onchange?.(idx);
+      scheduleSettle(idx);
+    };
+    api.on('select', handleSelect);
+    api.on('settle', flushSettle);
+
+    // Непрерывная позиция жеста (капсула-подсветка островка едет за
+    // пальцем): промежуточного смещения как события у Embla нет, позиция
+    // читается из scrollProgress в rAF-цикле, пока идёт жест (двигать может
+    // и тач, и мышь). Слайды 100% ширины: прогресс 0..1 между первым и
+    // последним слайдом; в покое значение — целый индекс, во время драга —
+    // непрерывно (отставание ≤ 1 rAF-кадр: translate контейнера движок
+    // обновляет в своём rAF).
+    const removeTrack: (() => void)[] = [];
     if (draggable) {
-      const filterNonPrimary = (e: MouseEvent): void => {
-        if (e.button !== 0) e.stopPropagation();
-      };
-      host.addEventListener('mousedown', filterNonPrimary, true);
-
-      // Клик после драга, начатого на кликабельном содержимом слайда
-      // (карточка заметки/строка папки), надо гасить: siema подавляет click
-      // после драга только для ссылок (preventClick ставится при target 'A'),
-      // кнопки получают обычный click на отпускании — заметка/папка открылись
-      // бы после свайпа. Следим за жестом сами и глушим click в capture на
-      // хосте (раньше onclick содержимого), если курсор реально сдвинулся.
-      // Порог — как MOVE_THRESHOLD карточек/папок (10px): дрожание мыши при
-      // обычном клике драгом не считается.
-      const CLICK_DRAG_PX = 10;
-      let mouseDownX = 0;
-      let mouseDragged = false;
-      const trackMouseDown = (e: MouseEvent): void => {
-        if (e.button !== 0) return;
-        mouseDownX = e.clientX;
-        mouseDragged = false;
-      };
-      const trackMouseMove = (e: MouseEvent): void => {
-        if ((e.buttons & 1) === 0 || mouseDragged) return;
-        if (Math.abs(e.clientX - mouseDownX) > CLICK_DRAG_PX) mouseDragged = true;
-      };
-      const swallowDragClick = (e: MouseEvent): void => {
-        if (!mouseDragged) return;
-        mouseDragged = false;
-        // siema'шный preventClick тоже сбросить: этот click уже погашен,
-        // следующему клику по ссылке нечего подавлять.
-        instance.drag.preventClick = false;
-        e.preventDefault();
-        e.stopPropagation();
-      };
-      host.addEventListener('mousedown', trackMouseDown, true);
-      host.addEventListener('mousemove', trackMouseMove, true);
-      host.addEventListener('click', swallowDragClick, true);
-
-      const finishMissedDrag = (): void => {
-        if (instance.pointerDown !== true) return;
-        instance.pointerDown = false;
-        host.style.cursor = '-webkit-grab';
-        instance.enableTransition();
-        if (instance.drag.endX) instance.updateAfterDrag();
-        instance.clearDrag();
-      };
-      window.addEventListener('mouseup', finishMissedDrag);
-
-      // Непрерывная позиция жеста (капсула-подсветка островка топиков едет
-      // за пальцем): событий драга у siema нет, поэтому промежуточное
-      // смещение читается из translate3d sliderFrame в rAF-цикле, пока идёт
-      // жест (двигать может и тач, и мышь). Значение — дробный индекс
-      // слайда: -translateX / selectorWidth (perPage=1); вне драга siema
-      // ставит transform на границы слайдов — те же координаты, поэтому
-      // начало трека всегда совпадает с текущим слайдом.
       const DRAG_POS_EPS = 0.001;
       let dragTrackActive = false;
       let dragTrackRAF = 0;
       let lastDragPos = 0;
       /** Позиция, прочитанная в последнем move-событии: это точка, где
-          палец/курсор находится СЕЙЧАС — от неё siema начнёт доезд при
-          отпускании. (В момент отпускания translate прочитать уже нельзя:
-          siema в своём touchend/mouseup сразу ставит style.transform на
-          ЦЕЛЕВОЙ слайд, CSS-transition анимирует только рендер — rAF
-          прочитал бы финал.) */
+          палец/курсор находится СЕЙЧАС — от неё движок начнёт доводку при
+          отпускании. (В момент отпускания позицию движка прочитать уже
+          нельзя: Embla начал анимацию к целевому слайду — rAF выдал бы
+          финал.) */
       let lastMovePos = 0;
       let lastTouchAt = 0;
 
       const readDragPos = (): number => {
-        const frame = instance.sliderFrame;
-        const m = /translate3d\((-?[\d.]+)px/.exec(frame.style.transform ?? '');
-        const w = instance.selectorWidth;
-        if (m === null || w === 0) return instance.currentSlide;
-        return -Number(m[1]) / w;
+        const n = api.slideNodes().length;
+        if (n < 2) return 0;
+        return api.scrollProgress() * (n - 1);
       };
 
       const noteMove = (): void => {
@@ -305,16 +296,15 @@ export function SwipeStrip<T>({
         cancelAnimationFrame(dragTrackRAF);
         if (!emit) return;
         // Финальный rAF-кадр ondragmove мог отстать от пальца (быстрый
-        // флик), а в момент отпускания translate уже переписан siema на
-        // целевой слайд (читать его нельзя — rAF выдал бы финал). Точку
-        // отпускания несёт последний move: отдаём её через ondragend,
-        // чтобы родитель поставил капсулу ровно в неё и доехал к активному
-        // слайду синхронно с доводкой siema.
+        // флик), а движок уже начал доводку (позицию читать нельзя — rAF
+        // выдал бы финал). Точку отпускания несёт последний move: отдаём её
+        // через ondragend, чтобы родитель поставил капсулу ровно в неё и
+        // доехал к активному слайду синхронно с доводкой движка.
         if (Math.abs(lastMovePos - lastDragPos) > DRAG_POS_EPS) {
-          ondragend?.(lastMovePos);
+          latestRef.current.ondragend?.(lastMovePos);
           return;
         }
-        ondragend?.();
+        latestRef.current.ondragend?.();
       };
 
       const startDragTrack = (): void => {
@@ -327,7 +317,7 @@ export function SwipeStrip<T>({
           const p = readDragPos();
           if (Math.abs(p - lastDragPos) > DRAG_POS_EPS) {
             lastDragPos = p;
-            ondragmove?.(p);
+            latestRef.current.ondragmove?.(p);
           }
           dragTrackRAF = requestAnimationFrame(frame);
         };
@@ -340,8 +330,8 @@ export function SwipeStrip<T>({
       };
       const onTrackMouseDown = (e: MouseEvent): void => {
         // Эмулированный после тача mousedown (быстрый тап) не должен
-        // перезапускать трек: в этот момент translate — промежуточный доезд
-        // siema, капсула «прилипла» бы к нему до эмулированного mouseup.
+        // перезапускать трек: в этот момент лента в доезде, капсула
+        // «прилипла» бы к нему до эмулированного mouseup.
         if (e.button !== 0 || Date.now() - lastTouchAt < 500) return;
         startDragTrack();
       };
@@ -352,15 +342,12 @@ export function SwipeStrip<T>({
       const onTrackMouseUp = (): void => stopDragTrack(true);
       const onTrackMouseLeave = (): void => stopDragTrack(true);
       host.addEventListener('touchstart', onTrackTouchStart);
-      // Завершение жеста ловим НА ХОСТЕ, а не на window: siema'шный
-      // touchend/mouseup вызывает stopPropagation — до window событие не
-      // доходит, а слушатели того же хоста, добавленные позже, вызываются.
-      // Наши обработчики идут ПОСЛЕ siema'шных: он уже переключил слайд
-      // (onChange) и поставил translate на цель — дальше работает родитель.
+      // Завершение жеста ловим НА ХОСТЕ, а не на window: слушатели того же
+      // хоста, добавленные позже Embla'шных (root = viewport — вложенный
+      // элемент, его обработчики отрабатывают раньше при всплытии).
       host.addEventListener('touchend', onTrackTouchEnd);
       host.addEventListener('mouseup', onTrackMouseUp);
-      // window — фолбэк для отпускания ВНЕ хоста (stopPropagation не было):
-      // обработчик siema не сработал, жест завершаем здесь.
+      // window — фолбэк для отпускания ВНЕ хоста.
       window.addEventListener('touchend', onTrackTouchEnd, { passive: true });
       window.addEventListener('touchcancel', onTrackTouchEnd, { passive: true });
       host.addEventListener('mousedown', onTrackMouseDown);
@@ -369,12 +356,7 @@ export function SwipeStrip<T>({
       host.addEventListener('mousemove', onTrackMove);
       host.addEventListener('mouseleave', onTrackMouseLeave);
 
-      removeMouseBridge.push(
-        () => host.removeEventListener('mousedown', filterNonPrimary, true),
-        () => host.removeEventListener('mousedown', trackMouseDown, true),
-        () => host.removeEventListener('mousemove', trackMouseMove, true),
-        () => host.removeEventListener('click', swallowDragClick, true),
-        () => window.removeEventListener('mouseup', finishMissedDrag),
+      removeTrack.push(
         () => host.removeEventListener('touchstart', onTrackTouchStart),
         () => host.removeEventListener('touchend', onTrackTouchEnd),
         () => host.removeEventListener('mouseup', onTrackMouseUp),
@@ -406,43 +388,44 @@ export function SwipeStrip<T>({
 
     // Рост цепочки: старт на слайде родителя, затем анимированный доезд к
     // глубокому. Двойной rAF: первый кадр успевает показать стартовую
-    // позицию, дальше работает CSS-transition.
+    // позицию, дальше работает анимация движка.
     const target = planAnimateToRef.current;
     if (fresh && target > index) {
-      rafId = requestAnimationFrame(() => {
-        rafId = requestAnimationFrame(() => {
-          rafId = 0;
-          instance.goTo(target);
+      growthRaf = requestAnimationFrame(() => {
+        growthRaf = requestAnimationFrame(() => {
+          growthRaf = 0;
+          api.scrollTo(target);
         });
       });
     }
 
     return () => {
-      if (rafId !== 0) cancelAnimationFrame(rafId);
+      if (growthRaf !== 0) cancelAnimationFrame(growthRaf);
       if (settleTimer !== undefined) clearTimeout(settleTimer);
-      for (const off of removeMouseBridge) off();
-      instance.destroy(true);
-      if (siemaRef.current === instance) siemaRef.current = undefined;
+      api.off('select', handleSelect);
+      api.off('settle', flushSettle);
+      for (const off of removeTrack) off();
+      api.destroy();
+      if (apiRef.current === api) apiRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- порт $effect (см. SwipeStrip.svelte)
-  }, [planKey, draggable, duration, threshold, scrollSel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- рефы и колбэки через latestRef
+  }, [planKey, draggable, duration, scrollSel]);
 
   // ── Imperative API (ref родителя) ──────────────────────────────────────
   useImperativeHandle(
     ref,
     () => ({
       goTo(index: number, animate: boolean): void {
-        const s = siemaRef.current;
-        if (s === undefined) return;
+        const api = apiRef.current;
+        if (api === null) return;
         const len = latestRef.current.items.length;
+        if (len === 0) return;
         const target = Math.max(0, Math.min(index, len - 1));
-        if (target === s.currentSlide) return;
-        if (animate) s.enableTransition();
-        else s.disableTransition();
-        s.goTo(target);
+        if (target === api.selectedScrollSnap()) return;
+        api.scrollTo(target, !animate);
       },
       getIndex(): number {
-        return siemaRef.current?.currentSlide ?? -1;
+        return apiRef.current?.selectedScrollSnap() ?? -1;
       },
       getCount(): number {
         return latestRef.current.items.length;
@@ -459,15 +442,19 @@ export function SwipeStrip<T>({
       role="group"
       aria-roledescription="карусель"
     >
-      {items.map((item, index) => (
-        <div
-          key={keyOf(item, index)}
-          className="swipe-strip-slide block h-full"
-          data-strip-key={keyOf(item, index)}
-        >
-          {children(item, index)}
+      <div ref={viewportRef} className="h-full overflow-hidden">
+        <div className="swipe-strip-container flex h-full">
+          {items.map((item, index) => (
+            <div
+              key={keyOf(item, index)}
+              className="swipe-strip-slide block h-full"
+              data-strip-key={keyOf(item, index)}
+            >
+              {children(item, index)}
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
     </div>
   );
 }

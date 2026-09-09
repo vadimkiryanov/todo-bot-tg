@@ -87,7 +87,7 @@ export function QuickMenu({ x, y, items, onClose }: QuickMenuProps) {
             type="button"
             role="menuitem"
             className={`flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50 ${
-              item.danger === true ? 'text-danger' : ''
+              item.danger === true ? 'text-destructive' : ''
             }`}
             onClick={() => pick(item)}
           >

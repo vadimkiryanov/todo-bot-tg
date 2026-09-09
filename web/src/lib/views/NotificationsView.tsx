@@ -46,7 +46,7 @@ export function NotificationsView() {
   return (
     <>
       <div className="flex h-full flex-col">
-        <header className="flex shrink-0 items-center justify-between border-b border-border bg-surface px-3 pt-[env(safe-area-inset-top)]">
+        <header className="flex shrink-0 items-center justify-between border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
           <button
             type="button"
             aria-label="Назад"
@@ -84,7 +84,7 @@ export function NotificationsView() {
             <EmptyState emoji="🔕" text="Уведомлений нет" />
           ) : (
             <div className="flex flex-col gap-2 px-3 py-3">
-              {openError !== '' && <p className="px-2 text-sm text-danger">{openError}</p>}
+              {openError !== '' && <p className="px-2 text-sm text-destructive">{openError}</p>}
               {items.map((item) => (
                 // Непрочитанные визуально выделены точкой у 🔔
                 <button
@@ -98,19 +98,19 @@ export function NotificationsView() {
                       🔔
                       {!item.read && (
                         <span
-                          className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-accent"
+                          className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-primary"
                           aria-label="Непрочитано"
                         ></span>
                       )}
                     </span>
                     <span
                       className={`line-clamp-3 min-w-0 flex-1 break-words text-[15px] leading-6 ${
-                        item.read ? 'text-muted' : 'text-content'
+                        item.read ? 'text-muted-foreground' : 'text-foreground'
                       }`}
                       dangerouslySetInnerHTML={{ __html: firstLineHtml(item.text, []) }}
                     />
                   </span>
-                  <span className="pl-7 text-xs text-muted">⏰ {formatFiredAt(item.fired_at)}</span>
+                  <span className="pl-7 text-xs text-muted-foreground">⏰ {formatFiredAt(item.fired_at)}</span>
                 </button>
               ))}
             </div>

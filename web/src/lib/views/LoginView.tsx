@@ -82,14 +82,14 @@ export function LoginView() {
       <div className="text-6xl">📝</div>
 
       <div
-        className="flex w-full max-w-xs items-center rounded-full bg-background p-1 text-sm"
+        className="flex w-full max-w-xs items-center rounded-full bg-muted p-1 text-sm"
         role="tablist"
       >
         <button
           type="button"
           role="tab"
           aria-selected={mode === 'login'}
-          className={`h-9 flex-1 rounded-full transition-colors ${mode === 'login' ? 'bg-surface shadow' : 'text-muted'}`}
+          className={`h-9 flex-1 rounded-full transition-colors ${mode === 'login' ? 'bg-background shadow' : 'text-muted-foreground'}`}
           onClick={() => switchMode('login')}
         >
           Вход
@@ -98,7 +98,7 @@ export function LoginView() {
           type="button"
           role="tab"
           aria-selected={mode === 'register'}
-          className={`h-9 flex-1 rounded-full transition-colors ${mode === 'register' ? 'bg-surface shadow' : 'text-muted'}`}
+          className={`h-9 flex-1 rounded-full transition-colors ${mode === 'register' ? 'bg-background shadow' : 'text-muted-foreground'}`}
           onClick={() => switchMode('register')}
         >
           Регистрация
@@ -107,7 +107,7 @@ export function LoginView() {
 
       {tgEnabled && (
         <div className="flex w-full max-w-xs flex-col items-center gap-3">
-          <div className="flex w-full items-center gap-3 text-xs text-muted">
+          <div className="flex w-full items-center gap-3 text-xs text-muted-foreground">
             <span className="h-px flex-1 bg-border"></span>
             или
             <span className="h-px flex-1 bg-border"></span>
@@ -115,7 +115,7 @@ export function LoginView() {
           <div id="telegram-login-widget"></div>
         </div>
       )}
-      {tgError !== '' && <p className="text-sm text-danger">{tgError}</p>}
+      {tgError !== '' && <p className="text-sm text-destructive">{tgError}</p>}
 
       <form
         className="flex w-full max-w-xs flex-col gap-3"
@@ -125,24 +125,24 @@ export function LoginView() {
         }}
       >
         <input
-          className="h-11 rounded-xl border border-border bg-surface px-4 outline-none focus:border-accent"
+          className="h-11 rounded-xl border border-border bg-background px-4 outline-none focus:border-ring"
           placeholder="Логин"
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
         <input
-          className="h-11 rounded-xl border border-border bg-surface px-4 outline-none focus:border-accent"
+          className="h-11 rounded-xl border border-border bg-background px-4 outline-none focus:border-ring"
           placeholder="Пароль"
           type="password"
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        {error !== '' && <p className="text-sm text-danger">{error}</p>}
+        {error !== '' && <p className="text-sm text-destructive">{error}</p>}
         <button
           type="submit"
-          className="h-11 rounded-xl bg-accent-strong font-medium text-white disabled:opacity-50"
+          className="h-11 rounded-xl bg-primary font-medium text-white disabled:opacity-50"
           disabled={pending}
         >
           {pending ? '…' : title}

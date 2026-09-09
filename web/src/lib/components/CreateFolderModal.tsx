@@ -66,16 +66,16 @@ export function CreateFolderModal() {
           placeholder="Название"
           maxLength={64}
           onChange={(e) => setName(e.target.value)}
-          className="h-11 rounded-xl border border-border bg-background px-4 text-base outline-none focus:border-accent"
+          className="h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
         />
-        {error !== '' && <p className="text-sm text-danger">{error}</p>}
+        {error !== '' && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <button type="button" className="h-11 flex-1 rounded-xl border border-border text-sm" onClick={close}>
             Отмена
           </button>
           <button
             type="submit"
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-accent-strong text-sm font-medium text-white disabled:opacity-50"
+            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
             disabled={busy}
           >
             {busy ? <Spinner size="16px" /> : 'Создать'}
