@@ -128,7 +128,7 @@ export function NoteCard({ note, onOpen, onMenu, highlighted = false }: NoteCard
   return (
     <button
       type="button"
-      className={`glass-card flex w-full touch-manipulation select-none items-start gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none]${highlighted ? ' note-highlight' : ''}${prioCls !== '' ? ` ${prioCls}` : ''}`}
+      className={`glass-card flex w-full touch-pan-y select-none items-start gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none]${highlighted ? ' note-highlight' : ''}${prioCls !== '' ? ` ${prioCls}` : ''}`}
       onClick={onCardClick}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

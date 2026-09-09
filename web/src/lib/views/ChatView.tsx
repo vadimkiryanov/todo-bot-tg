@@ -1279,9 +1279,15 @@ export function ChatView() {
         <SearchPanel
           onClose={() => setSearchOpen(false)}
           onOpenNote={(note) => {
-            // Закрываем поиск: страница заметки (NotePage) открывается поверх
-            // чата, возврат из неё (history.back) ведёт к списку, не к поиску.
-            setSearchOpen(false);
+            // Поиск НЕ закрываем: страница заметки (NotePage, z-[70]) открывается
+            // поверх панели поиска (z-40), а его state (запрос/режим/результаты)
+            // живёт в SearchPanel и не сбрасывается. Свайп-назад из заметки
+            // (или «←») возвращает в поиск с теми же результатами.
+            // Клавиатуру поискового инпута прячем, чтобы она не выскочила
+            // поверх страницы заметки.
+            if (document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            }
             openNoteObject(note);
           }}
           onMenu={openMenu}
