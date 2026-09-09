@@ -42,9 +42,15 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
-            // Чтение через API: stale-while-revalidate, кэш только GET-запросов
+            // Чтение через API (кэш только GET-запросов): сначала сеть —
+            // после мутаций (done/редактирование/создание) тихие перезагрузки
+            // списков всегда приносят свежие данные. StaleWhileRevalidate
+            // отвечал устаревшим кэшем немедленно и затирал оптимистичные
+            // изменения стора (done «возвращался», правка откатывалась, новая
+            // заметка пропадала). NetworkFirst при отсутствии сети отдаёт
+            // последний кэш — офлайн-чтение списков сохранено.
             urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
-            handler: 'StaleWhileRevalidate',
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
               expiration: { maxEntries: 64, maxAgeSeconds: 60 * 60 },

@@ -134,14 +134,18 @@ export function peekCachedNotes(
 
 /**
  * Загрузка заметок контекста (топик+папка). silent — тихая фоновая
- * перезагрузка (после мутации/для предзагрузки). Если активный контекст уже
- * закеширован и это не фоновая загрузка — показываем кеш сразу, свежесть
- * догружаем фоном (без загрузочного экрана).
+ * перезагрузка (после мутации/для предзагрузки). force — требовать свежий
+ * запрос даже при идущем: для перезагрузок ПОСЛЕ мутации результат запроса,
+ * начатого до неё, устарел (новой заметки/смены done в нём нет) — ждём
+ * старый, чтобы он не применился позже, и запрашиваем заново. Если активный
+ * контекст уже закеширован и это не фоновая загрузка — показываем кеш сразу,
+ * свежесть догружаем фоном (без загрузочного экрана).
  */
 export async function loadNotes(
   topicId: number,
   folderId: number | null = null,
   silent = false,
+  force = false,
 ): Promise<void> {
   const key = ctxKey(topicId, folderId);
   const active = isActiveContext(topicId, folderId);
@@ -162,12 +166,16 @@ export async function loadNotes(
 
   const pending = inFlight.get(key);
   if (pending !== undefined) {
-    // Тот же контекст уже грузится фоном — дожидаемся и применяем его результат.
+    // Тот же контекст уже грузится — дожидаемся, чтобы его результат не
+    // применился после нашего. Для обычного вызова этого достаточно; после
+    // мутации (force) результат старого запроса устарел — идём в сеть ещё раз.
     await pending.catch(() => {});
-    if (active && !silent) {
-      useNotesStore.setState({ loading: false });
+    if (!force) {
+      if (active && !silent) {
+        useNotesStore.setState({ loading: false });
+      }
+      return;
     }
-    return;
   }
 
   const run = (async () => {
@@ -307,7 +315,9 @@ export async function createNote(text: string, opts: CreateNoteOptions = {}): Pr
   const state = useNotesStore.getState();
   useNotesStore.setState({ notes: [...state.notes, note], highlightedId: note.id });
   syncActiveCache();
-  await loadNotes(topicId, folderId, true);
+  // force: список перечитываем свежим — запрос, начатый до создания заметки,
+  // её не содержит и затёр бы подсветку только что добавленной карточки.
+  await loadNotes(topicId, folderId, true, true);
 }
 
 /** Снять подсветку «только что добавленной» заметки. */
@@ -336,7 +346,8 @@ export async function moveNote(
   const nowInList =
     topicId === activeTopic && (activeFolder === null || folderId === activeFolder);
   if (wasInList || nowInList) {
-    await loadNotes(activeTopic, activeFolder, true);
+    // force: идущий запрос начат до перемещения и не отражает его.
+    await loadNotes(activeTopic, activeFolder, true, true);
   }
 }
 
@@ -621,7 +632,9 @@ async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
     // сам сервер (список в кеше не должен расходиться с серверным).
     const nav = useNavigationStore.getState();
     if (nav.activeTopicID !== null) {
-      await loadNotes(nav.activeTopicID, nav.activeFolderID, true);
+      // force: идущий запрос начат до мутации — его результат вернул бы
+      // заметку/старое состояние поверх только что применённого.
+      await loadNotes(nav.activeTopicID, nav.activeFolderID, true, true);
     }
   } catch (e) {
     setKindNotes(owner.kind, previous);
