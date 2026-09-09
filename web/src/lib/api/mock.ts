@@ -324,6 +324,12 @@ export async function mockRequest<T>(
   }
 
   // --- notes ---
+  if (base === `${NOTES}/search` && method === 'GET') {
+    const q = search.get('q') ?? '';
+    const topicRaw = search.get('topic_id');
+    const topicId = topicRaw !== null && topicRaw !== '' ? Number(topicRaw) : null;
+    return mockSearchNotes(q, topicId) as T;
+  }
   if (base === NOTES && method === 'GET') {
     if (search.get('archived') === 'true') {
       return mockListArchived() as T;
@@ -512,6 +518,22 @@ function mockDeleteTopic(topicId: number): void {
 
 // ---------------------------------------------------------------------------
 // Notes
+
+/** Поиск активных заметок по подстроке без учёта регистра (как на бэкенде:
+ * выполненные и архивные не ищутся; topicId null — все топики). */
+function mockSearchNotes(q: string, topicId: number | null): Note[] {
+  const user = requireUser();
+  const needle = q.trim().toLowerCase();
+  if (needle === '') {
+    return [];
+  }
+  const notes = notesOf(user.id).filter((n) => {
+    if (n.archived || n.done) return false;
+    if (topicId !== null && n.topic_id !== topicId) return false;
+    return n.text.toLowerCase().includes(needle);
+  });
+  return sortNotes(notes).map(toNote);
+}
 
 function mockListNotes(topicId: number, folderId: number | null): Note[] {
   const user = requireUser();

@@ -17,6 +17,9 @@ import (
 type NoteRepository interface {
 	CreateNote(note model.Note) (model.Note, error)
 	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
+	// SearchNotes ищет активные (не архивные, не выполненные) заметки пользователя
+	// по подстроке текста без учёта регистра. topicID != nil — только в этом топике.
+	SearchNotes(userID int64, q string, topicID *int64) ([]model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
 	UpdateNote(note model.Note) error
 	DeleteNote(userID, noteID int64) error
@@ -243,6 +246,19 @@ func sortNotes(notes []model.Note) {
 		// При равном приоритете — самые свежие сверху
 		return notes[i].ID > notes[j].ID
 	})
+}
+
+// SearchNotes ищет активные заметки по подстроке текста (без учёта регистра):
+// во всех топиках (topicID == nil) или в конкретном. Архивные и выполненные
+// не ищутся. Сортировка — как в списке (закреплённые → приоритет → свежие).
+func (s *Service) SearchNotes(userID int64, q string, topicID *int64) ([]model.Note, error) {
+	notes, err := s.noteRepo.SearchNotes(userID, q, topicID)
+	if err != nil {
+		return nil, err
+	}
+
+	sortNotes(notes)
+	return notes, nil
 }
 
 // GetNote возвращает заметку по ID.

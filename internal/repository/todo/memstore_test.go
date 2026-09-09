@@ -216,6 +216,77 @@ func TestMemStore_ListNotes_ExcludesArchived(t *testing.T) {
 	}
 }
 
+func TestMemStore_SearchNotes(t *testing.T) {
+	s := newTestStore()
+	_, _ = s.CreateNote(model.Note{UserID: 1, TopicID: 10, Text: "Купить молоко"})
+	_, _ = s.CreateNote(model.Note{UserID: 1, TopicID: 20, Text: "купить хлеб"})
+	_, _ = s.CreateNote(model.Note{UserID: 1, TopicID: 20, Text: "Позвонить маме"})
+
+	// По всем топикам, без учёта регистра
+	notes, err := s.SearchNotes(1, "Купить", nil)
+	if err != nil {
+		t.Fatalf("SearchNotes() error: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Errorf("len = %d, want 2", len(notes))
+	}
+
+	// Только в указанном топике
+	topicID := int64(10)
+	notes, err = s.SearchNotes(1, "купить", &topicID)
+	if err != nil {
+		t.Fatalf("SearchNotes() error: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Errorf("len = %d, want 1", len(notes))
+	}
+	if notes[0].TopicID != 10 {
+		t.Errorf("TopicID = %d, want 10", notes[0].TopicID)
+	}
+
+	// Несовпадение → пусто
+	notes, err = s.SearchNotes(1, "неттакогослова", nil)
+	if err != nil {
+		t.Fatalf("SearchNotes() error: %v", err)
+	}
+	if len(notes) != 0 {
+		t.Errorf("len = %d, want 0", len(notes))
+	}
+}
+
+func TestMemStore_SearchNotes_ExcludesDoneAndArchived(t *testing.T) {
+	s := newTestStore()
+	_, _ = s.CreateNote(model.Note{UserID: 1, TopicID: 1, Text: "Ищу иголку"})
+	done, _ := s.CreateNote(model.Note{UserID: 1, TopicID: 1, Text: "Ищу вилку"})
+	done.Done = true
+	_ = s.UpdateNote(done)
+	archived, _ := s.CreateNote(model.Note{UserID: 1, TopicID: 1, Text: "ищу ложку"})
+	archived.Archived = true
+	_ = s.UpdateNote(archived)
+	_, _ = s.CreateNote(model.Note{UserID: 2, TopicID: 1, Text: "Ищу сковородку"})
+
+	// Чужие, выполненные и архивные не ищутся
+	notes, err := s.SearchNotes(1, "ищу", nil)
+	if err != nil {
+		t.Fatalf("SearchNotes() error: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Errorf("len = %d, want 1", len(notes))
+	}
+	if notes[0].Text != "Ищу иголку" {
+		t.Errorf("Text = %q, want %q", notes[0].Text, "Ищу иголку")
+	}
+
+	// Пустой/пробельный запрос → пусто, без ошибки
+	notes, err = s.SearchNotes(1, "   ", nil)
+	if err != nil {
+		t.Fatalf("SearchNotes() error: %v", err)
+	}
+	if len(notes) != 0 {
+		t.Errorf("len = %d, want 0", len(notes))
+	}
+}
+
 func TestMemStore_GetNote(t *testing.T) {
 	s := newTestStore()
 	created, _ := s.CreateNote(model.Note{UserID: 1, TopicID: 1, Text: "Test"})

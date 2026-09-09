@@ -16,6 +16,7 @@ type TodoService interface {
 	DeleteTopic(userID, topicID int64) error
 
 	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
+	SearchNotes(userID int64, q string, topicID *int64) ([]model.Note, error)
 	AddNote(userID, topicID int64, folderID *int64, text string, entities []model.NoteEntity, priority model.Priority, opts ...todo.AddNoteOptions) (model.Note, error)
 	GetNote(userID, noteID int64) (model.Note, error)
 	EditNote(userID, noteID int64, text string, entities []model.NoteEntity) error

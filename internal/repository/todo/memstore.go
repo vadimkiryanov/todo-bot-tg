@@ -2,6 +2,7 @@ package todo
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -218,6 +219,34 @@ func (s *MemStore) ListNotes(userID, topicID int64, folderID *int64) ([]model.No
 			if n.FolderID == nil || *n.FolderID != *folderID {
 				continue
 			}
+		}
+		result = append(result, entity.NoteFromRecord(n))
+	}
+	return result, nil
+}
+
+// SearchNotes ищет активные (не архивные, не выполненные) заметки пользователя
+// по подстроке текста без учёта регистра. topicID != nil — только в этом топике.
+func (s *MemStore) SearchNotes(userID int64, q string, topicID *int64) ([]model.Note, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	needle := strings.ToLower(strings.TrimSpace(q))
+	if needle == "" {
+		return []model.Note{}, nil
+	}
+	ids := s.userNotes[userID]
+	result := make([]model.Note, 0, len(ids))
+	for _, id := range ids {
+		n, ok := s.notes[id]
+		if !ok || n.Archived || n.Done {
+			continue
+		}
+		if topicID != nil && n.TopicID != *topicID {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(n.Text), needle) {
+			continue
 		}
 		result = append(result, entity.NoteFromRecord(n))
 	}

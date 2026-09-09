@@ -6,7 +6,7 @@ import type * as React from 'react';
 
 import { CrumbPath } from './CrumbPath';
 import { QuickMenu } from './QuickMenu';
-import { folderChain, useFoldersStore } from '../stores/folders';
+import { folderChainTo, useFoldersStore } from '../stores/folders';
 import { useNavigationStore } from '../stores/navigation';
 import { useTopicsStore } from '../stores/topics';
 import { useUiStore } from '../stores/ui';
@@ -15,15 +15,26 @@ import { suppressNextClick } from '../utils/click';
 interface FolderStripProps {
   /** Открыть шторку папок. */
   onOpen: () => void;
+  /** Отображаемая папка для пути (null — корень): при свайп-выходе уровень
+      стора меняется после остановки ленты, а строка уже едет к цели выбора.
+      undefined — без переопределения (активная папка из стора). */
+  displayFolderID?: number | null;
 }
 
-export function FolderStrip({ onOpen }: FolderStripProps) {
+export function FolderStrip({ onOpen, displayFolderID }: FolderStripProps) {
   const topics = useTopicsStore((s) => s.topics);
   const activeFolderID = useNavigationStore((s) => s.activeFolderID);
   const folders = useFoldersStore((s) => s.all);
 
-  // Цепочка хлебных крошек активной папки (folderChain читает стор напрямую).
-  const chain = useMemo(() => folderChain().map((f) => f.name), [folders, activeFolderID]);
+  // Отображаемая папка: при свайп-выходе из папки (интент уровня) — цель
+  // выбора слайда, уровень стора меняется позже (после остановки ленты).
+  const effectiveFolderID = displayFolderID !== undefined ? displayFolderID : activeFolderID;
+
+  // Цепочка хлебных крошек отображаемой папки.
+  const chain = useMemo(
+    () => folderChainTo(effectiveFolderID).map((f) => f.name),
+    [folders, effectiveFolderID],
+  );
 
   // Долгий тап на строке — дропдаун создания.
   const LONG_PRESS_MS = 500;
@@ -64,7 +75,7 @@ export function FolderStrip({ onOpen }: FolderStripProps) {
 
   if (topics.length === 0) return null;
 
-  const inFolder = activeFolderID !== null;
+  const inFolder = effectiveFolderID !== null;
 
   return (
     <>

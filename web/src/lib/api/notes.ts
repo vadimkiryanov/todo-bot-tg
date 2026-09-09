@@ -25,6 +25,16 @@ export function listTimerNotes(): Promise<Note[]> {
   return request<Note[]>('GET', '/api/v1/notes?timers=true');
 }
 
+/** Поиск по подстроке текста без учёта регистра. Выполненные и архивные
+ * не ищутся (исключает сервер). topicId — только в этом топике; null — везде. */
+export function searchNotes(q: string, topicId: number | null): Promise<Note[]> {
+  const params = new URLSearchParams({ q });
+  if (topicId !== null) {
+    params.set('topic_id', String(topicId));
+  }
+  return request<Note[]>('GET', `/api/v1/notes/search?${params.toString()}`);
+}
+
 /** Заметка по id (например, открытие из уведомления). */
 export function getNote(id: number): Promise<Note> {
   return request<Note>('GET', `/api/v1/notes/${id}`);

@@ -48,6 +48,7 @@ import { NoteCard } from '../components/NoteCard';
 import { NoteMenu } from '../components/NoteMenu';
 import { NotePage } from '../components/NotePage';
 import { QuickMenu } from '../components/QuickMenu';
+import { SearchPanel } from '../components/SearchPanel';
 import { SwipeStrip } from '../components/SwipeStrip';
 import type { SwipeStripHandle } from '../components/SwipeStrip';
 import { TopicIsland } from '../components/TopicIsland';
@@ -116,21 +117,20 @@ export function ChatView() {
     setSelectedIdState(id);
   }
 
-  // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент открытия.
-  const [menuNoteId, setMenuNoteId] = useState<number | null>(null);
+  // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент
+  // открытия. Храним сам объект заметки, а не id: карточка может не лежать в
+  // списках активного контекста (слайд-интент свайп-выхода, результаты поиска),
+  // и меню должно действовать по переданной заметке, не дожидаясь её в сторе.
+  const [menuNote, setMenuNote] = useState<Note | null>(null);
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
-  const menuNote = useMemo(
-    () => (menuNoteId === null ? null : notes.find((n) => n.id === menuNoteId) ?? null),
-    [menuNoteId, notes],
-  );
 
   function openMenu(note: Note, rect: DOMRect): void {
-    setMenuNoteId(note.id);
+    setMenuNote(note);
     setMenuRect(rect);
   }
 
   function closeMenu(): void {
-    setMenuNoteId(null);
+    setMenuNote(null);
     setMenuRect(null);
   }
 
@@ -158,6 +158,9 @@ export function ChatView() {
   function closeFolderMenu(): void {
     setFolderMenu(null);
   }
+
+  // Полноэкранный поиск по заметкам (кнопка 🔍 над островком топиков).
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // ── URL-синхронизация (?topic=&folder=&note=) ───────────────────────────
   // Навигация зеркалится в адресную строку: смена топика/папки — replaceState
@@ -224,9 +227,13 @@ export function ChatView() {
   }
 
   /** Открыть заметку (страница). pushState: «назад» браузера вернёт к списку. */
-  function openNote(id: number): void {
+  function openNoteObject(note: Note): void {
     noteOpenedViaPushRef.current = true;
-    setSelected(id);
+    // Кэш страницы заполняем сразу переданным объектом: заметка может ещё не
+    // попасть в списки стора (слайд-интент свайп-выхода, результаты поиска).
+    // Эффект [selectedId, notes] позже обновит кэш свежим объектом из списка.
+    setSelectedCache(note);
+    setSelected(note.id);
     window.history.pushState(null, '', window.location.pathname + queryForState());
   }
 
@@ -702,6 +709,62 @@ export function ChatView() {
       цепочка укорачивается, этот же индекс ведёт сразу на глубокий слайд. */
   const levelInitialIndex = folderLevels.length - 1;
 
+  // ── Интент активации уровня (свайп-выход) ──────────────────────────────
+  // Уровень стора меняется только когда лента физически остановилась
+  // (onsettle — см. onLevelSettled), а хвост доезда движка длится заметно
+  // дольше видимой остановки слайда. В этом окне остановившийся слайд-
+  // родитель рендерился бы статичным превью с noop-хэндлерами — тап по
+  // нему «не срабатывает», подсветка пути запаздывает. Интент закрывает
+  // окно: по select ленты (слайд-цель известна в момент отпускания) слайд
+  // уровня выше рендерится «живым» (реальные хэндлеры, данные из кеша
+  // уровня) и путь в табе/строке подсвечивается сразу. Значение индекса
+  // «съедается» в onsettle, когда уровень стора становится глубоким слайдом.
+  const [levelIntentIndex, setLevelIntentIndexState] = useState(-1);
+  const levelIntentIndexRef = useRef(-1);
+  /** Глубокий слайд цепочки на прошлом рендере (undefined — ещё не было). */
+  const prevDeepIdRef = useRef<number | null | undefined>(undefined);
+  function setLevelIntentIndex(index: number): void {
+    levelIntentIndexRef.current = index;
+    setLevelIntentIndexState(index);
+  }
+
+  // Пересборка цепочки уровней (вход в папку тапом/крошкой, UI-навигация)
+  // уводит глубокий слайд на другую папку — интент свайп-выхода устарел:
+  // он живёт только пока движение к предку не трогает стор (до settle).
+  // Выход сам меняет глубокий слайд лишь в onsettle, где интент уже снят.
+  useEffect(() => {
+    const len = folderLevels.length;
+    if (len === 0) return;
+    const deepId = levelIdOf(folderLevels[len - 1]);
+    const prev = prevDeepIdRef.current;
+    prevDeepIdRef.current = deepId;
+    if (prev === undefined || prev === deepId) return;
+    if (levelIntentIndexRef.current >= 0) setLevelIntentIndex(-1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- порт $effect (см. ChatView.svelte)
+  }, [folderLevels]);
+
+  /** Смена слайда вложенной ленты (select — отпускание драга/программный
+      goTo, до конца доезда). Слайд-цель — уровень выше глубокого — становится
+      «живым» немедленно; уровень стора меняется по-прежнему в onsettle
+      (укорачивание цепочки в select удалило бы уезжающий слайд посреди
+      движения — видимый обрыв). Возврат на глубокий слайд интент снимает. */
+  function onLevelChange(index: number): void {
+    if (index >= folderLevels.length - 1) {
+      if (levelIntentIndexRef.current >= 0) setLevelIntentIndex(-1);
+      return;
+    }
+    setLevelIntentIndex(index);
+  }
+
+  /** Слайд-цель интента как folder_id (null — корень, undefined — интента нет):
+      опережающая подсветка пути в островке/строке папок не ждёт остановки. */
+  const intentFolderID = useMemo(() => {
+    if (levelIntentIndex < 0) return undefined;
+    const level = folderLevels[levelIntentIndex];
+    return level === undefined ? undefined : levelIdOf(level);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- порт $derived (см. ChatView.svelte)
+  }, [levelIntentIndex, folderLevels]);
+
   /** Свайп-выход доехал до уровня (onsettle — фактическая остановка слайда,
       аналог slideChangeTransitionEnd): слайд показывает уровень выше — меняем
       уровень стора, цепочка укорачивается, слайд становится глубоким.
@@ -712,6 +775,9 @@ export function ChatView() {
       Программные входы (рост цепочки) заканчиваются на глубоком слайде —
       уровень совпадает со стором, ничего не меняем. */
   function onLevelSettled(index: number): void {
+    // Лента остановилась — слайд уровня теперь настоящий (живой) или вернулся
+    // глубокий: интент отработал, дальше уровень ведёт стор.
+    if (levelIntentIndexRef.current >= 0) setLevelIntentIndex(-1);
     // folderLevels мог устареть в замыкании ленты — пересчитываем по стору.
     const levels = [null, ...folderChain()];
     const level = levels[index];
@@ -974,11 +1040,13 @@ export function ChatView() {
           animateGrowth
           draggable={inFolder}
           duration={stripSpeed()}
+          onchange={onLevelChange}
           onsettle={onLevelSettled}
         >
           {(level, i) => {
             const folderId = levelIdOf(level);
             const isDeep = i === folderLevels.length - 1;
+            const isIntent = !isDeep && i === levelIntentIndex;
             if (isDeep) {
               return (
                 <div
@@ -1022,7 +1090,35 @@ export function ChatView() {
                       normalSplit.pinned,
                       normalSplit.rest,
                       inlineFolders,
-                      (n) => openNote(n.id),
+                      (n) => openNoteObject(n),
+                      openMenu,
+                      (f) => setActiveFolder(f.id),
+                      openFolderMenu,
+                    )
+                  )}
+                </div>
+              );
+            }
+            if (isIntent) {
+              // Слайд-цель свайп-выхода (уровень выше): «живой» уже по select
+              // ленты — реальные хэндлеры (тап открывает заметку/папку), данные
+              // из кеша уровня, как у статичного превью. Когда лента встанет
+              // (onsettle) и уровень стора сменится, слайд станет глубоким и
+              // возьмёт данные из стора — интент снимается.
+              const p = levelPreviewData(folderId);
+              return (
+                <div
+                  className="chat-scroll scroll-area h-full touch-pan-y overflow-y-auto"
+                  style={{ paddingTop: `${topPad}px` }}
+                >
+                  {p === undefined || p.state === 'pending' ? (
+                    <Loader />
+                  ) : (
+                    noteList(
+                      p.pinned,
+                      p.rest,
+                      p.folders,
+                      (n) => openNoteObject(n),
                       openMenu,
                       (f) => setActiveFolder(f.id),
                       openFolderMenu,
@@ -1150,8 +1246,24 @@ export function ChatView() {
             onOpenFolders={() => setFolderSheetOpen(true)}
             dragPos={islandDragPos}
             duration={stripSpeed()}
+            displayFolderID={intentFolderID}
           />
-          {pathMode === 'strip' && <FolderStrip onOpen={() => setFolderSheetOpen(true)} />}
+          {pathMode === 'strip' && (
+            <FolderStrip onOpen={() => setFolderSheetOpen(true)} displayFolderID={intentFolderID} />
+          )}
+          {/* 🔍 поиск по заметкам: справа от островка (absolute — не влияет на
+              высоту topZone, которую меряют слайды для topPad). Показываем,
+              только когда есть топики: поиск по пустому списку бессмыслен. */}
+          {topics.length > 0 && (
+            <button
+              type="button"
+              aria-label="Поиск по заметкам"
+              className="glass-fab pointer-events-auto absolute right-3 top-[calc(env(safe-area-inset-top)+8px)] flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
+              onClick={() => setSearchOpen(true)}
+            >
+              🔍
+            </button>
+          )}
         </div>
 
         <footer className="shrink-0 rounded-t-2xl border-t border-border bg-background pb-[env(safe-area-inset-bottom)]">
@@ -1162,6 +1274,19 @@ export function ChatView() {
           />
         </footer>
       </div>
+
+      {searchOpen && (
+        <SearchPanel
+          onClose={() => setSearchOpen(false)}
+          onOpenNote={(note) => {
+            // Закрываем поиск: страница заметки (NotePage) открывается поверх
+            // чата, возврат из неё (history.back) ведёт к списку, не к поиску.
+            setSearchOpen(false);
+            openNoteObject(note);
+          }}
+          onMenu={openMenu}
+        />
+      )}
 
       {selectedCache !== null && <NotePage note={selectedCache} onClose={closeNotePage} />}
 

@@ -31,7 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as React from 'react';
 
 import { CrumbPath } from './CrumbPath';
-import { folderChain, useFoldersStore } from '../stores/folders';
+import { folderChainTo, useFoldersStore } from '../stores/folders';
 import { useNavigationStore } from '../stores/navigation';
 import { useTopicsStore } from '../stores/topics';
 import { openTopicMenu } from '../stores/topic-menu';
@@ -50,6 +50,10 @@ interface TopicIslandProps {
   /** Длительность переезда капсулы и подкрутки ленты, мс (0 — мгновенно:
       prefers-reduced-motion). Синхронизирована с доездом ленты контента. */
   duration?: number;
+  /** Отображаемая папка для пути (null — корень): при свайп-выходе уровень
+      стора меняется после остановки ленты, а крошки уже едут к цели выбора.
+      undefined — без переопределения (активная папка из стора). */
+  displayFolderID?: number | null;
 }
 
 /** Позиции табов в контентных координатах ленты. */
@@ -91,6 +95,7 @@ export function TopicIsland({
   onOpenFolders,
   dragPos = null,
   duration = 360,
+  displayFolderID,
 }: TopicIslandProps) {
   const topics = useTopicsStore((s) => s.topics);
   const pendingTopicID = useNavigationStore((s) => s.pendingTopicID);
@@ -98,8 +103,15 @@ export function TopicIsland({
   const activeFolderID = useNavigationStore((s) => s.activeFolderID);
   const folders = useFoldersStore((s) => s.all);
 
-  /** Имена папок от корня активного топика до активной папки включительно. */
-  const chainNames = useMemo(() => folderChain().map((f) => f.name), [folders, activeFolderID]);
+  // Отображаемая папка: при свайп-выходе из папки (интент уровня) — цель
+  // выбора слайда, уровень стора меняется позже (после остановки ленты).
+  const effectiveFolderID = displayFolderID !== undefined ? displayFolderID : activeFolderID;
+
+  /** Имена папок от корня до отображаемой папки включительно. */
+  const chainNames = useMemo(
+    () => folderChainTo(effectiveFolderID).map((f) => f.name),
+    [folders, effectiveFolderID],
+  );
 
   /** Контейнер ленты табов. */
   const [islandEl, setIslandEl] = useState<HTMLDivElement | null>(null);
@@ -164,7 +176,7 @@ export function TopicIsland({
       cancelAnimationFrame(raf);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- порт $effect (см. TopicIsland.svelte)
-  }, [topics, chainNames, activeFolderID, pathInTab, islandEl]);
+  }, [topics, chainNames, effectiveFolderID, pathInTab, islandEl]);
 
   function stopPillAnim(): void {
     if (pillAnimRAF.current !== 0) {
@@ -356,7 +368,7 @@ export function TopicIsland({
     if (id === null || el === null) return;
     // Вход/выход из папки меняет ширину активного таба (обычный ⇄ крошки) —
     // лента перестраивается, поэтому следим и за папкой.
-    const inFolder = activeFolderID !== null && chainNames.length > 0;
+    const inFolder = effectiveFolderID !== null && chainNames.length > 0;
     const idx = topics.findIndex((t) => t.id === id);
     if (idx < 0) return;
     const dir: 1 | -1 =
@@ -378,7 +390,7 @@ export function TopicIsland({
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- порт $effect (см. TopicIsland.svelte)
-  }, [pendingTopicID, activeTopicID, activeFolderID, chainNames, topics, islandEl]);
+  }, [pendingTopicID, activeTopicID, effectiveFolderID, chainNames, topics, islandEl]);
 
   // Отмена reveal-подкрутки ручным скроллом ленты: анимацию гасим только
   // когда палец/курсор реально повёл ленту (по X) — простой тап по табу
@@ -467,7 +479,7 @@ export function TopicIsland({
     }
     // Активный таб. В режиме «путь в табе» вход в папку расширяет его —
     // повторный тап открывает шторку папок (замена строки-крошки).
-    if (pathInTab && activeFolderID !== null) {
+    if (pathInTab && effectiveFolderID !== null) {
       onOpenFolders?.();
     }
   }
@@ -500,7 +512,7 @@ export function TopicIsland({
         // положению капсулы (whites): белый под ней, цвет контента вне её.
         const active = topic.id === (pendingTopicID ?? activeTopicID);
         const extended =
-          active && pathInTab && activeFolderID !== null && chainNames.length > 0;
+          active && pathInTab && effectiveFolderID !== null && chainNames.length > 0;
         const w = whites[index] ?? 0;
         return (
           <button

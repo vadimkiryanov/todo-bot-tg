@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseNoteLines, renderNoteBlocksHtml } from './blocks';
+import { parseNoteLines, previewBlocksHtml, renderNoteBlocksHtml } from './blocks';
 
 describe('parseNoteLines', () => {
   it('распознаёт заголовки, список, чеклист и текст', () => {
@@ -88,5 +88,49 @@ describe('renderNoteBlocksHtml', () => {
   it('голый URL внутри строки не ломает ссылку после маркера', () => {
     const html = renderNoteBlocksHtml('- https://x.io', []);
     expect(html).toContain('class="note-li-text"><a href="https://x.io"');
+  });
+});
+
+describe('previewBlocksHtml', () => {
+  it('заголовок + первый пункт списка влезают в две строки карточки', () => {
+    const html = previewBlocksHtml('# Купить\n- молоко\n- хлеб\n- сыр', []);
+    expect(html).toBe(
+      '<div class="note-h1">Купить</div><div class="note-li"><span class="note-bullet">•</span><span class="note-li-text">молоко</span></div>',
+    );
+  });
+
+  it('две обычные строки показываются, третья обрывается', () => {
+    const html = previewBlocksHtml('первая\nвторая\nтретья', []);
+    expect(html).toBe(
+      '<div class="note-line">первая</div><div class="note-line">вторая</div>',
+    );
+  });
+
+  it('чеклист: статичный квадратик и отметка выполнения в превью', () => {
+    const html = previewBlocksHtml('- [ ] задача\n- [x] сделано', []);
+    expect(html).toBe(
+      '<div class="note-li"><span class="note-cb note-cb-static"></span><span class="note-li-text">задача</span></div>' +
+        '<div class="note-li checked"><span class="note-cb note-cb-static"></span><span class="note-li-text note-checked-text">сделано</span></div>',
+    );
+  });
+
+  it('чекбоксы превью не кликабельны (нет кнопок data-cb)', () => {
+    const html = previewBlocksHtml('- [ ] задача', []);
+    expect(html).not.toContain('<button');
+    expect(html).not.toContain('data-cb');
+  });
+
+  it('пустые строки схлопываются (абзацных отступов в карточке нет)', () => {
+    const html = previewBlocksHtml('раз\n\n\nдва', []);
+    expect(html).toBe('<div class="note-line">раз</div><div class="note-line">два</div>');
+  });
+
+  it('ведущие пустые строки не дают «пустого» превью', () => {
+    const html = previewBlocksHtml('\n\nтекст после пустых', []);
+    expect(html).toBe('<div class="note-line">текст после пустых</div>');
+  });
+
+  it('пустой текст — пустой HTML', () => {
+    expect(previewBlocksHtml('', [])).toBe('');
   });
 });

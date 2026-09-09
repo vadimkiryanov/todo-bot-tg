@@ -39,6 +39,8 @@ func NewRouter(users UserRepository, sessions session.Store, svc TodoService, se
 
 	mux.Handle("GET /api/v1/notes", withAuth(todo.listNotes))
 	mux.Handle("POST /api/v1/notes", withAuth(todo.createNote))
+	// Литеральный сегмент search специфичнее wildcard {id} — конфликта нет.
+	mux.Handle("GET /api/v1/notes/search", withAuth(todo.searchNotes))
 	mux.Handle("GET /api/v1/notes/{id}", withAuth(todo.getNote))
 	mux.Handle("PATCH /api/v1/notes/{id}", withAuth(todo.patchNote))
 	mux.Handle("DELETE /api/v1/notes/{id}", withAuth(todo.deleteNote))

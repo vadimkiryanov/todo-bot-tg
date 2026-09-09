@@ -71,6 +71,38 @@ function clipEntities(entities: NoteEntity[], start: number, end: number): NoteE
   return out;
 }
 
+/** HTML одной строки-блока (обёртки блоков + inline-разметка содержимого). */
+function renderBlockLine(
+  text: string,
+  entities: NoteEntity[],
+  line: NoteLine,
+  checkable: boolean,
+): string {
+  const contentStart = line.start + line.markerLen;
+  const content = text.slice(contentStart, line.end);
+  const inner = renderNoteHtml(content, clipEntities(entities, contentStart, line.end));
+
+  switch (line.kind) {
+    case 'h1':
+      return `<div class="note-h1">${inner}</div>`;
+    case 'h2':
+      return `<div class="note-h2">${inner}</div>`;
+    case 'list':
+      return `<div class="note-li"><span class="note-bullet">•</span><span class="note-li-text">${inner}</span></div>`;
+    case 'check': {
+      const checked = line.checked === true;
+      const box = checkable
+        ? `<button type="button" class="note-cb" data-cb="${line.start}" aria-pressed="${checked}" aria-label="${checked ? 'Снять отметку' : 'Отметить выполненным'}"></button>`
+        : '<span class="note-cb note-cb-static"></span>';
+      return `<div class="note-li${checked ? ' checked' : ''}">${box}<span class="note-li-text${checked ? ' note-checked-text' : ''}">${inner}</span></div>`;
+    }
+    default:
+      // Пустая строка — видимый отступ между абзацами (как перенос строки
+      // в whitespace-pre-wrap), поэтому не схлопываем её в ноль высоты.
+      return content === '' ? '<div class="note-blank"></div>' : `<div class="note-line">${inner}</div>`;
+  }
+}
+
 /**
  * Рендерит заметку в HTML с блоками (заголовки/список/чеклист) и inline-
  * разметкой внутри строк. checkable — рисовать чекбоксы кнопками (переключение
@@ -84,36 +116,48 @@ export function renderNoteBlocksHtml(
   const lines = parseNoteLines(text);
   let html = '';
   for (const line of lines) {
-    const contentStart = line.start + line.markerLen;
-    const content = text.slice(contentStart, line.end);
-    const inner = renderNoteHtml(content, clipEntities(entities, contentStart, line.end));
+    html += renderBlockLine(text, entities, line, checkable);
+  }
+  return html;
+}
 
-    switch (line.kind) {
-      case 'h1':
-        html += `<div class="note-h1">${inner}</div>`;
-        break;
-      case 'h2':
-        html += `<div class="note-h2">${inner}</div>`;
-        break;
-      case 'list':
-        html += `<div class="note-li"><span class="note-bullet">•</span><span class="note-li-text">${inner}</span></div>`;
-        break;
-      case 'check': {
-        const checked = line.checked === true;
-        const box = checkable
-          ? `<button type="button" class="note-cb" data-cb="${line.start}" aria-pressed="${checked}" aria-label="${checked ? 'Снять отметку' : 'Отметить выполненным'}"></button>`
-          : '<span class="note-cb note-cb-static"></span>';
-        html += `<div class="note-li${checked ? ' checked' : ''}">${box}<span class="note-li-text${checked ? ' note-checked-text' : ''}">${inner}</span></div>`;
-        break;
-      }
-      default:
-        // Пустая строка — видимый отступ между абзацами (как перенос строки
-        // в whitespace-pre-wrap), поэтому не схлопываем её в ноль высоты.
-        html +=
-          content === ''
-            ? '<div class="note-blank"></div>'
-            : `<div class="note-line">${inner}</div>`;
-    }
+// --- Превью карточки (компактное, с блоками) -----------------------------
+
+/** Сколько «строк карточки» занимает блок (эмпирика под app.css): обычная
+    строка/список/чек — одну (line-height 1.5rem), заголовок крупнее и с
+    отступами. Лимит 2.2 — в карточку помещаются, например, заголовок и
+    первый пункт списка, но не третья обычная строка. */
+const PREVIEW_WEIGHT_LIMIT = 2.2;
+
+function blockRowWeight(kind: NoteLineKind): number {
+  switch (kind) {
+    case 'h1':
+      return 1.2;
+    case 'h2':
+      return 1.1;
+    default:
+      return 1;
+  }
+}
+
+/**
+ * HTML компактного превью заметки для карточки списка: первые строки с
+ * учётом блочных маркеров (# заголовок, ## подзаголовок, - список,
+ * - [ ] чеклист со статичным квадратиком). Пустые строки пропускаются
+ * (в карточке нет абзацных отступов); обрыв по «весу» строк, чтобы карточка
+ * оставалась в две строки высотой — остальной текст не рендерится.
+ */
+export function previewBlocksHtml(text: string, entities: NoteEntity[]): string {
+  const lines = parseNoteLines(text);
+  let html = '';
+  let weight = 0;
+  for (const line of lines) {
+    // Пустые строки в превью схлопываем (на лимит не влияют, в HTML не идут).
+    if (line.kind === 'text' && line.end === line.start) continue;
+    const w = blockRowWeight(line.kind);
+    if (weight > 0 && weight + w > PREVIEW_WEIGHT_LIMIT) break;
+    html += renderBlockLine(text, entities, line, false);
+    weight += w;
   }
   return html;
 }

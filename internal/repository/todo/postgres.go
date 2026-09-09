@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -350,6 +351,44 @@ func (s *PostgresStore) ListNotes(userID, topicID int64, folderID *int64) ([]mod
 	)
 	if err != nil {
 		return nil, fmt.Errorf("список заметок: %w", err)
+	}
+	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.NoteRecord])
+	if err != nil {
+		return nil, fmt.Errorf("чтение заметок: %w", err)
+	}
+	result := make([]model.Note, 0, len(recs))
+	for _, r := range recs {
+		result = append(result, entity.NoteFromRecord(r))
+	}
+	return result, nil
+}
+
+// escapeLike экранирует спецсимволы LIKE в пользовательском вводе, чтобы они
+// искались буквально (% — не «любая строка», _ — не «один символ»).
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
+// SearchNotes ищет активные (не архивные, не выполненные) заметки пользователя
+// по подстроке текста без учёта регистра (ILIKE). topicID != nil — только в этом топике.
+func (s *PostgresStore) SearchNotes(userID int64, q string, topicID *int64) ([]model.Note, error) {
+	needle := strings.TrimSpace(q)
+	if needle == "" {
+		return []model.Note{}, nil
+	}
+	where := "user_id = @user AND archived = FALSE AND done = FALSE AND text ILIKE @pattern"
+	args := pgx.NamedArgs{"user": userID, "pattern": "%" + escapeLike(needle) + "%"}
+	if topicID != nil {
+		where += " AND topic_id = @topic"
+		args["topic"] = *topicID
+	}
+
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT `+noteColumns+` FROM notes WHERE `+where+` ORDER BY id DESC`, args,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("поиск заметок: %w", err)
 	}
 	recs, err := pgx.CollectRows(rows, pgx.RowToStructByName[entity.NoteRecord])
 	if err != nil {

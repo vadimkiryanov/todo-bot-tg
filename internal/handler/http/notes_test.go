@@ -398,3 +398,75 @@ func TestNotes_Patch_InvalidInput(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Empty(t, stub.calls)
 }
+
+func TestNotes_Search(t *testing.T) {
+	router := newTestRouter(t)
+	cookie := registerUser(t, router, "search_user", "password123")
+	prod := createTopic(t, router, cookie, "Покупки")
+	work := createTopic(t, router, cookie, "Работа")
+
+	createNote(t, router, cookie, prod.ID, "Купить молоко")
+	createNote(t, router, cookie, prod.ID, "Сходить в спортзал")
+	createNote(t, router, cookie, work.ID, "купить билеты на поезд")
+
+	// Глобально: без topic_id — обе «купить» из разных топиков, регистр не важен
+	rec := doJSON(t, router, http.MethodGet, "/api/v1/notes/search?q=Купить", "", cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	var notes []dto.NoteResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Len(t, notes, 2)
+
+	// Внутри топика: только заметки этого топика
+	rec = doJSON(t, router, http.MethodGet,
+		fmt.Sprintf("/api/v1/notes/search?q=купить&topic_id=%d", prod.ID), "", cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Len(t, notes, 1)
+	require.Equal(t, prod.ID, notes[0].TopicID)
+
+	// Поиск по слову только из второго топика
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes/search?q=билеты", "", cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Len(t, notes, 1)
+	require.Equal(t, work.ID, notes[0].TopicID)
+}
+
+func TestNotes_Search_ExcludesDoneAndArchived(t *testing.T) {
+	router := newTestRouter(t)
+	cookie := registerUser(t, router, "search_user2", "password123")
+	topic := createTopic(t, router, cookie, "Топик")
+
+	done := createNote(t, router, cookie, topic.ID, "Купить молоко")
+	archived := createNote(t, router, cookie, topic.ID, "Купить хлеб")
+	createNote(t, router, cookie, topic.ID, "Купить сыр")
+
+	rec := doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/notes/%d", done.ID), `{"done":true}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/notes/%d", archived.ID), `{"archived":true}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Выполненные и архивные в результаты не попадают
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes/search?q=Купить", "", cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	var notes []dto.NoteResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Len(t, notes, 1)
+	require.Equal(t, "Купить сыр", notes[0].Text)
+
+	// Пустой q → пустой массив, не ошибка
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes/search?q=", "", cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notes))
+	require.Empty(t, notes)
+
+	// Кривой topic_id → 400
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes/search?q=x&topic_id=abc", "", cookie)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// Без сессии → 401
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/notes/search?q=x", "")
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}

@@ -93,12 +93,15 @@ export function treeFolders(): FolderTreeNode[] {
   return nodes;
 }
 
-/** Цепочка хлебных крошек: от корня до активной папки включительно. */
-export function folderChain(): Folder[] {
+/** Цепочка хлебных крошек: от корня до произвольной папки включительно
+    (null — пустая, корень топика). Нужна для опережающего показа пути при
+    свайп-выходе из папки: уровень стора меняется после остановки ленты,
+    а путь в табе/строке обновляется уже по выбору целевого слайда. */
+export function folderChainTo(folderId: number | null): Folder[] {
   const { all } = useFoldersStore.getState();
-  const activeFolderID = useNavigationStore.getState().activeFolderID;
   const chain: Folder[] = [];
-  let current = all.find((f) => f.id === activeFolderID);
+  if (folderId === null) return chain;
+  let current = all.find((f) => f.id === folderId);
   const visited = new Set<number>();
   while (current !== undefined && !visited.has(current.id)) {
     visited.add(current.id);
@@ -109,6 +112,11 @@ export function folderChain(): Folder[] {
         : all.find((f) => f.id === current!.parent_folder_id);
   }
   return chain;
+}
+
+/** Цепочка хлебных крошек: от корня до активной папки включительно. */
+export function folderChain(): Folder[] {
+  return folderChainTo(useNavigationStore.getState().activeFolderID);
 }
 
 /** Запросы папок топика в полёте: параллельные вызовы (эффект смены топика +

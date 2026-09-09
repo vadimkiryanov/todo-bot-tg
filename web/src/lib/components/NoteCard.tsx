@@ -7,8 +7,9 @@ import { useEffect, useRef } from 'react';
 import type * as React from 'react';
 
 import type { Note } from '../types/api';
+import { previewBlocksHtml } from '../utils/blocks';
 import { suppressNextClick } from '../utils/click';
-import { firstLineHtml, formatReminderAt } from '../utils/format';
+import { formatReminderAt } from '../utils/format';
 
 interface NoteCardProps {
   note: Note;
@@ -138,10 +139,16 @@ export function NoteCard({ note, onOpen, onMenu, highlighted = false }: NoteCard
       {note.pinned && (
         <span className="w-5 shrink-0 text-center text-sm leading-6">📌</span>
       )}
-      <span
-        className={`line-clamp-2 min-w-0 flex-1 break-words text-[15px] leading-6 [&_a]:text-primary [&_a]:underline ${note.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}
+      {/* Блочное превью: первые строки с форматированием (# заголовок,
+          список, чеклист). Выполненная — зачёркивается и приглушается
+          классом note-done (line-through на контейнере сквозь блочные div
+          не проходит — стилизуются сами строки, см. app.css). */}
+      <div
+        className={`note-preview min-w-0 flex-1 overflow-hidden break-words text-[15px] leading-6 [&_a]:text-primary [&_a]:underline ${
+          note.done ? 'note-done' : ''
+        }`}
         title={note.text.replace(/\s+/g, ' ')}
-        dangerouslySetInnerHTML={{ __html: firstLineHtml(note.text, note.entities) }}
+        dangerouslySetInnerHTML={{ __html: previewBlocksHtml(note.text, note.entities) }}
       />
       {reminder !== null && (
         <span className="shrink-0 text-sm leading-6" title={`⏰ ${reminder}`}>

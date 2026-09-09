@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	errs "todo-bot-tg/internal/errors"
@@ -63,6 +64,39 @@ func (h *todoHandler) listNotes(w http.ResponseWriter, r *http.Request) {
 			notes = active
 		}
 	}
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+
+	resp := make([]dto.NoteResponse, 0, len(notes))
+	for _, n := range notes {
+		resp = append(resp, dto.ToNoteResponse(n))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// searchNotes обрабатывает GET /api/v1/notes/search?q=…&topic_id=N → [Note].
+// Поиск по подстроке текста без учёта регистра; topic_id опционален — без него
+// ищется по всем топикам пользователя. Архивные и выполненные не ищутся
+// (исключаются в репозитории), пустой q — пустой результат.
+func (h *todoHandler) searchNotes(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeJSON(w, http.StatusOK, []dto.NoteResponse{})
+		return
+	}
+	var topicID *int64
+	if raw := r.URL.Query().Get("topic_id"); raw != "" {
+		id, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || id <= 0 {
+			httperr.Write(w, errs.ErrInvalidJSON)
+			return
+		}
+		topicID = &id
+	}
+
+	notes, err := h.svc.SearchNotes(middleware.UserID(r.Context()), q, topicID)
 	if err != nil {
 		httperr.Write(w, err)
 		return
