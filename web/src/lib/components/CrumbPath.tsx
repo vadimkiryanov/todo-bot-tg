@@ -30,19 +30,28 @@ export function CrumbPath({
   // сегмент ужимается с собственным многоточием (truncate).
   const [clipLast, setClipLast] = useState(false);
 
+  // Ключ пути — по содержимому, а не по ссылке: родители (островок топиков)
+  // пересоздают массив segments на каждом своём рендере (анимация капсулы,
+  // пересборка геометрии), и сброс по ссылке на неизменном пути превращал
+  // ужатие в цикл «ужал → сбросил → ужал», из-за чего «…» пульсировало
+  // при переходах в папку. NUL в именах папок не встречается.
+  const pathKey = segments.join('\u0000');
+  const lastKey = useRef<string | undefined>(undefined);
+
   // Новый путь — начинаем с полного и ужимаем до влезающего.
-  const lastSegments = useRef<string[] | undefined>(undefined);
   useEffect(() => {
-    if (lastSegments.current !== segments) {
-      lastSegments.current = segments;
+    if (lastKey.current !== pathKey) {
+      lastKey.current = pathKey;
       setDrops(0);
       setClipLast(false);
     }
-  }, [segments]);
+  }, [pathKey]);
 
   // Проверка переполнения после отрисовки: пока текст шире контейнера,
   // прячем по одному среднему сегменту за кадр. Измерение — реальным DOM
   // (scrollWidth против clientWidth), поэтому точно, без canvas-приближений.
+  // Зависит от pathKey/drops, а не от ссылки segments: частые рендеры
+  // родителя с тем же путём не откладывают идущее ужатие на новый кадр.
   useEffect(() => {
     const node = el.current;
     if (node === null) return;
@@ -57,7 +66,7 @@ export function CrumbPath({
       }
     });
     return () => cancelAnimationFrame(id);
-  }, [segments, drops]);
+  }, [pathKey, drops]);
 
   // Оставшиеся после ужимания сегменты (без первого): средние + активный.
   const tail = segments.slice(1 + drops);
