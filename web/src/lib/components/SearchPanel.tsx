@@ -227,65 +227,9 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
 
   return (
     <div ref={rootRef} className="fixed inset-0 z-40 flex flex-col bg-background">
-      {/* Тогл области поиска: «В топике» (активный топик островка) / «Везде». */}
-      <div className="flex justify-center px-3 pt-[calc(env(safe-area-inset-top)+8px)]">
-        <div className="flex items-center gap-1 rounded-full border border-border bg-muted p-1">
-          {canScopeTopic && (
-            <button
-              type="button"
-              aria-pressed={mode === 'topic'}
-              className={`flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
-                mode === 'topic' ? 'bg-primary text-white' : 'text-muted-foreground'
-              }`}
-              onClick={() => setMode('topic')}
-            >
-              В топике
-            </button>
-          )}
-          <button
-            type="button"
-            aria-pressed={mode === 'global'}
-            className={`flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
-              mode === 'global' ? 'bg-primary text-white' : 'text-muted-foreground'
-            }`}
-            onClick={() => setMode('global')}
-          >
-            Везде
-          </button>
-        </div>
-      </div>
-
-      {/* Результаты — над строкой набора: инпут внизу, как панель заметки.
-          Горизонтальный свайп по списку меняет область поиска («Везде» ← / →
-          «В топике»); touch-pan-y оставляет вертикальный скролл браузеру, а
-          горизонталь отдаёт нам. Клик по пустому месту закрывает поиск, только
-          когда показывать нечего (нет данных под запрос): тап по карточкам
-          обрабатывают сами карточки, а свайп смены режима поиск не сбрасывает. */}
-      <div
-        ref={resultsRef}
-        className="mt-2 flex-1 touch-pan-y overflow-y-auto px-3 pb-4"
-        onPointerDown={onSwipeDown}
-        onPointerMove={onSwipeMove}
-        onPointerUp={onSwipeUp}
-        onPointerCancel={onSwipeCancel}
-        onClick={
-          noResults
-            ? () => {
-                if (suppressClick.current) {
-                  suppressClick.current = false;
-                  return;
-                }
-                onClose();
-              }
-            : undefined
-        }
-      >
-        {body}
-      </div>
-
-      {/* Строка набора внизу (зеркалит панель ввода заметки): назад (закрыть),
-          поле поиска, ✕ очистки внутри. */}
-      <div className="shrink-0 border-t border-border px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+      {/* Строка поиска сверху (как в Telegram): назад (закрыть), поле, ✕
+          очистки внутри. */}
+      <div className="shrink-0 px-3 pt-[calc(env(safe-area-inset-top)+8px)]">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -321,6 +265,63 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
             </button>
           )}
         </div>
+      </div>
+
+      {/* Тогл области поиска под инпутом: «В топике» (активный топик
+          островка) / «Везде». */}
+      <div className="flex justify-center px-3 pt-2">
+        <div className="flex items-center gap-1 rounded-full border border-border bg-muted p-1">
+          {canScopeTopic && (
+            <button
+              type="button"
+              aria-pressed={mode === 'topic'}
+              className={`flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
+                mode === 'topic' ? 'bg-primary text-white' : 'text-muted-foreground'
+              }`}
+              onClick={() => setMode('topic')}
+            >
+              В топике
+            </button>
+          )}
+          <button
+            type="button"
+            aria-pressed={mode === 'global'}
+            className={`flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
+              mode === 'global' ? 'bg-primary text-white' : 'text-muted-foreground'
+            }`}
+            onClick={() => setMode('global')}
+          >
+            Везде
+          </button>
+        </div>
+      </div>
+
+      {/* Результаты — под строкой набора. Горизонтальный свайп по списку меняет
+          область поиска («Везде» ← / → «В топике»); touch-pan-y оставляет
+          вертикальный скролл браузеру, а горизонталь отдаёт нам. Клик по
+          пустому месту закрывает поиск, только когда показывать нечего (нет
+          данных под запрос): тап по карточкам обрабатывают сами карточки, а
+          свайп смены режима поиск не сбрасывает. */}
+      <div
+        ref={resultsRef}
+        className="mt-2 flex-1 touch-pan-y overflow-y-auto px-3 pb-[calc(env(safe-area-inset-bottom)+16px)]"
+        onPointerDown={onSwipeDown}
+        onPointerMove={onSwipeMove}
+        onPointerUp={onSwipeUp}
+        onPointerCancel={onSwipeCancel}
+        onClick={
+          noResults
+            ? () => {
+                if (suppressClick.current) {
+                  suppressClick.current = false;
+                  return;
+                }
+                onClose();
+              }
+            : undefined
+        }
+      >
+        {body}
       </div>
     </div>
   );
