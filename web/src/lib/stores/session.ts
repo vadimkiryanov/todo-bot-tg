@@ -10,6 +10,7 @@ import { resetFolders } from './folders';
 import { resetActiveTopic } from './navigation';
 import { resetNotes } from './notes';
 import { resetNotifications } from './notifications';
+import { resetToasts, toastSuccess } from './toast';
 import { resetTopics } from './topics';
 import { resetUi } from './ui';
 
@@ -47,20 +48,27 @@ export function ensureSession(): Promise<void> {
   return initSession();
 }
 
+/** Вход: ошибки показывает форма (инлайн), здесь — только успех. */
 export async function login(username: string, password: string): Promise<void> {
   applyAuthed(await apiLogin(username, password));
+  toastSuccess('Вы вошли');
 }
 
+/** Регистрация: ошибки показывает форма, здесь — только успех. */
 export async function register(username: string, password: string): Promise<void> {
   applyAuthed(await apiRegister(username, password));
+  toastSuccess('Аккаунт создан');
 }
 
 export async function logout(): Promise<void> {
+  let ok = false;
   try {
     await apiLogout();
+    ok = true;
   } finally {
     applyGuest();
   }
+  if (ok) toastSuccess('Вы вышли');
 }
 
 /** Сброс в гостя (например, по 401). */
@@ -76,10 +84,13 @@ function applyGuest(): void {
   useSessionStore.setState({ session: { state: 'guest' } });
   // Выход из аккаунта (logout / 401 / старт без сессии): сбрасываем загруженные
   // данные и активный топик, чтобы они не протекли между пользователями.
+  // Тосты — тоже: сообщения прошлой сессии не должны всплывать на экране входа
+  // (успешный logout показывает своё «Вы вышли» уже после сброса).
   resetActiveTopic();
   resetTopics();
   resetFolders();
   resetNotes();
   resetNotifications();
   resetUi();
+  resetToasts();
 }

@@ -23,6 +23,7 @@ import {
 } from '../api/notes';
 import type { Note, Priority, ReminderRepeat } from '../types/api';
 import { useNavigationStore } from './navigation';
+import { toastError, toastSuccess } from './toast';
 
 // ── Кеш контекстов ─────────────────────────────────────────────────────────
 // Ключ — «топик:папка» (папка пустая = корень топика, весь топик).
@@ -305,19 +306,40 @@ export interface CreateNoteOptions {
   reminder_repeat?: ReminderRepeat;
 }
 
-/** Создание заметки в активном топике/папке; после — серверная сортировка. */
-export async function createNote(text: string, opts: CreateNoteOptions = {}): Promise<void> {
+/** Ошибка мутации заметки: показать тост и вернуть ошибку для проброса.
+    Компоненты ловят её для инлайнового сообщения, но тост даёт единый
+    сигнал «что-то пошло не так» в любом месте интерфейса. */
+function noteOpError(e: unknown, fallback: string): Error {
+  const err = e instanceof Error ? e : new Error(fallback);
+  toastError(err.message);
+  return err;
+}
+
+/** Создание заметки в активном топике/папке; после — серверная сортировка.
+    Возвращает созданную заметку (null — нет активного топика): панель ввода
+    по ней открывает полный редактор («расширенный режим»). */
+export async function createNote(
+  text: string,
+  opts: CreateNoteOptions = {},
+): Promise<Note | null> {
   const nav = useNavigationStore.getState();
-  if (nav.activeTopicID === null) return;
+  if (nav.activeTopicID === null) return null;
   const topicId = nav.activeTopicID;
   const folderId = nav.activeFolderID;
-  const note = await apiCreateNote(topicId, text, folderId, opts);
+  let note: Note;
+  try {
+    note = await apiCreateNote(topicId, text, folderId, opts);
+  } catch (e) {
+    throw noteOpError(e, 'не удалось создать заметку');
+  }
   const state = useNotesStore.getState();
   useNotesStore.setState({ notes: [...state.notes, note], highlightedId: note.id });
   syncActiveCache();
+  toastSuccess('Заметка создана');
   // force: список перечитываем свежим — запрос, начатый до создания заметки,
   // её не содержит и затёр бы подсветку только что добавленной карточки.
   await loadNotes(topicId, folderId, true, true);
+  return note;
 }
 
 /** Снять подсветку «только что добавленной» заметки. */
@@ -334,7 +356,12 @@ export async function moveNote(
   folderId: number | null,
 ): Promise<void> {
   if (note.topic_id === topicId && note.folder_id === folderId) return;
-  await apiMoveNote(note.id, topicId, folderId);
+  try {
+    await apiMoveNote(note.id, topicId, folderId);
+  } catch (e) {
+    throw noteOpError(e, 'не удалось переместить заметку');
+  }
+  toastSuccess('Заметка перемещена');
   const nav = useNavigationStore.getState();
   const activeTopic = nav.activeTopicID;
   if (activeTopic === null) return;
@@ -353,24 +380,43 @@ export async function moveNote(
 
 /** Выполнить / вернуть в работу: оптимистично, откат при ошибке. */
 export async function toggleDone(note: Note): Promise<void> {
-  await mutateNote(note, { done: !note.done });
+  const next = !note.done;
+  try {
+    if (await mutateNote(note, { done: next })) {
+      toastSuccess(next ? 'Выполнено' : 'Возвращено в работу');
+    }
+  } catch (e) {
+    throw noteOpError(e, 'не удалось изменить статус заметки');
+  }
 }
 
 /** Сменить приоритет: оптимистично, откат при ошибке.
     Сравниваем с АКТУАЛЬНЫМ приоритетом из стора, а не с переданной заметкой:
     меню держит заметку с момента открытия, и после нескольких переключений
-    подряд её приоритет устаревает (иначе 4-й тап «none→none» не сработал бы). */
+    подряд её приоритет устаревает (иначе 4-й тап «none→none» не сработал бы).
+    Успех не озвучиваем тостом — приоритет видно по цвету обводки. */
 export async function setPriority(note: Note, priority: Priority): Promise<void> {
   const owner = noteOwner(note.id);
   const live =
     owner === null ? undefined : kindState(owner.kind).notes.find((n) => n.id === note.id);
   if ((live ?? note).priority === priority) return;
-  await mutateNote(note, { priority });
+  try {
+    await mutateNote(note, { priority });
+  } catch (e) {
+    throw noteOpError(e, 'не удалось изменить приоритет');
+  }
 }
 
 /** Закрепить / открепить: оптимистично, откат при ошибке. */
 export async function togglePin(note: Note): Promise<void> {
-  await mutateNote(note, { pinned: !note.pinned });
+  const next = !note.pinned;
+  try {
+    if (await mutateNote(note, { pinned: next })) {
+      toastSuccess(next ? 'Закреплено' : 'Откреплено');
+    }
+  } catch (e) {
+    throw noteOpError(e, 'не удалось изменить закрепление');
+  }
 }
 
 /** В архив: убрать из активного списка/таймеров сразу, откат при ошибке. */
@@ -390,8 +436,9 @@ export async function archiveNote(note: Note): Promise<void> {
       setKindNotes(kind, notes);
     }
     syncActiveCache();
-    throw e;
+    throw noteOpError(e, 'не удалось отправить заметку в архив');
   }
+  toastSuccess('В архиве');
 }
 
 /** Вернуть из архива: убрать из архивного списка, откат при ошибке. */
@@ -402,8 +449,9 @@ export async function unarchiveNote(note: Note): Promise<void> {
     await apiUpdateNote(note.id, { archived: false });
   } catch (e) {
     setKindNotes('archived', previous);
-    throw e;
+    throw noteOpError(e, 'не удалось вернуть заметку из архива');
   }
+  toastSuccess('Возвращено из архива');
 }
 
 /**
@@ -429,13 +477,19 @@ export async function saveText(note: Note, text: string): Promise<void> {
   } catch (e) {
     setKindNotes(owner.kind, previous);
     syncActiveCache();
-    throw e;
+    throw noteOpError(e, 'не удалось сохранить заметку');
   }
+  toastSuccess('Изменения сохранены');
 }
 
 /** Удалить заметку из любого списка: оптимистично, откат при ошибке. */
 export async function removeNote(note: Note): Promise<void> {
-  await removeNoteFromAll(note.id, () => apiDeleteNote(note.id));
+  try {
+    await removeNoteFromAll(note.id, () => apiDeleteNote(note.id));
+  } catch (e) {
+    throw noteOpError(e, 'не удалось удалить заметку');
+  }
+  toastSuccess('Заметка удалена');
 }
 
 /** Удалить из архива: оптимистично, откат при ошибке. */
@@ -446,8 +500,9 @@ export async function removeArchivedNote(note: Note): Promise<void> {
     await apiDeleteNote(note.id);
   } catch (e) {
     setKindNotes('archived', previous);
-    throw e;
+    throw noteOpError(e, 'не удалось удалить заметку');
   }
+  toastSuccess('Заметка удалена');
 }
 
 /** Вернуть в работу с экрана «Выполненные»: убрать со склада, откат при ошибке. */
@@ -461,8 +516,9 @@ export async function undoneNote(note: Note): Promise<void> {
     void fromApi;
   } catch (e) {
     setKindNotes('done', previous);
-    throw e;
+    throw noteOpError(e, 'не удалось вернуть заметку в работу');
   }
+  toastSuccess('Возвращено в работу');
 }
 
 /** Удалить с экрана «Выполненные»: оптимистично, откат при ошибке. */
@@ -473,26 +529,43 @@ export async function removeDoneNote(note: Note): Promise<void> {
     await apiDeleteNote(note.id);
   } catch (e) {
     setKindNotes('done', previous);
-    throw e;
+    throw noteOpError(e, 'не удалось удалить заметку');
   }
+  toastSuccess('Заметка удалена');
 }
 
 /** Установить/перенести напоминание: оптимистично, откат при ошибке. */
 export async function setReminder(note: Note, at: string, repeat: ReminderRepeat): Promise<void> {
-  await mutateReminder(
-    note,
-    { reminder_at: at, reminder_repeat: repeat },
-    () => apiSetReminder(note.id, at, repeat),
-  );
+  try {
+    if (
+      await mutateReminder(
+        note,
+        { reminder_at: at, reminder_repeat: repeat },
+        () => apiSetReminder(note.id, at, repeat),
+      )
+    ) {
+      toastSuccess('Напоминание установлено');
+    }
+  } catch (e) {
+    throw noteOpError(e, 'не удалось установить напоминание');
+  }
 }
 
 /** Снять напоминание: оптимистично, откат при ошибке. */
 export async function clearReminder(note: Note): Promise<void> {
-  await mutateReminder(
-    note,
-    { reminder_at: null, reminder_repeat: 'once' },
-    () => apiClearReminder(note.id),
-  );
+  try {
+    if (
+      await mutateReminder(
+        note,
+        { reminder_at: null, reminder_repeat: 'once' },
+        () => apiClearReminder(note.id),
+      )
+    ) {
+      toastSuccess('Напоминание снято');
+    }
+  } catch (e) {
+    throw noteOpError(e, 'не удалось снять напоминание');
+  }
 }
 
 /** Сброс сторов (выход из аккаунта): активные, архивные, выполненные, таймеры и кеш. */
@@ -614,10 +687,11 @@ async function removeNoteFromAll(
  * Общая мутация поля (done/priority/pinned/archived): применить → сервер →
  * обновить список, где лежит заметка. done/archived скрывают заметку из
  * списков (активный список/таймеры перечитываются тихо — сортирует сервер).
+ * Возвращает false, если заметки нет ни в одном загруженном списке.
  */
-async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
+async function mutateNote(note: Note, patch: NotePatch): Promise<boolean> {
   const owner = noteOwner(note.id);
-  if (owner === null) return;
+  if (owner === null) return false;
   const previous = kindState(owner.kind).notes;
   // Основой оптимистичного значения берём заметку ИЗ СПИСКА, а не переданную:
   // переданная могла устареть (меню держит заметку с момента открытия), и
@@ -646,6 +720,7 @@ async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
       // заметку/старое состояние поверх только что применённого.
       await loadNotes(nav.activeTopicID, nav.activeFolderID, true, true);
     }
+    return true;
   } catch (e) {
     setKindNotes(owner.kind, previous);
     syncActiveCache();
@@ -656,14 +731,15 @@ async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
 /**
  * Общая мутация напоминания: применить → сервер → обновить список, где лежит
  * заметка. Снятое напоминание убирает заметку из списка таймеров.
+ * Возвращает false, если заметки нет ни в одном загруженном списке.
  */
 async function mutateReminder(
   note: Note,
   patch: Partial<Pick<Note, 'reminder_at' | 'reminder_repeat'>>,
   apply: () => Promise<Note>,
-): Promise<void> {
+): Promise<boolean> {
   const owner = noteOwner(note.id);
-  if (owner === null) return;
+  if (owner === null) return false;
   const previous = kindState(owner.kind).notes;
   const optimistic: Note = { ...note, ...patch };
   setKindNotes(owner.kind, previous.map((n) => (n.id === note.id ? optimistic : n)));
@@ -691,6 +767,7 @@ async function mutateReminder(
       }
     }
     syncActiveCache();
+    return true;
   } catch (e) {
     setKindNotes(owner.kind, previous);
     syncActiveCache();

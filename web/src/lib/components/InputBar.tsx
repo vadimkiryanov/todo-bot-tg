@@ -3,7 +3,8 @@
 // (выше) и 📚 «Топики» (ниже), справа — 🔍 «Поиск» (над ➤) — вне белой
 // заливки, между ними видны заметки чата. Каждая открывает свою шторку.
 // При вводе текста над инпутом появляется панель действий новой заметки:
-// 🔴🟡🔵 приоритет (цикл), ⏰ напоминание (модалка), 📌 закрепление.
+// 🔴🟡🔵 приоритет (цикл), ⏰ напоминание (модалка), 📌 закрепление и справа
+// ✏️ «полный редактор» — создать заметку и открыть её в NotePage.
 // Тап по кнопкам панели/плавающим кнопкам не уводит фокус из поля ввода —
 // можно нажимать опции и продолжать набор.
 // Enter — отправить, Shift+Enter — новая строка. После отправки поле очищается.
@@ -20,7 +21,7 @@ import { useNavigationStore } from '../stores/navigation';
 import { logout } from '../stores/session';
 import { useSettingsStore } from '../stores/settings';
 import { useTopicsStore } from '../stores/topics';
-import type { Priority, ReminderRepeat } from '../types/api';
+import type { Note, Priority, ReminderRepeat } from '../types/api';
 import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
 
 import { Modal } from './Modal';
@@ -39,9 +40,17 @@ interface InputBarProps {
   /** Переход на экран уровня вью: '/archive', '/done', '/notifications',
       '/timers', '/login' (см. TODO(router) в шапке). */
   onNavigate?: (path: string) => void;
+  /** Открыть созданную заметку в полном редакторе («расширенный режим»). */
+  onOpenNote?: (note: Note) => void;
 }
 
-export function InputBar({ onOpenTopics, onOpenFolders, onOpenSearch, onNavigate }: InputBarProps) {
+export function InputBar({
+  onOpenTopics,
+  onOpenFolders,
+  onOpenSearch,
+  onNavigate,
+  onOpenNote,
+}: InputBarProps) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -83,32 +92,63 @@ export function InputBar({ onOpenTopics, onOpenFolders, onOpenSearch, onNavigate
     keepInputFocus();
   }
 
-  async function send(): Promise<void> {
+  /** Опции создания заметки из текущего состояния панели действий. */
+  function currentOptions(): {
+    priority: Priority;
+    pinned: boolean;
+    reminder_at?: string;
+    reminder_repeat?: ReminderRepeat;
+  } {
+    return {
+      priority,
+      pinned,
+      reminder_at: reminderAt ?? undefined,
+      reminder_repeat: reminderAt !== null ? reminderRepeat : undefined,
+    };
+  }
+
+  /** Сброс текста и опций после успешного создания заметки. */
+  function resetCompose(): void {
+    setText('');
+    resetHeight();
+    setPriority('none');
+    setPinned(false);
+    setReminderAt(null);
+    setReminderRepeat('once');
+    setShowReminderForm(false);
+  }
+
+  /**
+   * Создать заметку из текущего ввода. openEditor — открыть созданную заметку
+   * в полном редакторе (кнопка ✏️ на панели действий): сразу можно дописать
+   * форматирование, как будто уже перешли в заметку.
+   */
+  async function submit(openEditor: boolean): Promise<void> {
     const value = text.trim();
     if (value === '' || sending) return;
     setSending(true);
     try {
-      await createNote(value, {
-        priority,
-        pinned,
-        reminder_at: reminderAt ?? undefined,
-        reminder_repeat: reminderAt !== null ? reminderRepeat : undefined,
-      });
-      setText('');
-      resetHeight();
-      // Сброс опций после отправки.
-      setPriority('none');
-      setPinned(false);
-      setReminderAt(null);
-      setReminderRepeat('once');
-      setShowReminderForm(false);
+      const created = await createNote(value, currentOptions());
+      resetCompose();
+      if (openEditor && created !== null) {
+        // Полный редактор сам управляет фокусом — в поле ввода не возвращаем
+        // (иначе на мобильных всплывёт клавиатура под открытой заметкой).
+        onOpenNote?.(created);
+      }
     } catch {
-      // При ошибке текст остаётся в поле — пользователь видит и может повторить.
+      // При ошибке текст остаётся в поле — пользователь видит и может повторить
+      // (тост с причиной уже показал стор заметок).
     } finally {
       setSending(false);
-      // Сразу можно писать следующую заметку.
-      keepInputFocus();
+      if (!openEditor) {
+        // Сразу можно писать следующую заметку.
+        keepInputFocus();
+      }
     }
+  }
+
+  async function send(): Promise<void> {
+    await submit(false);
   }
 
   /** Тап по ⏰: открыть модалку напоминания или снять уже заданное. */
@@ -421,6 +461,20 @@ export function InputBar({ onOpenTopics, onOpenFolders, onOpenSearch, onNavigate
               onClick={() => press(() => setPinned(!pinned))}
             >
               📌
+            </button>
+            {/* ✏️ прижата вправо: создать заметку и сразу открыть её в полном
+                редакторе (форматирование, заголовки, списки). */}
+            <button
+              type="button"
+              aria-label="Открыть в полном редакторе"
+              title="Открыть в полном редакторе"
+              className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground transition-[background-color,transform] active:scale-90 active:bg-border disabled:opacity-40"
+              disabled={sending}
+              onClick={() => {
+                void submit(true);
+              }}
+            >
+              ✏️
             </button>
           </div>
         )}

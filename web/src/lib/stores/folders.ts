@@ -10,6 +10,7 @@ import {
 } from '../api/folders';
 import type { Folder } from '../types/api';
 import { useNavigationStore } from './navigation';
+import { toastError, toastSuccess } from './toast';
 
 interface FoldersState {
   all: Folder[];
@@ -225,19 +226,37 @@ export async function getTopicFolders(topicId: number): Promise<Folder[]> {
   }
 }
 
+/** Ошибка операции с папкой: тост + проброс (компоненты ловят для инлайна). */
+function folderOpError(e: unknown, fallback: string): Error {
+  const err = e instanceof Error ? e : new Error(fallback);
+  toastError(err.message);
+  return err;
+}
+
 /** Создание папки на текущем уровне (в активной папке или в корне топика). */
 export async function createFolder(name: string): Promise<void> {
   const { activeTopicID, activeFolderID } = useNavigationStore.getState();
   if (activeTopicID === null) return;
-  const folder = await apiCreateFolder(activeTopicID, name, activeFolderID);
+  let folder: Folder;
+  try {
+    folder = await apiCreateFolder(activeTopicID, name, activeFolderID);
+  } catch (e) {
+    throw folderOpError(e, 'не удалось создать папку');
+  }
   const state = useFoldersStore.getState();
   const updated = [...state.all, folder];
   useFoldersStore.setState({ all: updated, topicId: activeTopicID });
   setTopicFolders(activeTopicID, updated);
+  toastSuccess('Папка создана');
 }
 
 export async function renameFolder(id: number, name: string): Promise<void> {
-  const updated = await apiRenameFolder(id, name);
+  let updated: Folder;
+  try {
+    updated = await apiRenameFolder(id, name);
+  } catch (e) {
+    throw folderOpError(e, 'не удалось переименовать папку');
+  }
   const state = useFoldersStore.getState();
   useFoldersStore.setState({ all: state.all.map((f) => (f.id === id ? updated : f)) });
   // Кеш топика папки тоже обновляем (если он загружен).
@@ -245,11 +264,16 @@ export async function renameFolder(id: number, name: string): Promise<void> {
   if (topicId !== null && foldersByTopic.has(topicId)) {
     setTopicFolders(topicId, useFoldersStore.getState().all);
   }
+  toastSuccess('Папка переименована');
 }
 
 /** Удаление папки: каскад по стору (поддерево); если удалена активная или её предок — выход в корень. */
 export async function deleteFolder(id: number): Promise<void> {
-  await apiDeleteFolder(id);
+  try {
+    await apiDeleteFolder(id);
+  } catch (e) {
+    throw folderOpError(e, 'не удалось удалить папку');
+  }
   const state = useFoldersStore.getState();
   const subtree = collectSubtree(id);
   useFoldersStore.setState({ all: state.all.filter((f) => !subtree.has(f.id)) });
@@ -260,6 +284,7 @@ export async function deleteFolder(id: number): Promise<void> {
   if (subtree.has(useNavigationStore.getState().activeFolderID ?? -1)) {
     useNavigationStore.setState({ activeFolderID: null });
   }
+  toastSuccess('Папка удалена');
 }
 
 /** BFS по подпапкам: id удаляемой папки + все вложенные. */

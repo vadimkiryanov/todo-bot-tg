@@ -1,15 +1,17 @@
 // Полноэкранная «страница» заметки (как открытие чата в Telegram):
 // въезжает слайдом поверх списка, назад — стрелка в шапке или свайп вправо.
 //
-// Текст заметки — большое редактируемое поле (как в нативных заметках):
-// тапнул — сразу печатай, отдельной кнопки ✏️ нет. Пока поле не
-// редактируется (не в фокусе и без правок) вместо markdown-разметки
-// показывается отформатированный текст (заголовки # / ##, списки -,
-// чеклист - [ ], жирный/курсив/код/ссылки из entities) — как заметка
-// выглядит в чате; тап по тексту включает поле с курсором в месте тапа,
-// тап по чекбоксу чеклиста переключает галочку без входа в поле.
+// Текст заметки — редактируемое поле с markdown-разметкой. Как оно
+// включается, выбирается в настройках (stores/settings.editorMode):
+//   'tap'    — тапнул по тексту и сразу печатай; пока поле не в фокусе и
+//              без правок, вместо разметки показывается отформатированный
+//              текст (заголовки # / ##, списки -, чеклист - [ ], жирный/
+//              курсив/код/ссылки из entities); тап по чекбоксу чеклиста
+//              переключает галочку без входа в поле; курсор встаёт в место тапа;
+//   'toggle' — превью и правка переключаются кнопкой ✏️/👁 в шапке, тап по
+//              тексту ничего не меняет (защита от случайной правки).
 // Кнопки «Сохранить»/«Отмена» появляются только когда текст изменён;
-// панель форматирования — при фокусе поля или при изменённом тексте.
+// панель форматирования — при фокусе поля либо при включённом режиме правки.
 // Действия (✅/🔄/⏰/⋯) зависят от состояния заметки
 // (active/done/archived). Закрытие с несохранённым текстом спрашивает:
 // «Сохранить? / Не сохранять?».
@@ -48,6 +50,7 @@ import {
   undoneNote,
 } from '../stores/notes';
 import { toggleNoteExpanded, useNoteViewStore } from '../stores/noteView';
+import { useSettingsStore } from '../stores/settings';
 import type { Note, ReminderRepeat } from '../types/api';
 import {
   formatReminderAt,
@@ -61,6 +64,9 @@ import { parseNoteLines, renderNoteBlocksHtml } from '../utils/blocks';
 
 interface NotePageProps {
   note: Note;
+  /** Открыть страницу сразу в режиме редактирования (кнопка ✏️ панели ввода
+      и «полный редактор»): поле в фокусе, панель форматирования на месте. */
+  startEditing?: boolean;
   onClose: () => void;
 }
 
@@ -159,7 +165,7 @@ function contentCharAt(block: HTMLElement, x: number, y: number): number | null 
   return null;
 }
 
-export function NotePage({ note, onClose }: NotePageProps) {
+export function NotePage({ note, startEditing = false, onClose }: NotePageProps) {
   // Живое состояние: при store-мутациях родитель передаёт обновлённый объект
   // из списка; для «чужой» заметки (из уведомления) обновляем локально.
   const [pageNote, setPageNote] = useState<Note>(note);
@@ -192,8 +198,17 @@ export function NotePage({ note, onClose }: NotePageProps) {
     lastSeenRef.current = saved;
   }, [draft, saved]);
 
-  /** Поле в фокусе: под ним показываем панель форматирования. */
-  const [focused, setFocused] = useState(false);
+  // ── Режим редактирования (локальная настройка устройства) ────────────────
+  // 'tap'    — тап по тексту сразу включает поле (как раньше);
+  // 'toggle' — превью и правка переключаются кнопкой ✏️/👁 в шапке, тап по
+  //            тексту ничего не меняет.
+  const editorMode = useSettingsStore((s) => s.editorMode);
+  const toggleMode = editorMode === 'toggle';
+
+  /** Поле в фокусе: в режиме «тапом» по нему показываем панель форматирования. */
+  const [focused, setFocused] = useState(startEditing);
+  /** Режим «кнопкой»: правка включена явно (кнопка ✏️), фокус не важен. */
+  const [manualEdit, setManualEdit] = useState(startEditing);
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   /** Корневой узел панели форматирования (сниппет toolbar). */
@@ -208,7 +223,31 @@ export function NotePage({ note, onClose }: NotePageProps) {
   const viewElRef = useRef<HTMLDivElement | null>(null);
   /** Курсор поля, запомненный тапом по просмотру (смещение в разметке). */
   const pendingCaretRef = useRef<number | null>(null);
-  const viewMode = !focused && !dirty;
+  /** Идёт редактирование: поле показано, просмотр скрыт. */
+  const editing = toggleMode ? manualEdit || dirty : focused || dirty;
+  const viewMode = !editing;
+  /** Панель форматирования при отсутствии правок: пока поле в фокусе (режим
+      «тапом») либо пока включён режим правки кнопкой (✏️). */
+  const showToolbar = toggleMode ? editing : focused;
+
+  /** Переключить превью ↔ правку (режим «кнопкой»): кнопка ✏️/👁 в шапке. */
+  function toggleEditing(): void {
+    if (editing) {
+      textareaRef.current?.blur();
+      setManualEdit(false);
+      return;
+    }
+    setManualEdit(true);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  // Страница открыта сразу в режиме правки (кнопка ✏️ панели ввода): поле
+  // получаем в фокус, чтобы можно было продолжать набор с клавиатуры.
+  useEffect(() => {
+    if (!startEditing) return;
+    const frame = requestAnimationFrame(() => textareaRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [startEditing]);
 
   // iOS не сжимает вьюпорт клавиатурой: поднимаем футер (тулбар и кнопки
   // «Сохранить/Отмена») над ней через visualViewport (как Modal).
@@ -364,6 +403,9 @@ export function NotePage({ note, onClose }: NotePageProps) {
       return;
     }
     if (target?.closest('a[href]')) return;
+    // Режим «кнопкой»: тап по тексту ничего не делает — правка включается
+    // только кнопкой ✏️ в шапке (чекбоксы и ссылки выше работают всегда).
+    if (toggleMode) return;
     e.preventDefault();
     startEditAt(e);
   }
@@ -1003,7 +1045,22 @@ export function NotePage({ note, onClose }: NotePageProps) {
         <span className="truncate px-2 text-sm text-muted-foreground">
           {isDone ? '✅ Выполнена' : isArchived ? '🗄 Архив' : '📝 Заметка'}
         </span>
-        <span className="w-10"></span>
+        {/* Режим «кнопкой»: явный переключатель превью ↔ правка. Пока есть
+            несохранённые правки, кнопку не показываем — сначала «Сохранить»/
+            «Отмена» в футере. */}
+        {toggleMode && !dirty ? (
+          <button
+            type="button"
+            aria-label={editing ? 'Просмотр' : 'Редактировать'}
+            title={editing ? 'Просмотр' : 'Редактировать'}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+            onClick={toggleEditing}
+          >
+            {editing ? '👁' : '✏️'}
+          </button>
+        ) : (
+          <span className="w-10"></span>
+        )}
       </header>
 
       {/* Текст заметки: под полем (всегда в markdown-разметке, скролл свой)
@@ -1071,8 +1128,9 @@ export function NotePage({ note, onClose }: NotePageProps) {
           </div>
         ) : (
           <>
-            {focused && (
-              // Поле в фокусе (клавиатура открыта): панель форматирования.
+            {showToolbar && (
+              // Панель форматирования: поле в фокусе (режим «тапом») либо
+              // включён режим правки кнопкой ✏️.
               <div className="flex flex-col gap-1.5 pb-1">{toolbar}</div>
             )}
 

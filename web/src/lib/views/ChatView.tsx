@@ -107,14 +107,20 @@ export function ChatView() {
   // анимация закрытия страницы — держим объект до явного onClose.
   const [selectedId, setSelectedIdState] = useState<number | null>(null);
   const [selectedCache, setSelectedCache] = useState<Note | null>(null);
+  // Открывать страницу сразу в режиме редактирования (кнопка ✏️ панели ввода
+  // создаёт заметку и открывает её «как будто уже перешли в заметку»).
+  const [selectedEdit, setSelectedEdit] = useState(false);
 
   // ВАЖНО: $state в Svelte присваивается синхронно, setState в React — нет.
   // openNote/queryForState/applyUrlIntent читают свежее значение сразу после
   // записи — держим ref-зеркало, все записи идут через setSelected().
+  // startEditing по умолчанию сбрасывается: адресные переходы и закрытие
+  // не должны оставлять страницу в режиме правки.
   const selectedIdRef = useRef<number | null>(null);
-  function setSelected(id: number | null): void {
+  function setSelected(id: number | null, startEditing = false): void {
     selectedIdRef.current = id;
     setSelectedIdState(id);
+    setSelectedEdit(startEditing);
   }
 
   // Дропдаун-меню (долгий тач по карточке): заметка + позиция карточки в момент
@@ -229,14 +235,15 @@ export function ChatView() {
     window.history.replaceState(null, '', target);
   }
 
-  /** Открыть заметку (страница). pushState: «назад» браузера вернёт к списку. */
-  function openNoteObject(note: Note): void {
+  /** Открыть заметку (страница). pushState: «назад» браузера вернёт к списку.
+      startEditing — открыть сразу в режиме правки (кнопка ✏️ панели ввода). */
+  function openNoteObject(note: Note, startEditing = false): void {
     noteOpenedViaPushRef.current = true;
     // Кэш страницы заполняем сразу переданным объектом: заметка может ещё не
     // попасть в списки стора (слайд-интент свайп-выхода, результаты поиска).
     // Эффект [selectedId, notes] позже обновит кэш свежим объектом из списка.
     setSelectedCache(note);
-    setSelected(note.id);
+    setSelected(note.id, startEditing);
     window.history.pushState(null, '', window.location.pathname + queryForState());
   }
 
@@ -1265,6 +1272,9 @@ export function ChatView() {
               setSearchOpen(true);
             }}
             onNavigate={navigate}
+            // ✏️ панели ввода: заметка уже создана — открываем её в полном
+            // редакторе сразу с курсором в тексте.
+            onOpenNote={(note) => openNoteObject(note, true)}
           />
         </footer>
       </div>
@@ -1289,7 +1299,9 @@ export function ChatView() {
         />
       )}
 
-      {selectedCache !== null && <NotePage note={selectedCache} onClose={closeNotePage} />}
+      {selectedCache !== null && (
+        <NotePage note={selectedCache} startEditing={selectedEdit} onClose={closeNotePage} />
+      )}
 
       {menuNote !== null && menuRect !== null && (
         <NoteMenu note={menuNote} rect={menuRect} onClose={closeMenu} onMove={requestMove} />

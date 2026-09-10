@@ -410,6 +410,17 @@ body.scroll-locked .scroll-area {
   animation: note-flash 2.8s ease-out both;
 }
 
+/* Всплывающие подсказки (toast): мягкий подъём с проявлением при появлении */
+@keyframes toast-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+.toast-anim {
+  animation: toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Лёгкое покачивание эмодзи на пустых экранах */
 @keyframes empty-bob {
   0%,
@@ -465,6 +476,7 @@ body.scroll-locked .scroll-area {
   .sheet-anim,
   .sheet-out,
   .menu-anim,
+  .toast-anim,
   .empty-bob,
   .loader,
   .spinner {

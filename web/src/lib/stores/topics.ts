@@ -11,6 +11,7 @@ import type { Topic } from '../types/api';
 import { useNavigationStore } from './navigation';
 import { restoreActiveTopic, setActiveTopic } from './navigation';
 import { pruneNotesCacheForTopic } from './notes';
+import { toastError, toastSuccess } from './toast';
 
 interface TopicsState {
   topics: Topic[];
@@ -37,30 +38,54 @@ export async function loadTopics(): Promise<void> {
   }
 }
 
+/** Ошибка операции с топиком: тост + проброс (компоненты ловят для инлайна). */
+function topicOpError(e: unknown, fallback: string): Error {
+  const err = e instanceof Error ? e : new Error(fallback);
+  toastError(err.message);
+  return err;
+}
+
 export async function createTopic(name: string): Promise<void> {
-  const topic = await apiCreateTopic(name);
+  let topic: Topic;
+  try {
+    topic = await apiCreateTopic(name);
+  } catch (e) {
+    throw topicOpError(e, 'не удалось создать топик');
+  }
   const state = useTopicsStore.getState();
   useTopicsStore.setState({ topics: [...state.topics, topic] });
   // Первый топик — сразу активным.
   if (useTopicsStore.getState().topics.length === 1 || useNavigationStore.getState().activeTopicID === null) {
     setActiveTopic(topic.id);
   }
+  toastSuccess('Топик создан');
 }
 
 export async function renameTopic(id: number, name: string): Promise<void> {
-  const updated = await apiRenameTopic(id, name);
+  let updated: Topic;
+  try {
+    updated = await apiRenameTopic(id, name);
+  } catch (e) {
+    throw topicOpError(e, 'не удалось переименовать топик');
+  }
   const state = useTopicsStore.getState();
   useTopicsStore.setState({ topics: state.topics.map((t) => (t.id === id ? updated : t)) });
+  toastSuccess('Топик переименован');
 }
 
 export async function deleteTopic(id: number): Promise<void> {
-  await apiDeleteTopic(id);
+  try {
+    await apiDeleteTopic(id);
+  } catch (e) {
+    throw topicOpError(e, 'не удалось удалить топик');
+  }
   const state = useTopicsStore.getState();
   useTopicsStore.setState({ topics: state.topics.filter((t) => t.id !== id) });
   pruneNotesCacheForTopic(id);
   if (useNavigationStore.getState().activeTopicID === id) {
     restoreActiveTopic(useTopicsStore.getState().topics);
   }
+  toastSuccess('Топик удалён');
 }
 
 /** Сброс стора (выход из аккаунта). */

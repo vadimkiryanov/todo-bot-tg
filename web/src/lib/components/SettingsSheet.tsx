@@ -1,11 +1,13 @@
-// Настройки интерфейса (шторка из бургер-меню). Два пункта:
+// Настройки интерфейса (шторка из бургер-меню). Три пункта:
 // 1. 📁 формат показа папок на уровне списка: строки в общем списке
 //    (как в боте) или только кнопка 📁 (stores/settings.foldersMode).
 // 2. 🧭 где живёт «хлебный путь» в папках: внутри активного таба
 //    островка топиков или отдельной строкой под ним (pathMode).
+// 3. ✏️ как включается редактирование заметки (NotePage): тапом по тексту
+//    или кнопкой ✏️/👁 в шапке (editorMode).
 // Выбор применяется сразу и сохраняется в localStorage.
-import { setFoldersMode, setPathMode, useSettingsStore } from '../stores/settings';
-import type { FoldersMode, PathMode } from '../stores/settings';
+import { setEditorMode, setFoldersMode, setPathMode, useSettingsStore } from '../stores/settings';
+import type { EditorMode, FoldersMode, PathMode } from '../stores/settings';
 
 import { Modal } from './Modal';
 
@@ -40,9 +42,23 @@ const pathModes: { value: PathMode; label: string; caption: string }[] = [
   },
 ];
 
+const editorModes: { value: EditorMode; label: string; caption: string }[] = [
+  {
+    value: 'tap',
+    label: 'Тапом по тексту',
+    caption: 'тап по заметке сразу включает поле ввода (как раньше)',
+  },
+  {
+    value: 'toggle',
+    label: 'Кнопкой ✏️',
+    caption: 'превью и редактирование переключаются кнопкой в шапке',
+  },
+];
+
 export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
   const foldersMode = useSettingsStore((s) => s.foldersMode);
   const pathMode = useSettingsStore((s) => s.pathMode);
+  const editorMode = useSettingsStore((s) => s.editorMode);
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -96,6 +112,32 @@ export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
               </span>
             </span>
             {pathMode === mode.value && <span className="shrink-0 text-sm">✓</span>}
+          </button>
+        ))}
+        <h3 className="px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          ✏️ Редактирование заметки
+        </h3>
+        {editorModes.map((mode) => (
+          <button
+            key={mode.value}
+            type="button"
+            aria-pressed={editorMode === mode.value}
+            onClick={() => setEditorMode(mode.value)}
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+              editorMode === mode.value ? 'bg-primary text-white' : 'active:bg-border/50'
+            }`}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-medium leading-5">{mode.label}</span>
+              <span
+                className={`block text-xs leading-4 ${
+                  editorMode === mode.value ? 'text-white/75' : 'text-muted-foreground'
+                }`}
+              >
+                {mode.caption}
+              </span>
+            </span>
+            {editorMode === mode.value && <span className="shrink-0 text-sm">✓</span>}
           </button>
         ))}
       </div>

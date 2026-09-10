@@ -5,6 +5,7 @@ import { useEffect, type ReactNode } from 'react';
 import { registerSW } from 'virtual:pwa-register';
 
 import { setUnauthorizedHandler } from './lib/api/client';
+import { ToastHost } from './lib/components/ToastHost';
 import { initRouter, replacePath, useRouteStore } from './lib/router';
 import { clearSession, initSession, useSessionStore } from './lib/stores/session';
 import { initNetwork, useNetworkStore } from './lib/stores/network';
@@ -112,6 +113,7 @@ export function App() {
     <div className="h-full">
       {!online && <OfflineBanner />}
       {screen}
+      <ToastHost />
     </div>
   );
 }

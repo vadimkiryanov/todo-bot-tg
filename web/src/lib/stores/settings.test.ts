@@ -1,9 +1,10 @@
-// Тесты настроек интерфейса: режим показа папок в списке заметок и место
-// «хлебного пути» (в табе островка / отдельной строкой). По умолчанию —
-// папки «в списке» (как в боте) и путь «в табе»; переключение сохраняется
-// в localStorage и восстанавливается при старте модуля.
+// Тесты настроек интерфейса: режим показа папок в списке заметок, место
+// «хлебного пути» (в табе островка / отдельной строкой) и способ включения
+// редактирования заметки (тапом по тексту / кнопкой ✏️). По умолчанию — папки
+// «в списке» (как в боте), путь «в табе» и редактирование «тапом»; переключение
+// сохраняется в localStorage и восстанавливается при старте модуля.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setFoldersMode, setPathMode, useSettingsStore } from './settings';
+import { setEditorMode, setFoldersMode, setPathMode, useSettingsStore } from './settings';
 
 /** Чтение zustand-состояния в синтаксисе прежнего $state-объекта. */
 const settings = {
@@ -12,6 +13,9 @@ const settings = {
   },
   get pathMode() {
     return useSettingsStore.getState().pathMode;
+  },
+  get editorMode() {
+    return useSettingsStore.getState().editorMode;
   },
 };
 
@@ -81,5 +85,26 @@ describe('settings store', () => {
     vi.resetModules();
     const mod = await import('./settings');
     expect(mod.useSettingsStore.getState().pathMode).toBe('strip');
+  });
+
+  it('по умолчанию редактирование включается тапом по тексту', () => {
+    expect(settings.editorMode).toBe('tap');
+  });
+
+  it('переключение режима редактирования обновляет стор и localStorage', () => {
+    setEditorMode('toggle');
+    expect(settings.editorMode).toBe('toggle');
+    expect(localStorage.getItem('todo.editorMode')).toBe('toggle');
+
+    setEditorMode('tap');
+    expect(settings.editorMode).toBe('tap');
+    expect(localStorage.getItem('todo.editorMode')).toBe('tap');
+  });
+
+  it('при старте восстанавливается сохранённый режим редактирования', async () => {
+    localStorage.setItem('todo.editorMode', 'toggle');
+    vi.resetModules();
+    const mod = await import('./settings');
+    expect(mod.useSettingsStore.getState().editorMode).toBe('toggle');
   });
 });
