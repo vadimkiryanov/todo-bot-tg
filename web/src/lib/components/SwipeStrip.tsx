@@ -13,8 +13,13 @@
 // Структура DOM (цепочка высот — структурные правила в app.css):
 //   host (key={planKey}) > viewport (root движка, overflow-hidden)
 //     > container (первый ребёнок root: flex h-full) > слайды .swipe-strip-slide
+//       > .swipe-strip-slide-inner (слой fade-режима) > контент слайда
 // Embla позиционирует container transform'ом; слайды 100% ширины
 // (flex: 0 0 100% — в app.css), поэтому до инициализации виден первый.
+// Внутренний слой добавлен ради режима кросс-фейда (проп fade): слайды не
+// едут, а проявляются друг через друга, и transform'ы «стягивания»/
+// прозрачность живут на этом слое — сам слайд остаётся нетронутым, иначе
+// сбились бы замеры Embla (getBoundingClientRect слайдов = snaps и размеры).
 //
 // Пересборка списка — keyed-remount хоста по плану (planKey/planIndex/
 // planAnimateTo), вертикальные скроллы живых слайдов (scrollSel)
@@ -108,6 +113,13 @@ interface SwipeStripProps<T> {
       коэффициент мягкости физики, и при нём (÷40) дальней доезд перелетает
       цель. Проп сохранён как переключатель «анимация/прыжок». */
   duration?: number;
+  /** Режим кросс-фейда: контент не едет вбок — слайды проявляются друг
+      через друга (прозрачность максимальна на середине свайпа: оба слайда
+      по 0.5, дальше уходящий гаснет, приходящий проявляется). Движение
+      ленты отключается визуально, но жест и индекс ведёт тот же Embla;
+      внутренний слой каждого слайда «стягивается» в общую точку
+      (см. fade-блок в эффекте). */
+  fade?: boolean;
   /** Не используется: унаследован от siema-сигнатуры (порог смены слайда).
       У Embla снап решает позиция/скорость релиза (переход от ~20% ширины),
       аналога порога нет — значение игнорируется. */
@@ -151,6 +163,7 @@ export function SwipeStrip<T>({
   animateGrowth = false,
   draggable = true,
   duration = 360,
+  fade = false,
   scrollSel = '.chat-scroll',
   onchange,
   onsettle,
@@ -272,14 +285,166 @@ export function SwipeStrip<T>({
     apiRef.current = api;
     lastHostRef.current = host;
 
+    // ── Режим кросс-фейда (fade): контент не едет вбок ─────────────────
+    // Слайды проявляются друг через друга: на середине свайпа оба
+    // полупрозрачны, дальше уходящий гаснет, приходящий проявляется.
+    // Движение ленты визуально отключено (жест и индекс
+    // ведёт тот же Embla): transform контейнера больше не пишется
+    // (translate.toggleActive(false)), а каждый слайд «стягивается» в общую
+    // точку transform'ом ВНУТРЕННЕГО слоя (-i·ширина). Именно внутреннего,
+    // а не самого слайда: getBoundingClientRect слайдов Embla использует для
+    // замеров (snaps/размеры) — transform ребёнка их не исказит, поэтому
+    // re-measure при ресайзе остаётся корректным. Прозрачность/видимость
+    // и «приём» кликов — тоже на внутреннем слое.
+    //
+    // Кадры берём у самого движка, а не своим rAF-циклом. Embla эмитит
+    // 'scroll' в каждом render'е, пока лента не встала (и во время драга, и
+    // во время доезда), причём ПОСЛЕ записи offsetLocation — scrollProgress
+    // в обработчике уже свежий. Свой цикл пришлось бы останавливать и
+    // запускать по флагам (жест, «прогресс не менялся N кадров»), и любой
+    // пропущенный сигнал оставлял бы ленту с застывшим слайдом: смена экрана
+    // «не срабатывает», фейда нет вовсе, а оживает всё только со следующего
+    // касания (его старт заново применял фейд). События движка такой
+    // возможности не дают:
+    //  • 'scroll' — движение (драг и доезд) → фейд по текущему прогрессу,
+    //    кадр в кадр с движком;
+    //  • 'select' — смена слайда, в том числе программная (тап по табу
+    //    островка, goTo) → сразу показываем целевой слайд и выравниваем
+    //    сетку (ширина могла измениться);
+    //  • 'settle' — движок встал (событие только при отпущенном указателе,
+    //    поэтому посреди драга не срабатывает) → фиксируем ровно целый
+    //    слайд, чтобы дробный остаток прогресса не оставлял соседа
+    //    полупрозрачным;
+    //  • 'reInit'/'resize' — перезамеры → пересчёт сетки; при reInit Embla
+    //    пересоздаёт движок (engine = createEngine(...) в activate), у нового
+    //    Translate флаг снова «активен» и он тут же пишет transform
+    //    контейнера — событие reInit эмитится сразу после activate,
+    //    синхронно, ещё до кадра отрисовки, поэтому успеваем вернуть пустой
+    //    transform без видимого скачка.
+    let fadeW = 0;
+    let fadeDebugIndex = -1;
+    // Диагностика режима (по требованию): в консоли браузера выполнить
+    // localStorage.setItem('todo.fadeDebug', '1') и перезагрузить страницу —
+    // пойдут сообщения [fade] (режим включён, ширина слайда, число слоёв,
+    // текущая позиция). Отличает «новый код не доехал до браузера» от
+    // проблемы геометрии.
+    const fadeDebug = fade && window.localStorage.getItem('todo.fadeDebug') === '1';
+
+    /** Внутренние слои слайдов (первый ребёнок каждого .swipe-strip-slide). */
+    const fadeInnerNodes = (): HTMLElement[] => {
+      const out: HTMLElement[] = [];
+      for (const slide of api.slideNodes()) {
+        const inner = slide.firstElementChild;
+        if (inner instanceof HTMLElement) out.push(inner);
+      }
+      return out;
+    };
+    /** Позиция ленты дробным индексом (0..n-1) — как в drag-трекере. */
+    const fadePos = (): number => {
+      const n = api.slideNodes().length;
+      return n < 2 ? 0 : api.scrollProgress() * (n - 1);
+    };
+    /** Статичное «стягивание» всех слоёв в одну точку (ширина меняется на
+        ресайзе). Отдельно от applyFade: transform константен для позиции.
+        Ширину берём у самого слайда (flex: 0 0 100% — слайды равны
+        вьюпорту), а не у вьюпорта: сетка обязана скомпенсировать смещение
+        именно слайда (i·ширина). */
+    const syncFadeGrid = (): void => {
+      const first = api.slideNodes()[0];
+      const width = first === undefined ? 0 : first.getBoundingClientRect().width;
+      fadeW = width > 0 ? width : viewport.clientWidth;
+      const nodes = fadeInnerNodes();
+      for (let i = 0; i < nodes.length; i++) {
+        nodes[i].style.transform = `translate3d(${(-i * fadeW).toFixed(2)}px,0,0)`;
+      }
+    };
+    const applyFade = (p: number): void => {
+      // Нечисловой прогресс (случаться не должен, но цена проверки — ноль):
+      // NaN в style.opacity браузер отбрасывает, слой остаётся с прежними
+      // стилями — молча залипший кадр.
+      if (!Number.isFinite(p)) return;
+      // Ширина ещё не измерена (сеть/скрытый контейнер на старте) — лечим
+      // при первом же применении, иначе слои «стянуты» в ноль и видны не там.
+      if (fadeW <= 0) syncFadeGrid();
+      const nodes = fadeInnerNodes();
+      for (let i = 0; i < nodes.length; i++) {
+        const el = nodes[i];
+        const d = Math.abs(i - p);
+        if (d <= 0.0005) {
+          el.style.opacity = '1';
+          el.style.visibility = 'visible';
+          el.style.pointerEvents = 'auto';
+        } else if (d >= 1) {
+          el.style.opacity = '0';
+          el.style.visibility = 'hidden';
+          el.style.pointerEvents = 'none';
+        } else {
+          // Кросс-фейд: на середине оба слайда по 0.5 непрозрачности (дальше
+          // уходящий гаснет, приходящий проявляется).
+          el.style.opacity = (1 - d).toFixed(3);
+          el.style.visibility = 'visible';
+          el.style.pointerEvents = 'none';
+        }
+      }
+      if (fadeDebug) {
+        const idx = Math.round(p);
+        if (idx !== fadeDebugIndex) {
+          fadeDebugIndex = idx;
+          console.debug('[fade]', {
+            slide: idx,
+            pos: Number(p.toFixed(3)),
+            slideW: Math.round(fadeW),
+            layers: nodes.length,
+          });
+        }
+      }
+    };
+    /** Фейд по текущему прогрессу — обработчик движения движка. */
+    const applyFadeNow = (): void => applyFade(fadePos());
+    /** Пересчёт сетки и применение (старт/ресайз/reInit). Заодно повторно
+        отключает translate: при reInit Embla пересоздаёт движок и у нового
+        Translate флаг снова «активен» (см. шапку блока). */
+    const relayoutFade = (): void => {
+      if (!fade) return;
+      api.internalEngine().translate.toggleActive(false);
+      api.containerNode().style.transform = '';
+      syncFadeGrid();
+      applyFadeNow();
+      if (fadeDebug) {
+        console.debug('[fade] включён', {
+          slides: api.slideNodes().length,
+          slideW: Math.round(fadeW),
+        });
+      }
+    };
+    if (fade) {
+      relayoutFade();
+      api.on('reInit', relayoutFade);
+      api.on('resize', relayoutFade);
+      api.on('scroll', applyFadeNow);
+    }
+
     const handleSelect = (): void => {
       const idx = api.selectedScrollSnap();
       curIndexRef.current = idx;
       latestRef.current.onchange?.(idx);
       scheduleSettle(idx);
+      // Смена слайда (в том числе программная — тап по табу островка):
+      // сразу показать целевой слайд и выровнять сетку по текущей ширине.
+      if (fade) {
+        syncFadeGrid();
+        applyFadeNow();
+      }
+    };
+    /** settle движка: смена уровня родителю + точная фиксация слайда. */
+    const handleFadeSettle = (): void => {
+      flushSettle();
+      // Остаток дробного прогресса (interpolated offsetLocation) не должен
+      // оставлять соседний слайд полупрозрачным — фиксируем целый слайд.
+      if (fade) applyFade(Math.round(fadePos()));
     };
     api.on('select', handleSelect);
-    api.on('settle', flushSettle);
+    api.on('settle', handleFadeSettle);
 
     // Релиз драга (свайп между топиками, свайп-выход из папки) DragHandler
     // ведёт СВОЕЙ парой (speed 15–25 при friction 0.68 — медленный хвост;
@@ -449,14 +614,24 @@ export function SwipeStrip<T>({
       if (growthRaf !== 0) cancelAnimationFrame(growthRaf);
       if (settleTimer !== undefined) clearTimeout(settleTimer);
       api.off('select', handleSelect);
-      api.off('settle', flushSettle);
+      api.off('settle', handleFadeSettle);
       api.off('pointerUp', handlePointerUp);
       for (const off of removeTrack) off();
+      if (fade) {
+        // Возврат к обычному режиму (переключение настройки) или уход со
+        // страницы: снимаем фейд со слоёв, отдаём transform обратно
+        // движку, чтобы следующий прогон effect'а начался с чистого листа.
+        api.off('reInit', relayoutFade);
+        api.off('resize', relayoutFade);
+        api.off('scroll', applyFadeNow);
+        for (const el of fadeInnerNodes()) el.removeAttribute('style');
+        api.internalEngine().translate.toggleActive(true);
+      }
       api.destroy();
       if (apiRef.current === api) apiRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- рефы и колбэки через latestRef
-  }, [planKey, draggable, duration, scrollSel]);
+  }, [planKey, draggable, duration, scrollSel, fade]);
 
   // ── Imperative API (ref родителя) ──────────────────────────────────────
   useImperativeHandle(
@@ -508,7 +683,7 @@ export function SwipeStrip<T>({
     <div
       key={planKey}
       ref={hostRef}
-      className="swipe-strip-host block h-full w-full"
+      className={fade ? 'swipe-strip-host swipe-strip-fade block h-full w-full' : 'swipe-strip-host block h-full w-full'}
       role="group"
       aria-roledescription="карусель"
     >
@@ -520,7 +695,10 @@ export function SwipeStrip<T>({
               className="swipe-strip-slide block h-full"
               data-strip-key={keyOf(item, index)}
             >
-              {children(item, index)}
+              {/* Внутренний слой: в fade-режиме именно на нём живут
+                  transform-«стягивание» и прозрачность — слайд
+                  остаётся нетронутым, чтобы замеры Embla не сбились. */}
+              <div className="swipe-strip-slide-inner h-full">{children(item, index)}</div>
             </div>
           ))}
         </div>

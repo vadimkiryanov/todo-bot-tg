@@ -1,13 +1,15 @@
-// Настройки интерфейса (шторка из бургер-меню). Три пункта:
+// Настройки интерфейса (шторка из бургер-меню). Четыре пункта:
 // 1. 📁 формат показа папок на уровне списка: строки в общем списке
 //    (как в боте) или только кнопка 📁 (stores/settings.foldersMode).
 // 2. 🧭 где живёт «хлебный путь» в папках: внутри активного таба
 //    островка топиков или отдельной строкой под ним (pathMode).
 // 3. ✏️ как включается редактирование заметки (NotePage): тапом по тексту
 //    или кнопкой ✏️/👁 в шапке (editorMode).
+// 4. 🔀 как перелистываются топики: сдвигом контента вбок (как раньше) или
+//    кросс-фейдом без сдвига (swipeMode).
 // Выбор применяется сразу и сохраняется в localStorage.
-import { setEditorMode, setFoldersMode, setPathMode, useSettingsStore } from '../stores/settings';
-import type { EditorMode, FoldersMode, PathMode } from '../stores/settings';
+import { setEditorMode, setFoldersMode, setPathMode, setSwipeMode, useSettingsStore } from '../stores/settings';
+import type { EditorMode, FoldersMode, PathMode, SwipeMode } from '../stores/settings';
 
 import { Modal } from './Modal';
 
@@ -55,10 +57,24 @@ const editorModes: { value: EditorMode; label: string; caption: string }[] = [
   },
 ];
 
+const swipeModes: { value: SwipeMode; label: string; caption: string }[] = [
+  {
+    value: 'slide',
+    label: 'Сдвигом',
+    caption: 'заметки уезжают вбок, как раньше',
+  },
+  {
+    value: 'fade',
+    label: 'Растворением',
+    caption: 'заметки проявляются друг через друга, не уезжая вбок',
+  },
+];
+
 export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
   const foldersMode = useSettingsStore((s) => s.foldersMode);
   const pathMode = useSettingsStore((s) => s.pathMode);
   const editorMode = useSettingsStore((s) => s.editorMode);
+  const swipeMode = useSettingsStore((s) => s.swipeMode);
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -138,6 +154,32 @@ export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
               </span>
             </span>
             {editorMode === mode.value && <span className="shrink-0 text-sm">✓</span>}
+          </button>
+        ))}
+        <h3 className="px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          🔀 Перелистывание топиков
+        </h3>
+        {swipeModes.map((mode) => (
+          <button
+            key={mode.value}
+            type="button"
+            aria-pressed={swipeMode === mode.value}
+            onClick={() => setSwipeMode(mode.value)}
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+              swipeMode === mode.value ? 'bg-primary text-white' : 'active:bg-border/50'
+            }`}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-medium leading-5">{mode.label}</span>
+              <span
+                className={`block text-xs leading-4 ${
+                  swipeMode === mode.value ? 'text-white/75' : 'text-muted-foreground'
+                }`}
+              >
+                {mode.caption}
+              </span>
+            </span>
+            {swipeMode === mode.value && <span className="shrink-0 text-sm">✓</span>}
           </button>
         ))}
       </div>

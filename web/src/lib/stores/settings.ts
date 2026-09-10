@@ -13,12 +13,18 @@
 //     'tap'    — тапом по тексту заметки (поле ввода включается сразу);
 //     'toggle' — кнопкой ✏️/👁 в шапке (превью и редактирование
 //                переключаются явно, тап по тексту ничего не меняет).
+//   swipeMode — как переключаются топики свайпом по ленте:
+//     'slide' — контент уезжает вбок (как раньше);
+//     'fade'  — контент не едет: заметки проявляются друг через друга
+//               (на середине свайпа оба слайда полупрозрачны); за пальцем
+//               едет только капсула островка.
 // Выбор хранится в localStorage и переживает перезагрузку страницы.
 import { create } from 'zustand';
 
 export type FoldersMode = 'list' | 'button';
 export type PathMode = 'tab' | 'strip';
 export type EditorMode = 'tap' | 'toggle';
+export type SwipeMode = 'slide' | 'fade';
 
 const FOLDERS_MODE_KEY = 'todo.foldersMode';
 const FOLDERS_MODE_DEFAULT: FoldersMode = 'list';
@@ -26,6 +32,8 @@ const PATH_MODE_KEY = 'todo.pathMode';
 const PATH_MODE_DEFAULT: PathMode = 'tab';
 const EDITOR_MODE_KEY = 'todo.editorMode';
 const EDITOR_MODE_DEFAULT: EditorMode = 'tap';
+const SWIPE_MODE_KEY = 'todo.swipeMode';
+const SWIPE_MODE_DEFAULT: SwipeMode = 'slide';
 
 function readFoldersMode(): FoldersMode {
   // В node (тесты) localStorage отсутствует — всегда значение по умолчанию.
@@ -58,16 +66,28 @@ function readEditorMode(): EditorMode {
   }
 }
 
+function readSwipeMode(): SwipeMode {
+  if (typeof localStorage === 'undefined') return SWIPE_MODE_DEFAULT;
+  try {
+    const raw = localStorage.getItem(SWIPE_MODE_KEY);
+    return raw === 'fade' ? 'fade' : SWIPE_MODE_DEFAULT;
+  } catch {
+    return SWIPE_MODE_DEFAULT;
+  }
+}
+
 interface SettingsState {
   foldersMode: FoldersMode;
   pathMode: PathMode;
   editorMode: EditorMode;
+  swipeMode: SwipeMode;
 }
 
 export const useSettingsStore = create<SettingsState>()(() => ({
   foldersMode: readFoldersMode(),
   pathMode: readPathMode(),
   editorMode: readEditorMode(),
+  swipeMode: readSwipeMode(),
 }));
 
 export function setFoldersMode(mode: FoldersMode): void {
@@ -95,6 +115,16 @@ export function setEditorMode(mode: EditorMode): void {
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(EDITOR_MODE_KEY, mode);
+  } catch {
+    // localStorage недоступен — режим живёт до перезагрузки страницы
+  }
+}
+
+export function setSwipeMode(mode: SwipeMode): void {
+  useSettingsStore.setState({ swipeMode: mode });
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(SWIPE_MODE_KEY, mode);
   } catch {
     // localStorage недоступен — режим живёт до перезагрузки страницы
   }

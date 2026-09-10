@@ -101,6 +101,7 @@ export function ChatView() {
   const sessionState = useSessionStore((s) => s.session.state);
   const foldersMode = useSettingsStore((s) => s.foldersMode);
   const pathMode = useSettingsStore((s) => s.pathMode);
+  const swipeMode = useSettingsStore((s) => s.swipeMode);
 
   // Актуальная заметка для «страницы» (NotePage). Кэш последнего объекта:
   // заметка может исчезнуть из списка (done/архив) раньше, чем доиграет
@@ -1224,6 +1225,12 @@ export function ChatView() {
               initialIndex={initialTopicIndex}
               draggable={!inFolder}
               duration={stripSpeed()}
+              // По настройке «Перелистывание топиков» (⚙️): 'fade' — заметки
+              // не уезжают вбок, а проявляются друг через друга (оба
+              // полупрозрачны на середине свайпа); капсулу островка ведёт тот
+              // же ondragmove. У вложенной ленты уровней внутри папки режим
+              // не применяется — там остаётся сдвиг.
+              fade={swipeMode === 'fade'}
               onchange={onTopicChange}
               ondragmove={onTopicDragMove}
               ondragend={onTopicDragEnd}

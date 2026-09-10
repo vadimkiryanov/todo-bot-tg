@@ -1,10 +1,11 @@
 // Тесты настроек интерфейса: режим показа папок в списке заметок, место
-// «хлебного пути» (в табе островка / отдельной строкой) и способ включения
-// редактирования заметки (тапом по тексту / кнопкой ✏️). По умолчанию — папки
-// «в списке» (как в боте), путь «в табе» и редактирование «тапом»; переключение
+// «хлебного пути» (в табе островка / отдельной строкой), способ включения
+// редактирования заметки (тапом по тексту / кнопкой ✏️) и режим перелистывания
+// топиков (сдвигом / кросс-фейдом). По умолчанию — папки «в списке» (как в боте),
+// путь «в табе», редактирование «тапом» и перелистывание «сдвигом»; переключение
 // сохраняется в localStorage и восстанавливается при старте модуля.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setEditorMode, setFoldersMode, setPathMode, useSettingsStore } from './settings';
+import { setEditorMode, setFoldersMode, setPathMode, setSwipeMode, useSettingsStore } from './settings';
 
 /** Чтение zustand-состояния в синтаксисе прежнего $state-объекта. */
 const settings = {
@@ -16,6 +17,9 @@ const settings = {
   },
   get editorMode() {
     return useSettingsStore.getState().editorMode;
+  },
+  get swipeMode() {
+    return useSettingsStore.getState().swipeMode;
   },
 };
 
@@ -106,5 +110,26 @@ describe('settings store', () => {
     vi.resetModules();
     const mod = await import('./settings');
     expect(mod.useSettingsStore.getState().editorMode).toBe('toggle');
+  });
+
+  it('по умолчанию топики перелистываются сдвигом', () => {
+    expect(settings.swipeMode).toBe('slide');
+  });
+
+  it('переключение режима перелистывания обновляет стор и localStorage', () => {
+    setSwipeMode('fade');
+    expect(settings.swipeMode).toBe('fade');
+    expect(localStorage.getItem('todo.swipeMode')).toBe('fade');
+
+    setSwipeMode('slide');
+    expect(settings.swipeMode).toBe('slide');
+    expect(localStorage.getItem('todo.swipeMode')).toBe('slide');
+  });
+
+  it('при старте восстанавливается сохранённый режим перелистывания', async () => {
+    localStorage.setItem('todo.swipeMode', 'fade');
+    vi.resetModules();
+    const mod = await import('./settings');
+    expect(mod.useSettingsStore.getState().swipeMode).toBe('fade');
   });
 });
