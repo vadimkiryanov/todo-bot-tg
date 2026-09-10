@@ -51,6 +51,7 @@ func ToNoteResponse(n model.Note) NoteResponse {
 		Pinned:         n.IsPinned(),
 		Archived:       n.Archived,
 		CreatedAt:      n.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      n.UpdatedAt.Format(time.RFC3339),
 		TopicID:        n.TopicID,
 		FolderID:       n.FolderID,
 		ReminderAt:     reminderAt,

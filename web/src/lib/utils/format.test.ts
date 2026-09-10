@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   firstLineHtml,
+  formatEditedAt,
   formatReminderAt,
   markdownDraftOffsets,
   markdownFromEntities,
@@ -156,6 +157,40 @@ describe('formatReminderAt', () => {
     );
     const text = formatReminderAt(tomorrow.toISOString(), 'once');
     expect(text).toMatch(/^завтра, в \d{1,2}:\d{2}$/);
+  });
+});
+
+describe('formatEditedAt', () => {
+  // Фиксируем «сегодня», иначе ветки «сегодня»/«вчера»/год зависят от даты запуска.
+  const NOW = new Date(2026, 8, 10, 12, 0, 0); // 10 сентября 2026 (локально)
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('сегодня — «сегодня»', () => {
+    expect(formatEditedAt(new Date(2026, 8, 10, 8, 30).toISOString())).toBe('сегодня');
+  });
+
+  it('вчера — «вчера»', () => {
+    expect(formatEditedAt(new Date(2026, 8, 9, 23, 0).toISOString())).toBe('вчера');
+  });
+
+  it('раньше в этом году — день и месяц без года', () => {
+    expect(formatEditedAt(new Date(2026, 8, 5, 10, 0).toISOString())).toBe('5 сент.');
+  });
+
+  it('прошлый год — день, месяц и год', () => {
+    expect(formatEditedAt(new Date(2025, 11, 31, 10, 0).toISOString())).toBe('31 дек. 2025');
+  });
+
+  it('некорректная дата — пустая строка (подпись не показывается)', () => {
+    expect(formatEditedAt('не дата')).toBe('');
   });
 });
 

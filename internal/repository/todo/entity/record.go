@@ -15,6 +15,7 @@ type NoteRecord struct {
 	ReminderAt     *time.Time `db:"reminder_at"`
 	ReminderRepeat string     `db:"reminder_repeat"`
 	CreatedAt      time.Time  `db:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at"`
 	Archived       bool       `db:"archived"`
 	Done           bool       `db:"done"`
 	Pinned         bool       `db:"pinned"`

@@ -266,6 +266,24 @@ export function formatFiredAt(iso: string): string {
   return `${dayMonth} в ${time}`;
 }
 
+// --- Дата редактирования (едва заметная подпись в углу карточки) ---
+
+/** Короткая дата редактирования: «сегодня», «вчера», «5 сент.», «5 сент. 2025».
+ *  Пустая строка — некорректная дата (подпись просто не показывается). */
+export function formatEditedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((startOfToday - day) / 86_400_000);
+  if (diffDays === 0) return 'сегодня';
+  if (diffDays === 1) return 'вчера';
+  const dayMonth = date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  if (date.getFullYear() === now.getFullYear()) return dayMonth;
+  return `${dayMonth} ${date.getFullYear()}`;
+}
+
 // --- entities → markdown (для редактора) ---
 
 interface Marker {

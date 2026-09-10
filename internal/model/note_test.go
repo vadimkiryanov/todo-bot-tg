@@ -299,3 +299,48 @@ func TestNewNote_PinnedDefaultFalse(t *testing.T) {
 		t.Error("New notes should have Pinned = false by default")
 	}
 }
+
+func TestNewNote_UpdatedAtEqualsCreatedAt(t *testing.T) {
+	note, err := NewNote(1, 2, nil, "Test", nil)
+	if err != nil {
+		t.Fatalf("NewNote() unexpected error: %v", err)
+	}
+	if note.UpdatedAt.IsZero() {
+		t.Error("UpdatedAt is zero")
+	}
+	if !note.UpdatedAt.Equal(note.CreatedAt) {
+		t.Errorf("UpdatedAt = %v, want %v (равен CreatedAt)", note.UpdatedAt, note.CreatedAt)
+	}
+}
+
+func TestNote_EditText_BumpsUpdatedAt(t *testing.T) {
+	n := &Note{Text: "Старый", CreatedAt: time.Now().Add(-time.Hour)}
+	before := n.UpdatedAt
+	if err := n.EditText("Новый", nil); err != nil {
+		t.Fatalf("EditText() unexpected error: %v", err)
+	}
+	if !n.UpdatedAt.After(before) {
+		t.Errorf("UpdatedAt = %v, want > %v", n.UpdatedAt, before)
+	}
+	if !n.UpdatedAt.After(n.CreatedAt) {
+		t.Errorf("UpdatedAt = %v, want > CreatedAt %v", n.UpdatedAt, n.CreatedAt)
+	}
+}
+
+// Действия над статусом (приоритет, выполнение, закрепление, архив) —
+// не редактирование текста, поэтому «дата редактирования» не меняется.
+func TestNote_StatusActions_KeepUpdatedAt(t *testing.T) {
+	n := &Note{Text: "Текст", UpdatedAt: time.Now().Add(-time.Hour)}
+	before := n.UpdatedAt
+
+	if err := n.SetPriority(PriorityHigh); err != nil {
+		t.Fatalf("SetPriority() unexpected error: %v", err)
+	}
+	n.MarkDone()
+	n.Pin()
+	n.Archive()
+
+	if !n.UpdatedAt.Equal(before) {
+		t.Errorf("UpdatedAt = %v, want %v (без изменений)", n.UpdatedAt, before)
+	}
+}

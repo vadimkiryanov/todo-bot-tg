@@ -87,6 +87,7 @@ interface NoteRecord {
   pinned: boolean;
   archived: boolean;
   created_at: string;
+  updated_at: string;
   reminder_at: string | null;
   reminder_repeat: ReminderRepeat;
 }
@@ -215,6 +216,9 @@ function toNote(rec: NoteRecord): Note {
     pinned: rec.pinned,
     archived: rec.archived,
     created_at: rec.created_at,
+    // Заметки, сохранённые в localStorage до появления поля, «отредактированы»
+    // на момент создания — подпись даты в карточке не должна ломаться.
+    updated_at: rec.updated_at ?? rec.created_at,
     topic_id: rec.topic_id,
     folder_id: rec.folder_id,
     reminder_at: rec.reminder_at,
@@ -677,6 +681,7 @@ function mockCreateNote(body: unknown): Note {
     pinned: isPinned,
     archived: false,
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
     // Выполненная заметка не напоминает (правило toggleDone).
     reminder_at: isDone ? null : reminderAt,
     reminder_repeat: isDone ? 'once' : reminderRepeat,
@@ -731,6 +736,8 @@ function mockUpdateNote(noteId: number, body: unknown): Note {
     const parsed = parseMarkdown(patch.text.trim());
     note.text = parsed.text;
     note.entities = parsed.entities;
+    // Дата редактирования — как в Go-сервисе: только правка текста (не done/pin).
+    note.updated_at = new Date().toISOString();
   }
   if ('done' in patch) {
     if (typeof patch.done !== 'boolean') {

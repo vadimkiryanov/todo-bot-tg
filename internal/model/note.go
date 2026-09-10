@@ -29,6 +29,7 @@ type Note struct {
 	ReminderAt     *time.Time     // nil — без напоминания
 	ReminderRepeat ReminderRepeat // once / daily
 	CreatedAt      time.Time
+	UpdatedAt      time.Time // время последнего редактирования текста
 	Archived       bool
 	Done           bool       // заметка выполнена (галочка)
 	Pinned         bool       // заметка закреплена (всегда вверху списка)
@@ -40,6 +41,7 @@ func NewNote(userID, topicID int64, folderID *int64, text string, entities []Not
 	if text == "" {
 		return nil, errors.ErrEmptyText
 	}
+	now := time.Now()
 	return &Note{
 		UserID:    userID,
 		TopicID:   topicID,
@@ -47,7 +49,8 @@ func NewNote(userID, topicID int64, folderID *int64, text string, entities []Not
 		Text:      text,
 		Entities:  entities,
 		Priority:  PriorityNone,
-		CreatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}, nil
 }
 
@@ -124,11 +127,13 @@ func (n *Note) IsPinned() bool {
 }
 
 // EditText обновляет текст заметки и его форматирование.
+// Меняет UpdatedAt — это и есть «дата редактирования» заметки.
 func (n *Note) EditText(text string, entities []NoteEntity) error {
 	if text == "" {
 		return errors.ErrEmptyText
 	}
 	n.Text = text
 	n.Entities = entities
+	n.UpdatedAt = time.Now()
 	return nil
 }

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS notes (
     reminder_at TIMESTAMPTZ,
     reminder_repeat TEXT NOT NULL DEFAULT 'once',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     archived BOOLEAN NOT NULL DEFAULT FALSE,
     done BOOLEAN NOT NULL DEFAULT FALSE,
     pinned BOOLEAN NOT NULL DEFAULT FALSE,
@@ -116,6 +117,7 @@ ALTER TABLE notes ADD COLUMN IF NOT EXISTS done BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned_until TIMESTAMPTZ;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS entities TEXT NOT NULL DEFAULT '';
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS quick_topics_count INTEGER NOT NULL DEFAULT 4;
 -- Авто-отбор по посещаемости отменён: колонка больше не используется
 ALTER TABLE topics DROP COLUMN IF EXISTS visits;
@@ -301,13 +303,13 @@ func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 
 // --- Notes ---
 
-const noteColumns = `id, user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, archived, done, pinned, pinned_until`
+const noteColumns = `id, user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, updated_at, archived, done, pinned, pinned_until`
 
 func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 	rec := entity.NoteToRecord(note)
 	rows, err := s.pool.Query(context.Background(),
-		`INSERT INTO notes (user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, done, pinned, pinned_until)
-		 VALUES (@user, @topic, @folder, @text, @entities, @priority, @reminder_at, @reminder_repeat, @created_at, @done, @pinned, @pinned_until)
+		`INSERT INTO notes (user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, updated_at, done, pinned, pinned_until)
+		 VALUES (@user, @topic, @folder, @text, @entities, @priority, @reminder_at, @reminder_repeat, @created_at, @updated_at, @done, @pinned, @pinned_until)
 		 RETURNING `+noteColumns,
 		pgx.NamedArgs{
 			"user":            rec.UserID,
@@ -319,6 +321,7 @@ func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 			"reminder_at":     rec.ReminderAt,
 			"reminder_repeat": rec.ReminderRepeat,
 			"created_at":      rec.CreatedAt,
+			"updated_at":      rec.UpdatedAt,
 			"done":            rec.Done,
 			"pinned":          rec.Pinned,
 			"pinned_until":    rec.PinnedUntil,
@@ -423,7 +426,7 @@ func (s *PostgresStore) UpdateNote(note model.Note) error {
 	rec := entity.NoteToRecord(note)
 	res, err := s.pool.Exec(context.Background(),
 		`UPDATE notes SET text = @text, entities = @entities, priority = @priority, reminder_at = @reminder_at,
-		 reminder_repeat = @reminder_repeat, archived = @archived, done = @done, pinned = @pinned, pinned_until = @pinned_until
+		 reminder_repeat = @reminder_repeat, updated_at = @updated_at, archived = @archived, done = @done, pinned = @pinned, pinned_until = @pinned_until
 		 WHERE id = @id AND user_id = @user`,
 		pgx.NamedArgs{
 			"text":            rec.Text,
@@ -431,6 +434,7 @@ func (s *PostgresStore) UpdateNote(note model.Note) error {
 			"priority":        rec.Priority,
 			"reminder_at":     rec.ReminderAt,
 			"reminder_repeat": rec.ReminderRepeat,
+			"updated_at":      rec.UpdatedAt,
 			"archived":        rec.Archived,
 			"done":            rec.Done,
 			"pinned":          rec.Pinned,

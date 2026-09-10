@@ -164,7 +164,7 @@ internal/
 ### Notes
 | Метод | Путь | Описание | Тело → Ответ |
 |---|---|---|---|
-| GET | `/api/v1/notes?topic_id=N` | Список заметок топика (сортировка как у бота: pinned → priority → done в конце) | → `[{id, text, priority, done, pinned, created_at, reminder_at, reminder_repeat}]` |
+| GET | `/api/v1/notes?topic_id=N` | Список заметок топика (сортировка как у бота: pinned → priority → done в конце) | → `[{id, text, priority, done, pinned, created_at, updated_at, reminder_at, reminder_repeat}]` |
 | POST | `/api/v1/notes` | Создать | `{topic_id, text}` → 201 Note |
 | PATCH | `/api/v1/notes/{id}` | Частичное обновление | `{text?, done?, priority?, pinned?, archived?}` → 200 Note |
 | DELETE | `/api/v1/notes/{id}` | Удалить | — → 204 |
@@ -178,6 +178,10 @@ internal/
   (см. ограничение в §8).
 - `reminder_at`: ISO 8601 (RFC3339, UTC), `null` — напоминания нет. `reminder_repeat`:
   `"once" | "daily"` (Value Object `model.ReminderRepeat`).
+- `updated_at`: ISO 8601 (RFC3339) — время последнего редактирования **текста** заметки.
+  Проставляется только в `NewNote` и `EditText`; действия над статусом (приоритет, выполнение,
+  закрепление, архив, перемещение) его не меняют. Добавлено 2026-09-10 (веб показывает
+  «дата редактирования» в углу карточки заметки).
 - `at` при PUT: ISO 8601 (RFC3339); одноразовое (`once`) напоминание должно быть в будущем —
   иначе 400 (валидация как в боте). Для `daily` проверки прошлого нет.
 - Снятие напоминания (`DELETE reminder`) возвращает актуальную заметку (не 204).

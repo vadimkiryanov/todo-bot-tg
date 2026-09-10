@@ -16,7 +16,9 @@ import {
   togglePin,
   unarchiveNote,
   undoneNote,
+  useNotesStore,
 } from '../stores/notes';
+import { toggleNoteExpanded, useNoteViewStore } from '../stores/noteView';
 import { useUiStore } from '../stores/ui';
 import type { Note } from '../types/api';
 import { lockScroll, unlockScroll } from '../utils/scroll';
@@ -45,6 +47,20 @@ export function NoteMenu({
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Приоритет остаётся открытым: busy только на своей кнопке (без общего мигания).
   const [priorityBusy, setPriorityBusy] = useState(false);
+
+  // Живой приоритет из списка: меню держит заметку с момента открытия, а после
+  // кликов по «Приоритет» она устаревает — подпись показывала бы старое
+  // значение. Заметки нет в списках (например, из результатов поиска) —
+  // падаем обратно на переданную.
+  const storePriority = useNotesStore((s) =>
+    [...s.notes, ...s.doneNotes, ...s.archivedNotes, ...s.timersNotes].find(
+      (n) => n.id === note.id,
+    )?.priority,
+  );
+  const priority = storePriority ?? note.priority;
+
+  // Режим полного отображения — тоже из стора, чтобы подпись пункта была верной.
+  const expanded = useNoteViewStore((s) => s.expanded.has(note.id));
 
   // Позиция: под карточкой; если меню выше доступного места снизу — над ней.
   const menuEl = useRef<HTMLDivElement | null>(null);
@@ -125,7 +141,7 @@ export function NoteMenu({
     setPriorityBusy(true);
     setError('');
     try {
-      await setPriority(note, nextPriority(note.priority));
+      await setPriority(note, nextPriority(priority));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ошибка');
     } finally {
@@ -250,9 +266,9 @@ export function NoteMenu({
               }}
             >
               <span className="w-6 shrink-0 text-center text-base">
-                {priorityEmoji(note.priority)}
+                {priorityEmoji(priority)}
               </span>
-              Приоритет: {priorityLabel(note.priority)}
+              Приоритет: {priorityLabel(priority)}
             </button>
 
             <button
@@ -300,6 +316,22 @@ export function NoteMenu({
             </button>
           </>
         )}
+
+        {/* Полное отображение заметки на карточке — переключатель доступен в
+            любом состоянии. После тапа меню закрываем: результат (заметка
+            разворачивается на карточке) должен быть виден сразу. */}
+        <button
+          type="button"
+          role="menuitem"
+          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+          onClick={() => {
+            toggleNoteExpanded(note.id);
+            onClose();
+          }}
+        >
+          <span className="w-6 shrink-0 text-center text-base">{expanded ? '⤡' : '⤢'}</span>
+          {expanded ? 'Свернуть' : 'Развернуть'}
+        </button>
 
         <button
           type="button"

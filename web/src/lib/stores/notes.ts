@@ -356,9 +356,15 @@ export async function toggleDone(note: Note): Promise<void> {
   await mutateNote(note, { done: !note.done });
 }
 
-/** Сменить приоритет: оптимистично, откат при ошибке. */
+/** Сменить приоритет: оптимистично, откат при ошибке.
+    Сравниваем с АКТУАЛЬНЫМ приоритетом из стора, а не с переданной заметкой:
+    меню держит заметку с момента открытия, и после нескольких переключений
+    подряд её приоритет устаревает (иначе 4-й тап «none→none» не сработал бы). */
 export async function setPriority(note: Note, priority: Priority): Promise<void> {
-  if (note.priority === priority) return;
+  const owner = noteOwner(note.id);
+  const live =
+    owner === null ? undefined : kindState(owner.kind).notes.find((n) => n.id === note.id);
+  if ((live ?? note).priority === priority) return;
   await mutateNote(note, { priority });
 }
 
@@ -613,7 +619,11 @@ async function mutateNote(note: Note, patch: NotePatch): Promise<void> {
   const owner = noteOwner(note.id);
   if (owner === null) return;
   const previous = kindState(owner.kind).notes;
-  const optimistic: Note = { ...note, ...patch };
+  // Основой оптимистичного значения берём заметку ИЗ СПИСКА, а не переданную:
+  // переданная могла устареть (меню держит заметку с момента открытия), и
+  // устаревшие поля вернулись бы в список.
+  const base = previous.find((n) => n.id === note.id) ?? note;
+  const optimistic: Note = { ...base, ...patch };
   setKindNotes(owner.kind, previous.map((n) => (n.id === note.id ? optimistic : n)));
   syncActiveCache();
   try {

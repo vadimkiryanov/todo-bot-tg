@@ -47,6 +47,7 @@ import {
   unarchiveNote,
   undoneNote,
 } from '../stores/notes';
+import { toggleNoteExpanded, useNoteViewStore } from '../stores/noteView';
 import type { Note, ReminderRepeat } from '../types/api';
 import {
   formatReminderAt,
@@ -532,6 +533,8 @@ export function NotePage({ note, onClose }: NotePageProps) {
   // «Переместить» — для любой активной заметки: MoveModal сама показывает
   // папки выбранного топика (условие «в топике есть папки» не нужно).
   const canMove = isActive;
+  // Полное отображение этой заметки на карточке (локальная настройка).
+  const noteExpanded = useNoteViewStore((s) => s.expanded.has(pageNote.id));
 
   /**
    * Выполнить действие: store-мутация (заметка в списках) либо прямой API-вызов
@@ -1250,6 +1253,17 @@ export function NotePage({ note, onClose }: NotePageProps) {
               </button>
             </>
           )}
+          {/* Полное отображение заметки на карточке — доступно в любом
+              состоянии, независимо от того, активна заметка или нет. */}
+          <button
+            type="button"
+            role="menuitem"
+            className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+            onClick={() => pickMenu(() => toggleNoteExpanded(pageNote.id))}
+          >
+            <span className="w-6 shrink-0 text-center text-base">{noteExpanded ? '⤡' : '⤢'}</span>
+            <span className="truncate">{noteExpanded ? 'Свернуть' : 'Развернуть'}</span>
+          </button>
           <button
             type="button"
             role="menuitem"

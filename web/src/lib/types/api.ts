@@ -32,6 +32,9 @@ export interface Note {
   pinned: boolean;
   archived: boolean;
   created_at: string; // ISO 8601
+  /** Время последнего редактирования текста (ISO 8601). Меняется только при
+   *  правке текста — приоритет/выполнение/закрепление/архив его не трогают. */
+  updated_at: string;
   topic_id: number;
   folder_id: number | null; // null — в корне топика
   reminder_at: string | null; // ISO 8601 (UTC); null — без напоминания

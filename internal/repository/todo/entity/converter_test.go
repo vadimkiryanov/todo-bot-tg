@@ -19,6 +19,7 @@ func TestNoteToRecord_RoundTrip(t *testing.T) {
 		Priority:   model.PriorityHigh,
 		ReminderAt: &reminder,
 		CreatedAt:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 3, 5, 12, 30, 0, 0, time.UTC),
 		Archived:   true,
 		Done:       true,
 		Pinned:     true,
@@ -50,6 +51,9 @@ func TestNoteToRecord_RoundTrip(t *testing.T) {
 	}
 	if !result.CreatedAt.Equal(original.CreatedAt) {
 		t.Errorf("CreatedAt = %v, want %v", result.CreatedAt, original.CreatedAt)
+	}
+	if !result.UpdatedAt.Equal(original.UpdatedAt) {
+		t.Errorf("UpdatedAt = %v, want %v", result.UpdatedAt, original.UpdatedAt)
 	}
 	if result.Archived != original.Archived {
 		t.Errorf("Archived = %v, want %v", result.Archived, original.Archived)
