@@ -1,7 +1,7 @@
 // Нижняя панель: белая панель с инпутом, где слева от textarea стоит
-// бургер ☰ (как раньше). Над панелью парит столбик из двух кнопок:
-// 📁 «Папки» (выше) и 📚 «Топики» (ниже, как раньше) — вне белой заливки,
-// справа от них видны заметки чата. Каждая открывает свою шторку.
+// бургер ☰ (как раньше). Над панелью парят кнопки: слева столбик 📁 «Папки»
+// (выше) и 📚 «Топики» (ниже), справа — 🔍 «Поиск» (над ➤) — вне белой
+// заливки, между ними видны заметки чата. Каждая открывает свою шторку.
 // При вводе текста над инпутом появляется панель действий новой заметки:
 // 🔴🟡🔵 приоритет (цикл), ⏰ напоминание (модалка), 📌 закрепление.
 // Тап по кнопкам панели/плавающим кнопкам не уводит фокус из поля ввода —
@@ -19,6 +19,7 @@ import { loadNotifications, useNotificationsStore } from '../stores/notification
 import { useNavigationStore } from '../stores/navigation';
 import { logout } from '../stores/session';
 import { useSettingsStore } from '../stores/settings';
+import { useTopicsStore } from '../stores/topics';
 import type { Priority, ReminderRepeat } from '../types/api';
 import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
 
@@ -32,12 +33,15 @@ interface InputBarProps {
   onOpenTopics?: () => void;
   /** Открыть шторку папок. */
   onOpenFolders?: () => void;
+  /** Открыть поиск по заметкам (rect — геометрия кнопки 🔍: панель поиска
+      раскрывается из неё круговой анимацией). */
+  onOpenSearch?: (rect: DOMRect) => void;
   /** Переход на экран уровня вью: '/archive', '/done', '/notifications',
       '/timers', '/login' (см. TODO(router) в шапке). */
   onNavigate?: (path: string) => void;
 }
 
-export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarProps) {
+export function InputBar({ onOpenTopics, onOpenFolders, onOpenSearch, onNavigate }: InputBarProps) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -58,6 +62,10 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
   const folderActive = useNavigationStore((s) => s.activeFolderID !== null);
   // Режим показа папок на списке: кнопка 📁 нужна только в режиме 'button'.
   const foldersMode = useSettingsStore((s) => s.foldersMode);
+  // Поиск по заметкам показываем только когда есть топики: по пустому списку
+  // искать нечего. Кнопка 🔍 парит справа над ➤ (зеркально столбику 📁/📚).
+  const hasTopics = useTopicsStore((s) => s.topics.length > 0);
+  const searchBtnRef = useRef<HTMLButtonElement>(null);
   // Бейдж непрочитанных уведомлений на 🔔 и на бургере (считаем из списка,
   // на который подписались — в zustand нет реактивного getState()).
   const notificationItems = useNotificationsStore((s) => s.items);
@@ -355,6 +363,25 @@ export function InputBar({ onOpenTopics, onOpenFolders, onNavigate }: InputBarPr
           📚
         </button>
       </div>
+
+      {/* 🔍 «Поиск» — справа, на одном уровне со столбиком слева, над ➤
+          (кнопкой отправки заметки). Тап открывает полноэкранный поиск;
+          панель раскрывается круговой «развёрткой» из центра этой кнопки —
+          она же даёт геометрию (searchBtnRef) через onOpenSearch. */}
+      {hasTopics && (
+        <button
+          ref={searchBtnRef}
+          type="button"
+          aria-label="Поиск по заметкам"
+          className="glass-fab absolute bottom-full right-3 mb-2 flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
+          onClick={() => {
+            const rect = searchBtnRef.current?.getBoundingClientRect();
+            if (rect !== undefined) onOpenSearch?.(rect);
+          }}
+        >
+          🔍
+        </button>
+      )}
 
       <div className="flex flex-col gap-1.5">
         {text.trim() !== '' && (

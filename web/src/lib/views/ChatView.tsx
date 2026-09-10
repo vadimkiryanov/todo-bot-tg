@@ -159,8 +159,11 @@ export function ChatView() {
     setFolderMenu(null);
   }
 
-  // Полноэкранный поиск по заметкам (кнопка 🔍 над островком топиков).
+  // Полноэкранный поиск по заметкам (кнопка 🔍 внизу справа, над ➤ отправки).
+  // origin — центр кнопки в координатах вьюпорта: панель раскрывается из неё
+  // круговой «развёрткой» (clip-path circle), как будто кнопка стала инпутом.
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOrigin, setSearchOrigin] = useState<{ x: number; y: number } | null>(null);
 
   // ── URL-синхронизация (?topic=&folder=&note=) ───────────────────────────
   // Навигация зеркалится в адресную строку: смена топика/папки — replaceState
@@ -1251,25 +1254,16 @@ export function ChatView() {
           {pathMode === 'strip' && (
             <FolderStrip onOpen={() => setFolderSheetOpen(true)} displayFolderID={intentFolderID} />
           )}
-          {/* 🔍 поиск по заметкам: справа от островка (absolute — не влияет на
-              высоту topZone, которую меряют слайды для topPad). Показываем,
-              только когда есть топики: поиск по пустому списку бессмыслен. */}
-          {topics.length > 0 && (
-            <button
-              type="button"
-              aria-label="Поиск по заметкам"
-              className="glass-fab pointer-events-auto absolute right-3 top-[calc(env(safe-area-inset-top)+8px)] flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
-              onClick={() => setSearchOpen(true)}
-            >
-              🔍
-            </button>
-          )}
         </div>
 
         <footer className="shrink-0 rounded-t-2xl border-t border-border bg-background pb-[env(safe-area-inset-bottom)]">
           <InputBar
             onOpenTopics={() => setTopicSheetOpen(true)}
             onOpenFolders={() => setFolderSheetOpen(true)}
+            onOpenSearch={(rect) => {
+              setSearchOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+              setSearchOpen(true);
+            }}
             onNavigate={navigate}
           />
         </footer>
@@ -1277,6 +1271,7 @@ export function ChatView() {
 
       {searchOpen && (
         <SearchPanel
+          origin={searchOrigin}
           onClose={() => setSearchOpen(false)}
           onOpenNote={(note) => {
             // Поиск НЕ закрываем: страница заметки (NotePage, z-[70]) открывается

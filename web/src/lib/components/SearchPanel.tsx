@@ -1,11 +1,13 @@
 // Полноэкранный поиск по заметкам (как в Telegram): результаты появляются по
 // мере ввода (дебаунс 300 мс), пустой запрос — подсказка вместо списка.
+// Открывается из кнопки 🔍 внизу справа: панель раскрывается круговой
+// «развёрткой» (clip-path circle) от центра кнопки — см. prop origin.
 // Режим-тогл: «В топике» — по активному топику островка (topic_id в запросе);
 // «Везде» — глобально по всем топикам, результаты группируются сплиттерами
 // с именем топика. Поиск не включает выполненные и архивные (сервер).
 // Карточки/меню работают по объекту заметки (NoteCard/NoteMenu) — заметки
 // из результатов не обязаны лежать в списках активного контекста.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as React from 'react';
 
 import { searchNotes } from '../api/notes';
@@ -32,12 +34,15 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 type SearchMode = 'topic' | 'global';
 
 interface SearchPanelProps {
+  /** Центр кнопки 🔍 (координаты вьюпорта), из которой раскрывается панель.
+      undefined — открыть без «развёртки» (прямая ссылка/восстановление). */
+  origin?: { x: number; y: number } | null;
   onClose: () => void;
   onOpenNote: (note: Note) => void;
   onMenu: (note: Note, rect: DOMRect) => void;
 }
 
-export function SearchPanel({ onClose, onOpenNote, onMenu }: SearchPanelProps) {
+export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanelProps) {
   const activeTopicID = useNavigationStore((s) => s.activeTopicID);
   const topics = useTopicsStore((s) => s.topics);
 
@@ -50,6 +55,30 @@ export function SearchPanel({ onClose, onOpenNote, onMenu }: SearchPanelProps) {
   const [error, setError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Раскрытие «из кнопки»: панель проявляется круговой развёрткой (clip-path
+  // circle) от центра кнопки 🔍 к краям экрана — визуально кнопка становится
+  // панелью поиска с уже сфокусированным инпутом. Одноразово при открытии;
+  // prefers-reduced-motion — без анимации.
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (el === null || origin === null || origin === undefined) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const rect = el.getBoundingClientRect();
+    const ox = origin.x - rect.left;
+    const oy = origin.y - rect.top;
+    const radius = Math.hypot(Math.max(ox, rect.width - ox), Math.max(oy, rect.height - oy));
+    const anim = el.animate(
+      [
+        { clipPath: `circle(0px at ${ox}px ${oy}px)` },
+        { clipPath: `circle(${radius}px at ${ox}px ${oy}px)` },
+      ],
+      { duration: 380, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+    );
+    return () => anim.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- развёртка только в момент открытия
+  }, []);
 
   // Клавиатура сразу готова к вводу, как в Telegram.
   useEffect(() => {
@@ -130,47 +159,76 @@ export function SearchPanel({ onClose, onOpenNote, onMenu }: SearchPanelProps) {
     );
   }
 
-  return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-background">
-      {/* Шапка: назад (закрыть), строка поиска, ✕ очистки внутри. */}
-      <div className="flex items-center gap-2 px-3 pt-[calc(env(safe-area-inset-top)+8px)]">
-        <button
-          type="button"
-          aria-label="Закрыть поиск"
-          className="glass-fab flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
-          onClick={onClose}
-        >
-          ←
-        </button>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') onClose();
-          }}
-          placeholder={mode === 'topic' && scopeLabel !== undefined ? `В топике «${scopeLabel}»` : 'Поиск заметок'}
-          autoCapitalize="sentences"
-          autoCorrect="off"
-          className="min-h-11 flex-1 rounded-2xl border border-border bg-muted px-4 py-3 text-base outline-none placeholder:text-muted-foreground focus:border-ring"
-        />
-        {query !== '' && (
-          <button
-            type="button"
-            aria-label="Очистить"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
-            onClick={() => {
-              setQuery('');
-              inputRef.current?.focus();
-            }}
-          >
-            ✕
-          </button>
-        )}
-      </div>
+  // Показывать нечего (пустой ввод / нет данных под запрос): по пустому месту
+  // в области результатов можно закрыть поиск.
+  const noResults = !loading && (results === null || results.length === 0);
 
+  // ── Смена режима свайпом по результатам ────────────────────────────────
+  // Горизонтальный свайп переключает область поиска: влево — «Везде»,
+  // вправо — «В топике» (порядок тогла). Вертикальный жест (скролл
+  // результатов) не трогаем — ось определяется по первому движению.
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+  const swipe = useRef({ x: 0, y: 0, axis: null as null | 'x' | 'y', active: false });
+  // После горизонтального свайпа гасим «догоняющий» click (иначе пустое
+  // место закрыло бы поиск, хотя пользователь менял режим).
+  const suppressClick = useRef(false);
+  const SWIPE_THRESHOLD = 48;
+  const AXIS_THRESHOLD = 10;
+
+  function shiftMode(dir: 1 | -1): void {
+    // Локальный режим возможен только при активном топике — иначе один «Везде».
+    if (!canScopeTopic) return;
+    const next: SearchMode = dir === 1 ? 'global' : 'topic';
+    if (next === mode) return;
+    const el = resultsRef.current;
+    setMode(next);
+    if (el === null) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // Новый список влетает со стороны, откуда «пришёл» жест.
+    el.animate(
+      [
+        { transform: `translateX(${dir * 24}px)`, opacity: 0.4 },
+        { transform: 'none', opacity: 1 },
+      ],
+      { duration: 220, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+    );
+  }
+
+  function onSwipeDown(e: React.PointerEvent<HTMLDivElement>): void {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    swipe.current = { x: e.clientX, y: e.clientY, axis: null, active: true };
+  }
+
+  function onSwipeMove(e: React.PointerEvent<HTMLDivElement>): void {
+    const s = swipe.current;
+    if (!s.active || s.axis !== null) return;
+    const dx = e.clientX - s.x;
+    const dy = e.clientY - s.y;
+    if (Math.abs(dx) > AXIS_THRESHOLD || Math.abs(dy) > AXIS_THRESHOLD) {
+      s.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+  }
+
+  function onSwipeUp(e: React.PointerEvent<HTMLDivElement>): void {
+    const s = swipe.current;
+    if (!s.active) return;
+    s.active = false;
+    if (s.axis !== 'x') return;
+    const dx = e.clientX - s.x;
+    if (Math.abs(dx) >= SWIPE_THRESHOLD) {
+      suppressClick.current = true;
+      shiftMode(dx < 0 ? 1 : -1);
+    }
+  }
+
+  function onSwipeCancel(): void {
+    swipe.current.active = false;
+  }
+
+  return (
+    <div ref={rootRef} className="fixed inset-0 z-40 flex flex-col bg-background">
       {/* Тогл области поиска: «В топике» (активный топик островка) / «Везде». */}
-      <div className="flex justify-center px-3 pt-2">
+      <div className="flex justify-center px-3 pt-[calc(env(safe-area-inset-top)+8px)]">
         <div className="flex items-center gap-1 rounded-full border border-border bg-muted p-1">
           {canScopeTopic && (
             <button
@@ -197,7 +255,73 @@ export function SearchPanel({ onClose, onOpenNote, onMenu }: SearchPanelProps) {
         </div>
       </div>
 
-      <div className="mt-2 flex-1 overflow-y-auto px-3 pb-6">{body}</div>
+      {/* Результаты — над строкой набора: инпут внизу, как панель заметки.
+          Горизонтальный свайп по списку меняет область поиска («Везде» ← / →
+          «В топике»); touch-pan-y оставляет вертикальный скролл браузеру, а
+          горизонталь отдаёт нам. Клик по пустому месту закрывает поиск, только
+          когда показывать нечего (нет данных под запрос): тап по карточкам
+          обрабатывают сами карточки, а свайп смены режима поиск не сбрасывает. */}
+      <div
+        ref={resultsRef}
+        className="mt-2 flex-1 touch-pan-y overflow-y-auto px-3 pb-4"
+        onPointerDown={onSwipeDown}
+        onPointerMove={onSwipeMove}
+        onPointerUp={onSwipeUp}
+        onPointerCancel={onSwipeCancel}
+        onClick={
+          noResults
+            ? () => {
+                if (suppressClick.current) {
+                  suppressClick.current = false;
+                  return;
+                }
+                onClose();
+              }
+            : undefined
+        }
+      >
+        {body}
+      </div>
+
+      {/* Строка набора внизу (зеркалит панель ввода заметки): назад (закрыть),
+          поле поиска, ✕ очистки внутри. */}
+      <div className="shrink-0 border-t border-border px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="Закрыть поиск"
+            className="glass-fab flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
+            onClick={onClose}
+          >
+            ←
+          </button>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') onClose();
+            }}
+            placeholder={mode === 'topic' && scopeLabel !== undefined ? `В топике «${scopeLabel}»` : 'Поиск заметок'}
+            autoCapitalize="sentences"
+            autoCorrect="off"
+            className="min-h-11 flex-1 rounded-2xl border border-border bg-muted px-4 py-3 text-base outline-none placeholder:text-muted-foreground focus:border-ring"
+          />
+          {query !== '' && (
+            <button
+              type="button"
+              aria-label="Очистить"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
+              onClick={() => {
+                setQuery('');
+                inputRef.current?.focus();
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
