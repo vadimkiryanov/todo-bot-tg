@@ -17,12 +17,14 @@ func ToUserResponse(u user.User) UserResponse {
 	}
 }
 
-// ToTopicResponse конвертирует топик в DTO с количеством заметок.
-func ToTopicResponse(t model.Topic, noteCount int) TopicResponse {
+// ToTopicResponse конвертирует топик в DTO с количеством заметок и
+// признаком закрепа (pinned — топик входит в быстрые топики пользователя).
+func ToTopicResponse(t model.Topic, noteCount int, pinned bool) TopicResponse {
 	return TopicResponse{
 		ID:        t.ID,
 		Name:      t.Name,
 		NoteCount: noteCount,
+		Pinned:    pinned,
 	}
 }
 

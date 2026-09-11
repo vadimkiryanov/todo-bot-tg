@@ -12,8 +12,13 @@ import (
 type TodoService interface {
 	ListTopics(userID int64) ([]model.Topic, error)
 	CreateTopic(userID int64, name string) (model.Topic, error)
+	GetTopic(userID, topicID int64) (model.Topic, error)
 	RenameTopic(userID, topicID int64, name string) (model.Topic, error)
 	DeleteTopic(userID, topicID int64) error
+	// Закреплённые топики — они же быстрые топики пользователя (как в боте).
+	ListQuickTopicIDs(userID int64) ([]int64, error)
+	PinTopic(userID, topicID int64) error
+	UnpinTopic(userID, topicID int64) error
 
 	ListNotes(userID, topicID int64, folderID *int64) ([]model.Note, error)
 	SearchNotes(userID int64, q string, topicID *int64) ([]model.Note, error)

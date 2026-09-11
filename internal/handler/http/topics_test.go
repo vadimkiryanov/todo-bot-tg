@@ -88,6 +88,96 @@ func TestTopics_Errors(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// listTopicsFor возвращает список топиков пользователя.
+func listTopicsFor(t *testing.T, router http.Handler, cookie *http.Cookie) []dto.TopicResponse {
+	t.Helper()
+	rec := doJSON(t, router, http.MethodGet, "/api/v1/topics", "", cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var list []dto.TopicResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	return list
+}
+
+func TestTopics_Pin(t *testing.T) {
+	router := newTestRouter(t)
+	cookie := registerUser(t, router, "topics_pin", "password123")
+	topic := createTopic(t, router, cookie, "Работа")
+
+	require.False(t, listTopicsFor(t, router, cookie)[0].Pinned, "новый топик не закреплён")
+
+	// Закреп → 200 {pinned:true}, в списке флаг тоже true
+	rec := doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/topics/%d", topic.ID), `{"pinned":true}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	var pinned dto.TopicResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pinned))
+	require.True(t, pinned.Pinned)
+	require.Equal(t, "Работа", pinned.Name, "переименование не затронуто")
+	require.True(t, listTopicsFor(t, router, cookie)[0].Pinned)
+
+	// Повторный закреп — no-op, без ошибки и дублей
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/topics/%d", topic.ID), `{"pinned":true}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Переименование и закреп одним запросом
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/topics/%d", topic.ID), `{"name":"Личное","pinned":true}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	var both dto.TopicResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &both))
+	require.Equal(t, "Личное", both.Name)
+	require.True(t, both.Pinned)
+
+	// Откреп → 200 {pinned:false}
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/topics/%d", topic.ID), `{"pinned":false}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	var unpinned dto.TopicResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &unpinned))
+	require.False(t, unpinned.Pinned)
+	require.False(t, listTopicsFor(t, router, cookie)[0].Pinned)
+
+	// Повторное открепление — тоже no-op
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/topics/%d", topic.ID), `{"pinned":false}`, cookie)
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestTopics_PinErrors(t *testing.T) {
+	router := newTestRouter(t)
+	cookie := registerUser(t, router, "topics_pin_err", "password123")
+	topic := createTopic(t, router, cookie, "Работа")
+
+	// Пустое тело (ни name, ни pinned) → 400
+	rec := doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/topics/%d", topic.ID), `{}`, cookie)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// Несуществующий топик → 404
+	rec = doJSON(t, router, http.MethodPatch, "/api/v1/topics/999", `{"pinned":true}`, cookie)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+
+	// Чужой топик → 404 и он остаётся незакреплённым у владельца
+	bob := registerUser(t, router, "topics_pin_bob", "password123")
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/topics/%d", topic.ID), `{"pinned":true}`, bob)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.False(t, listTopicsFor(t, router, cookie)[0].Pinned)
+
+	// Предел: больше десяти закрепов нельзя (11-й → 409)
+	for i := 0; i < 10; i++ {
+		extra := createTopic(t, router, cookie, fmt.Sprintf("Топик %d", i))
+		rec = doJSON(t, router, http.MethodPatch,
+			fmt.Sprintf("/api/v1/topics/%d", extra.ID), `{"pinned":true}`, cookie)
+		require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	}
+	eleventh := createTopic(t, router, cookie, "Одиннадцатый")
+	rec = doJSON(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/topics/%d", eleventh.ID), `{"pinned":true}`, cookie)
+	require.Equal(t, http.StatusConflict, rec.Code)
+}
+
 func TestTopics_IsolationBetweenUsers(t *testing.T) {
 	router := newTestRouter(t)
 	alice := registerUser(t, router, "alice_t", "password123")

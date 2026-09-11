@@ -33,6 +33,7 @@ func Status(err error) int {
 	case errors.Is(err, errs.ErrTopicAlreadyExists),
 		errors.Is(err, errs.ErrFolderAlreadyExists),
 		errors.Is(err, errs.ErrNotEnoughParts),
+		errors.Is(err, errs.ErrTooManyQuickTopics),
 		errors.Is(err, errs.ErrUsernameTaken):
 		return http.StatusConflict
 

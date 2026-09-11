@@ -11,11 +11,13 @@ type UserEnvelope struct {
 	User UserResponse `json:"user"`
 }
 
-// TopicResponse — публичное представление топика {id, name, note_count}.
+// TopicResponse — публичное представление топика {id, name, note_count, pinned}.
+// Pinned — топик закреплён (он же попадает в строку быстрых кнопок в боте).
 type TopicResponse struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`
 	NoteCount int    `json:"note_count"`
+	Pinned    bool   `json:"pinned"`
 }
 
 // NoteEntityResponse — сущность форматирования фрагмента заметки

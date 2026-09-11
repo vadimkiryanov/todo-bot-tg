@@ -3,8 +3,9 @@
 // (выше) и 📚 «Топики» (ниже), справа — 🔍 «Поиск» (над ➤) — вне белой
 // заливки, между ними видны заметки чата. Каждая открывает свою шторку.
 // При вводе текста над инпутом появляется панель действий новой заметки:
-// 🔴🟡🔵 приоритет (цикл), ⏰ напоминание (модалка), 📌 закрепление и справа
-// ✏️ «полный редактор» — создать заметку и открыть её в NotePage.
+// 🔴🟡🔵 приоритет (цикл), ⏰ напоминание (модалка), 📌 закрепление,
+// ⤢ «развернуть» (созданная заметка показывается на карточке целиком)
+// и справа ✏️ «полный редактор» — создать заметку и открыть её в NotePage.
 // Тап по кнопкам панели/плавающим кнопкам не уводит фокус из поля ввода —
 // можно нажимать опции и продолжать набор.
 // Enter — отправить, Shift+Enter — новая строка. После отправки поле очищается.
@@ -18,6 +19,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createNote, loadArchived, loadDone, loadTimers } from '../stores/notes';
 import { loadNotifications, useNotificationsStore } from '../stores/notifications';
 import { useNavigationStore } from '../stores/navigation';
+import { setNoteExpanded } from '../stores/noteView';
 import { logout } from '../stores/session';
 import { useSettingsStore } from '../stores/settings';
 import { useTopicsStore } from '../stores/topics';
@@ -55,9 +57,12 @@ export function InputBar({
   const [sending, setSending] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
 
-  // Опции создания: приоритет / закреплено / напоминание.
+  // Опции создания: приоритет / закреплено / развёрнуто / напоминание.
   const [priority, setPriority] = useState<Priority>('none');
   const [pinned, setPinned] = useState(false);
+  // «Развёрнуто» — созданная заметка сразу показывается на карточке целиком
+  // (как пункт «⤢ Развернуть» в меню заметки), без обрезки превью.
+  const [expanded, setExpanded] = useState(false);
   const [reminderAt, setReminderAt] = useState<string | null>(null); // ISO 8601 UTC
   const [reminderRepeat, setReminderRepeat] = useState<ReminderRepeat>('once');
   const [showReminderForm, setShowReminderForm] = useState(false);
@@ -113,6 +118,7 @@ export function InputBar({
     resetHeight();
     setPriority('none');
     setPinned(false);
+    setExpanded(false);
     setReminderAt(null);
     setReminderRepeat('once');
     setShowReminderForm(false);
@@ -129,7 +135,13 @@ export function InputBar({
     setSending(true);
     try {
       const created = await createNote(value, currentOptions());
+      const markExpanded = expanded;
       resetCompose();
+      if (markExpanded && created !== null) {
+        // Заметку просили сразу развернуть — помечаем её «развёрнутой» до
+        // открытия редактора, чтобы карточка (и NotePage) показали её целиком.
+        setNoteExpanded(created.id, true);
+      }
       if (openEditor && created !== null) {
         // Полный редактор сам управляет фокусом — в поле ввода не возвращаем
         // (иначе на мобильных всплывёт клавиатура под открытой заметкой).
@@ -461,6 +473,20 @@ export function InputBar({
               onClick={() => press(() => setPinned(!pinned))}
             >
               📌
+            </button>
+            {/* ⤢ — созданная заметка будет развёрнута: карточка покажет текст
+                целиком (то же, что «⤢ Развернуть» в меню заметки). */}
+            <button
+              type="button"
+              aria-label={expanded ? 'Заметка не будет развёрнута' : 'Развернуть заметку'}
+              aria-pressed={expanded}
+              title={expanded ? 'Заметка будет развёрнута' : 'Развернуть заметку'}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
+                expanded ? 'bg-border/60' : 'bg-muted'
+              }`}
+              onClick={() => press(() => setExpanded(!expanded))}
+            >
+              ⤢
             </button>
             {/* ✏️ прижата вправо: создать заметку и сразу открыть её в полном
                 редакторе (форматирование, заголовки, списки). */}

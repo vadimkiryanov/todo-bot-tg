@@ -10,6 +10,9 @@ export interface Topic {
   id: number;
   name: string;
   note_count: number;
+  /** Закреплён (быстрый топик в боте): в вебе такие топики идут первыми,
+   *  закреп/открепление — через PATCH §6. */
+  pinned: boolean;
 }
 
 export type Priority = 'none' | 'low' | 'medium' | 'high';

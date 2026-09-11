@@ -1,4 +1,5 @@
-// Меню топика (шторка): пункты «Создать топик», «Переименовать», «Удалить».
+// Меню топика (шторка): пункты «Создать топик», «Закрепить/Открепить»,
+// «Переименовать», «Удалить».
 // Открывается долгим нажатием по табу топика — в островке и в сетке шторки
 // топиков. Общее для всех мест (состояние открытого топика — в сторе topicMenu).
 import { useState } from 'react';
@@ -7,7 +8,7 @@ import type * as React from 'react';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { closeTopicMenu, useTopicMenuStore } from '../stores/topic-menu';
-import { deleteTopic, renameTopic } from '../stores/topics';
+import { deleteTopic, renameTopic, setTopicPinned } from '../stores/topics';
 import { useUiStore } from '../stores/ui';
 
 export function TopicMenu() {
@@ -19,6 +20,7 @@ export function TopicMenu() {
   const [showDelete, setShowDelete] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [renameError, setRenameError] = useState('');
+  const [pinError, setPinError] = useState('');
   const [busy, setBusy] = useState(false);
 
   function openRename(): void {
@@ -33,6 +35,24 @@ export function TopicMenu() {
     setRenameMode(false);
     setRenameError('');
     setDeleteError('');
+    setPinError('');
+  }
+
+  /** Закреп/открепление (быстрый топик бота): меню закрывается по успеху,
+      ошибку показываем инлайном (и тостом из стора). */
+  async function togglePin(): Promise<void> {
+    const current = topic;
+    if (current === null) return;
+    setBusy(true);
+    setPinError('');
+    try {
+      await setTopicPinned(current.id, !current.pinned);
+      close();
+    } catch (e) {
+      setPinError(e instanceof Error ? e.message : 'ошибка');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submitRename(): Promise<void> {
@@ -131,6 +151,17 @@ export function TopicMenu() {
             >
               <span>📚</span> Создать топик
             </button>
+            <button
+              type="button"
+              className="flex h-12 items-center gap-3 rounded-xl px-2 text-base disabled:opacity-50"
+              disabled={busy}
+              onClick={() => {
+                void togglePin();
+              }}
+            >
+              <span>📌</span> {topic.pinned ? 'Открепить' : 'Закрепить'}
+            </button>
+            {pinError !== '' && <p className="px-2 text-sm text-destructive">{pinError}</p>}
             <button
               type="button"
               className="flex h-12 items-center gap-3 rounded-xl px-2 text-base"

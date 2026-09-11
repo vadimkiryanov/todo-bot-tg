@@ -22,9 +22,9 @@ function note(id: number, topicId: number, text: string): Note {
 
 describe('groupNotesByTopic', () => {
   const topics: Topic[] = [
-    { id: 1, name: '🏠 Личное', note_count: 0 },
-    { id: 2, name: '💼 Работа', note_count: 0 },
-    { id: 3, name: '🎬 Идеи', note_count: 0 },
+    { id: 1, name: '🏠 Личное', note_count: 0, pinned: false },
+    { id: 2, name: '💼 Работа', note_count: 0, pinned: false },
+    { id: 3, name: '🎬 Идеи', note_count: 0, pinned: false },
   ];
 
   it('группирует по топику в порядке стора, внутри сохраняет порядок', () => {

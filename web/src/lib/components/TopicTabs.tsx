@@ -1,6 +1,6 @@
 // Сетка топиков (шторка «Топики»): тап — выбор топика (шторка не
-// закрывается), долгий тап — меню топика (TopicMenu: создать/переименовать/
-// удалить).
+// закрывается), долгий тап — меню топика (TopicMenu: создать/закрепить/
+// переименовать/удалить). Закреплённые помечены 📌 и идут первыми.
 import { useEffect, useRef } from 'react';
 
 import { setActiveTopic, useNavigationStore } from '../stores/navigation';
@@ -70,6 +70,7 @@ export function TopicTabs() {
             onPointerLeave={cancelLongPress}
             onClick={() => onTap(topic.id)}
           >
+            {topic.pinned && <span className="shrink-0 text-xs">📌</span>}
             <span className="truncate">{topic.name}</span>
             {topic.note_count > 0 && (
               <span className="shrink-0 text-xs opacity-60">{topic.note_count}</span>

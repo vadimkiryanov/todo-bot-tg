@@ -74,6 +74,7 @@ interface UserRecord {
 interface TopicRecord {
   id: number;
   name: string;
+  pinned: boolean;
 }
 
 interface NoteRecord {
@@ -203,7 +204,8 @@ function toUser(user: UserRecord): User {
 }
 
 function toTopic(rec: TopicRecord, noteCount: number): Topic {
-  return { id: rec.id, name: rec.name, note_count: noteCount };
+  // Записи, сохранённые в localStorage до появления закрепа, — незакреплённые.
+  return { id: rec.id, name: rec.name, note_count: noteCount, pinned: rec.pinned === true };
 }
 
 function toNote(rec: NoteRecord): Note {
@@ -320,7 +322,7 @@ export async function mockRequest<T>(
   }
   const topicMatch = /^\/api\/v1\/topics\/(\d+)$/.exec(base);
   if (topicMatch && method === 'PATCH') {
-    return mockRenameTopic(Number(topicMatch[1]), body) as T;
+    return mockPatchTopic(Number(topicMatch[1]), body) as T;
   }
   if (topicMatch && method === 'DELETE') {
     mockDeleteTopic(Number(topicMatch[1]));
@@ -475,28 +477,41 @@ function mockCreateTopic(body: unknown): Topic {
   if (all.some((t) => t.name === trimmed)) {
     throw new ApiError(409, 'топик с таким названием уже существует');
   }
-  const topic: TopicRecord = { id: seq(K_TOPIC_SEQ(user.id)), name: trimmed };
+  const topic: TopicRecord = { id: seq(K_TOPIC_SEQ(user.id)), name: trimmed, pinned: false };
   all.push(topic);
   writeJSON(K_TOPICS(user.id), all);
-  return { id: topic.id, name: topic.name, note_count: 0 };
+  return { id: topic.id, name: topic.name, note_count: 0, pinned: false };
 }
 
-function mockRenameTopic(topicId: number, body: unknown): Topic {
+function mockPatchTopic(topicId: number, body: unknown): Topic {
   const user = requireUser();
-  const { name } = asObject(body);
-  if (typeof name !== 'string' || name.trim() === '') {
-    throw new ApiError(400, 'название обязательно');
-  }
-  const trimmed = name.trim();
+  const patch = asObject(body);
   const all = topicsOf(user.id);
   const topic = all.find((t) => t.id === topicId);
   if (topic === undefined) {
     throw new ApiError(404, 'топик не найден');
   }
-  if (all.some((t) => t.id !== topicId && t.name === trimmed)) {
-    throw new ApiError(409, 'топик с таким названием уже существует');
+  const hasName = 'name' in patch;
+  const hasPinned = 'pinned' in patch;
+  if (!hasName && !hasPinned) {
+    throw new ApiError(400, 'пустой запрос');
   }
-  topic.name = trimmed;
+  if (hasName) {
+    if (typeof patch.name !== 'string' || patch.name.trim() === '') {
+      throw new ApiError(400, 'название обязательно');
+    }
+    const trimmed = patch.name.trim();
+    if (all.some((t) => t.id !== topicId && t.name === trimmed)) {
+      throw new ApiError(409, 'топик с таким названием уже существует');
+    }
+    topic.name = trimmed;
+  }
+  if (hasPinned) {
+    if (typeof patch.pinned !== 'boolean') {
+      throw new ApiError(400, 'pinned должен быть true/false');
+    }
+    topic.pinned = patch.pinned;
+  }
   writeJSON(K_TOPICS(user.id), all);
   const noteCount = notesOf(user.id).filter((n) => n.topic_id === topicId).length;
   return toTopic(topic, noteCount);

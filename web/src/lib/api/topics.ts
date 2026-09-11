@@ -13,6 +13,12 @@ export function renameTopic(id: number, name: string): Promise<Topic> {
   return request<Topic>('PATCH', `/api/v1/topics/${id}`, { name });
 }
 
+/** Закрепить/открепить топик (быстрый топик бота). Тот же PATCH, что и
+ *  переименование: тело может нести одно поле или оба сразу. */
+export function setTopicPinned(id: number, pinned: boolean): Promise<Topic> {
+  return request<Topic>('PATCH', `/api/v1/topics/${id}`, { pinned });
+}
+
 export function deleteTopic(id: number): Promise<void> {
   return request<void>('DELETE', `/api/v1/topics/${id}`);
 }

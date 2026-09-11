@@ -48,15 +48,23 @@ export function isNoteExpanded(noteId: number): boolean {
   return useNoteViewStore.getState().expanded.has(noteId);
 }
 
-/** Переключить режим полного отображения для одной заметки. */
-export function toggleNoteExpanded(noteId: number): void {
+/** Явно задать режим полного отображения для одной заметки.
+    Используется при создании заметки: панель ввода умеет сразу пометить
+    новую заметку развёрнутой. */
+export function setNoteExpanded(noteId: number, expanded: boolean): void {
   const current = useNoteViewStore.getState().expanded;
+  if (current.has(noteId) === expanded) return;
   const next = new Set(current);
-  if (next.has(noteId)) {
-    next.delete(noteId);
-  } else {
+  if (expanded) {
     next.add(noteId);
+  } else {
+    next.delete(noteId);
   }
   useNoteViewStore.setState({ expanded: next });
   writeExpanded(next);
+}
+
+/** Переключить режим полного отображения для одной заметки. */
+export function toggleNoteExpanded(noteId: number): void {
+  setNoteExpanded(noteId, !useNoteViewStore.getState().expanded.has(noteId));
 }

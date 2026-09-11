@@ -87,7 +87,6 @@ export function ChatView() {
 
   const folders = useFoldersStore((s) => s.all);
   const foldersTopicId = useFoldersStore((s) => s.topicId);
-  const foldersLoading = useFoldersStore((s) => s.loading);
   const foldersError = useFoldersStore((s) => s.error);
   const foldersCacheTick = useFoldersStore((s) => s.cacheTick);
 
@@ -394,18 +393,20 @@ export function ChatView() {
   /** Текущий список, разбитый на закреплённые/остальные (обычный режим). */
   const normalSplit = useMemo(() => splitNotes(notes), [notes]);
 
-  /** Папки активного топика ещё не показаны (идёт первая загрузка без кеша:
-      topicId стора не совпал с активным топиком). Условие — как в FolderBar
-      (показ дерева в шторке): папки «готовы» после успешной загрузки, в т.ч.
-      когда их ноль; при ошибке загрузка останавливается и папки не блокируют
-      список. */
-  const foldersPending = foldersLoading && foldersTopicId !== activeTopicID;
+  /** Папки активного топика готовы к показу: стор отдал папки именно этого
+      топика (topicId совпал) либо загрузка папок завершилась ошибкой — тогда
+      список заметок не блокируем (иначе он завис бы на «загрузке»).
+      Одного флага loading мало: в первом кадре после смены топика и при
+      мгновенной подстановке кеша папок с фоновым обновлением loading уже
+      false, а папок активного топика в сторе ещё нет — заметки успевали
+      показаться раньше строк папок. */
+  const foldersReady = foldersTopicId === activeTopicID || foldersError !== null;
 
   /** Глубокий уровень «занят»: грузятся заметки уровня ИЛИ папки активного
       топика. Совместная загрузка: список не показывается, пока не приехали
       обе части — строки папок (режим «в списке») и заметки появляются вместе,
       папки не «доезжают» после списка заметок. */
-  const levelLoading = notesLoading || foldersPending;
+  const levelLoading = notesLoading || !foldersReady;
 
   /** Разбить список заметок на закреплённые и остальные (порядок в списке). */
   function splitNotes(list: Note[]): { pinned: Note[]; rest: Note[] } {

@@ -14,8 +14,11 @@ type LoginRequest struct {
 }
 
 // TopicRequest — тело POST/PATCH /api/v1/topics.
+// Name — имя топика (POST всегда, PATCH — при переименовании).
+// Pinned — закрепление топика (только PATCH): nil — поле не передано.
 type TopicRequest struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	Pinned *bool  `json:"pinned"`
 }
 
 // NoteCreateRequest — тело POST /api/v1/notes.

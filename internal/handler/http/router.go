@@ -34,7 +34,7 @@ func NewRouter(users UserRepository, sessions session.Store, svc TodoService, se
 
 	mux.Handle("GET /api/v1/topics", withAuth(todo.listTopics))
 	mux.Handle("POST /api/v1/topics", withAuth(todo.createTopic))
-	mux.Handle("PATCH /api/v1/topics/{id}", withAuth(todo.renameTopic))
+	mux.Handle("PATCH /api/v1/topics/{id}", withAuth(todo.patchTopic))
 	mux.Handle("DELETE /api/v1/topics/{id}", withAuth(todo.deleteTopic))
 
 	mux.Handle("GET /api/v1/notes", withAuth(todo.listNotes))

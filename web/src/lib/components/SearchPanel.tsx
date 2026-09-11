@@ -246,6 +246,11 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
             onKeyDown={(e) => {
               if (e.key === 'Escape') onClose();
             }}
+            onBlur={() => {
+              // Фокус ушёл из поля, а запроса нет — закрываем поиск: режим
+              // поиска живёт, пока в нём набирают текст (или он уже набран).
+              if (query.trim() === '') onClose();
+            }}
             placeholder={mode === 'topic' && scopeLabel !== undefined ? `В топике «${scopeLabel}»` : 'Поиск заметок'}
             autoCapitalize="sentences"
             autoCorrect="off"
@@ -304,7 +309,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
           свайп смены режима поиск не сбрасывает. */}
       <div
         ref={resultsRef}
-        className="mt-2 flex-1 touch-pan-y overflow-y-auto px-3 pb-[calc(env(safe-area-inset-bottom)+16px)]"
+        className="scroll-area mt-2 flex-1 touch-pan-y overflow-y-auto px-3 pb-[calc(env(safe-area-inset-bottom)+16px)]"
         onPointerDown={onSwipeDown}
         onPointerMove={onSwipeMove}
         onPointerUp={onSwipeUp}

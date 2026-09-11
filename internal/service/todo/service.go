@@ -13,6 +13,10 @@ import (
 	"todo-bot-tg/internal/model"
 )
 
+// maxQuickTopics — предел числа закреплённых (быстрых) топиков: строка
+// быстрых кнопок в боте показывает не больше десяти.
+const maxQuickTopics = 10
+
 // NoteRepository — интерфейс хранилища заметок (определён потребителем — сервисом).
 type NoteRepository interface {
 	CreateNote(note model.Note) (model.Note, error)
@@ -145,6 +149,70 @@ func (s *Service) RenameTopic(userID, topicID int64, name string) (model.Topic, 
 	}
 
 	return s.topicRepo.UpdateTopic(userID, topicID, name)
+}
+
+// ListQuickTopicIDs возвращает ID закреплённых топиков пользователя (они же —
+// выбранные для строки быстрых кнопок в боте), в порядке хранения.
+func (s *Service) ListQuickTopicIDs(userID int64) ([]int64, error) {
+	settings, err := s.GetSettings(userID)
+	if err != nil {
+		return nil, err
+	}
+	return settings.QuickTopicIDs, nil
+}
+
+// PinTopic закрепляет топик: добавляет его ID к быстрым топикам пользователя
+// (в боте из них строится строка быстрых кнопок). Повторный закреп — no-op.
+func (s *Service) PinTopic(userID, topicID int64) error {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	// Топик должен существовать и принадлежать пользователю.
+	if _, err := s.topicRepo.GetTopic(userID, topicID); err != nil {
+		return err
+	}
+
+	settings, err := s.GetSettings(userID)
+	if err != nil {
+		return err
+	}
+	for _, id := range settings.QuickTopicIDs {
+		if id == topicID {
+			return nil
+		}
+	}
+	if len(settings.QuickTopicIDs) >= maxQuickTopics {
+		return errs.ErrTooManyQuickTopics
+	}
+	settings.QuickTopicIDs = append(settings.QuickTopicIDs, topicID)
+
+	// Сохраняем напрямую в репозиторий: лок пользователя уже взят, а
+	// SaveSettings взял бы его повторно.
+	return s.settingsRepo.SaveSettings(settings)
+}
+
+// UnpinTopic снимает закреп: убирает ID топика из быстрых топиков.
+func (s *Service) UnpinTopic(userID, topicID int64) error {
+	unlock := s.locks.Lock(userID)
+	defer unlock()
+
+	settings, err := s.GetSettings(userID)
+	if err != nil {
+		return err
+	}
+	kept := make([]int64, 0, len(settings.QuickTopicIDs))
+	for _, id := range settings.QuickTopicIDs {
+		if id == topicID {
+			continue
+		}
+		kept = append(kept, id)
+	}
+	if len(kept) == len(settings.QuickTopicIDs) {
+		return nil // топик и не был закреплён
+	}
+	settings.QuickTopicIDs = kept
+
+	return s.settingsRepo.SaveSettings(settings)
 }
 
 // DeleteTopic удаляет топик вместе с заметками и файлами вложений.
