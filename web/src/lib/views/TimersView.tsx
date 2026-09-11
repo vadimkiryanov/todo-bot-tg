@@ -52,7 +52,7 @@ export function TimersView() {
           <button
             type="button"
             aria-label="Назад"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
             onClick={() => navigate('/')}
           >
             ←
@@ -61,7 +61,7 @@ export function TimersView() {
           <button
             type="button"
             aria-label="Выйти"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
             onClick={() => void doLogout()}
           >
             🚪
@@ -76,7 +76,7 @@ export function TimersView() {
               <EmptyState emoji="⚠️" text={timersError} />
               <button
                 type="button"
-                className="h-11 rounded-xl border border-border px-6 text-sm"
+                className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
                 onClick={() => void loadTimers()}
               >
                 Повторить
@@ -91,7 +91,7 @@ export function TimersView() {
                 <button
                   key={note.id}
                   type="button"
-                  className={`glass-card flex w-full touch-manipulation select-none flex-col gap-1 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none] ${
+                  className={`glass-card flex w-full touch-manipulation select-none flex-col gap-1 rounded-2xl px-4 py-3 text-left shadow-sm btn-press-soft [-webkit-touch-callout:none] ${
                     note.priority === 'high'
                       ? 'note-priority-high'
                       : note.priority === 'medium'

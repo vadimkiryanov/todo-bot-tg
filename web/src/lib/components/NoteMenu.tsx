@@ -202,7 +202,7 @@ export function NoteMenu({
           <button
             type="button"
             role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
             onClick={() => {
               useUiStore.setState({ folderCreateOpen: true });
               onClose();
@@ -217,7 +217,7 @@ export function NoteMenu({
           <button
             type="button"
             role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
             disabled={busy}
             onClick={() => {
               void run(() => toggleDone(note));
@@ -232,7 +232,7 @@ export function NoteMenu({
           <button
             type="button"
             role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
             disabled={busy}
             onClick={() => {
               void run(() => unarchiveNote(note));
@@ -245,7 +245,7 @@ export function NoteMenu({
           <button
             type="button"
             role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
             disabled={busy}
             onClick={() => {
               void run(() => undoneNote(note));
@@ -259,7 +259,7 @@ export function NoteMenu({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
               disabled={priorityBusy}
               onClick={() => {
                 void doCyclePriority();
@@ -274,7 +274,7 @@ export function NoteMenu({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
               disabled={busy}
               onClick={() => {
                 void run(() => togglePin(note));
@@ -288,7 +288,7 @@ export function NoteMenu({
               <button
                 type="button"
                 role="menuitem"
-                className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+                className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
                 onClick={() => {
                   // Сначала действие с валидной заметкой; закрытие — после. Если
                   // закрыть меню раньше, заметка родителя к моменту onMove уже
@@ -305,7 +305,7 @@ export function NoteMenu({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
               disabled={busy}
               onClick={() => {
                 void run(() => archiveNote(note));
@@ -323,7 +323,7 @@ export function NoteMenu({
         <button
           type="button"
           role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
           onClick={() => {
             toggleNoteExpanded(note.id);
             onClose();
@@ -336,7 +336,7 @@ export function NoteMenu({
         <button
           type="button"
           role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left text-destructive transition-colors active:bg-border/50"
+          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left text-destructive btn-press-soft transition-colors active:bg-border/50"
           onClick={() => {
             setConfirmDelete(true);
             setError('');

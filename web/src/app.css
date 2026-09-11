@@ -482,6 +482,27 @@ body.scroll-locked .scroll-area {
   .spinner {
     animation: none !important;
   }
+  /* Отклик нажатия полей ввода — без движения: ни сжатия, ни анимации. */
+  .input-press,
+  .input-press-soft,
+  .input-press.pressed,
+  .input-press-soft.pressed {
+    transition: none;
+    transform: none;
+  }
+  /* Отклик нажатия кнопок — без сжатия и пружины. */
+  .btn-press,
+  .btn-press-soft,
+  .btn-press:active,
+  .btn-press-soft:active,
+  .btn-press.pressed,
+  .btn-press-soft.pressed,
+  .btn-press-plain,
+  .btn-press-plain:active,
+  .btn-press-plain.pressed {
+    transition: none;
+    transform: none;
+  }
   /* Подсветка без анимации: статичная акцентная заливка на время подсветки
      (класс снимается таймером, поэтому плавного ухода не требуется). */
   .note-highlight {
@@ -541,6 +562,94 @@ input,
 textarea {
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* ── Отклик касания полей ввода ──────────────────────────────
+   Любое поле под пальцем «продавливается»: лёгкое сжатие на время нажатия
+   и пружинистый возврат после отпускания (как отклик кнопок Telegram).
+   Состояние — класс .pressed от installPress (utils/press.ts): на телефоне
+   нативный :active не срабатывает вовсе (проверено на устройстве — кнопки
+   не продавливались), поэтому под пальцем состояние ведёт класс. Базовая
+   пружина живёт на .input-press: она задаёт переход возврата, .pressed —
+   быстрое сжатие.
+   Фокус: рамка (focus:border-ring) проявляется плавно, а не мгновенно —
+   поле отзывается и на фокус, а не только на касание.
+   .input-press-soft — крупные поверхности (редактор заметки во весь экран):
+   сжатие почти незаметно, текст не «дышит» при каждом тапе по курсору.
+   Без will-change: он вызывал перерисовку эмодзи запасным шрифтом. */
+.input-press,
+.input-press-soft {
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1),
+    border-color 0.18s ease-out,
+    background-color 0.18s ease-out;
+}
+.input-press.pressed,
+.input-press-soft.pressed {
+  transition:
+    transform 0.1s ease-out,
+    border-color 0.18s ease-out,
+    background-color 0.18s ease-out;
+}
+.input-press.pressed {
+  transform: scale(0.97);
+}
+.input-press-soft.pressed {
+  transform: scale(0.99);
+}
+
+/* ── Отклик нажатия кнопок (как в Telegram) ──────────────────
+   Кнопка «продавливается» под пальцем и пружинисто отпускает: сжатие
+   быстрое (0.1s), возврат — пружина с лёгким перелётом (0.34s). Единый
+   ритм вместо разрозненных active:scale-* (0.90/0.95/0.97/0.98);
+   цветовая подсветка строк (active:bg-*) сохраняется и тоже анимируется.
+   .btn-press — компактные кнопки/иконки/чипы (сжатие 0.94);
+   .btn-press-soft — крупные карточки и строки-кнопки (0.98, почти
+   незаметно — карточка не «прыгает», но отклик чувствуется).
+   Состояние приходит двумя путями с одинаковым видом: .pressed — класс от
+   installPress (utils/press.ts) для пальца/стилуса (на телефоне нативный
+   :active не срабатывает вовсе) и :active — для мыши на десктопе. */
+.btn-press,
+.btn-press-soft {
+  transition:
+    transform 0.34s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-press:active,
+.btn-press-soft:active,
+.btn-press.pressed,
+.btn-press-soft.pressed {
+  transition:
+    transform 0.1s ease-out,
+    background-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+.btn-press:active,
+.btn-press.pressed {
+  transform: scale(0.94);
+}
+.btn-press-soft:active,
+.btn-press-soft.pressed {
+  transform: scale(0.98);
+}
+
+/* .btn-press-plain — тот же отклик, но только сжатие, без переходов цвета и
+   фона. Нужен элементам, которые сами пересчитывают цвет по кадрам (табы-пилюли
+   островка топиков: текст красится по положению капсулы-подсветки, стиль —
+   inline), иначе transition на color заставлял бы текст отставать от капсулы при
+   перетаскивании ленты. */
+.btn-press-plain {
+  transition: transform 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-press-plain:active,
+.btn-press-plain.pressed {
+  transition: transform 0.1s ease-out;
+  transform: scale(0.98);
 }
 
 /* Скролл-контейнер списка заметок. overscroll-behavior-y: contain возвращает

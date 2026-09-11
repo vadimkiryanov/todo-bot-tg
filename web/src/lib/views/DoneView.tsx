@@ -69,7 +69,7 @@ export function DoneView() {
           <button
             type="button"
             aria-label="Назад"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
             onClick={() => navigate('/')}
           >
             ←
@@ -78,7 +78,7 @@ export function DoneView() {
           <button
             type="button"
             aria-label="Выйти"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
             onClick={() => void doLogout()}
           >
             🚪
@@ -93,7 +93,7 @@ export function DoneView() {
               <EmptyState emoji="⚠️" text={doneError} />
               <button
                 type="button"
-                className="h-11 rounded-xl border border-border px-6 text-sm"
+                className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
                 onClick={() => void loadDone()}
               >
                 Повторить

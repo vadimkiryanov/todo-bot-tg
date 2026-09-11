@@ -1072,7 +1072,7 @@ export function ChatView() {
                       <EmptyState emoji="⚠️" text={notesError} />
                       <button
                         type="button"
-                        className="h-11 rounded-xl border border-border px-6 text-sm"
+                        className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
                         onClick={() => {
                           const nav = useNavigationStore.getState();
                           const topicId = nav.activeTopicID;
@@ -1193,7 +1193,7 @@ export function ChatView() {
             <EmptyState emoji="⚠️" text={topicsError} />
             <button
               type="button"
-              className="h-11 rounded-xl border border-border px-6 text-sm"
+              className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
               onClick={() => void loadTopics()}
             >
               Повторить
@@ -1204,7 +1204,7 @@ export function ChatView() {
             <EmptyState emoji="＋" text="Создайте топик" />
             <button
               type="button"
-              className="flex h-11 items-center gap-2 rounded-xl border border-border px-6 text-sm"
+              className="btn-press flex h-11 items-center gap-2 rounded-xl border border-border px-6 text-sm"
               onClick={() => useUiStore.setState({ topicCreateOpen: true })}
             >
               <span>＋</span> Создать

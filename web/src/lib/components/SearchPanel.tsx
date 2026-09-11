@@ -234,7 +234,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
           <button
             type="button"
             aria-label="Закрыть поиск"
-            className="glass-fab flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
+            className="glass-fab flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground btn-press"
             onClick={onClose}
           >
             ←
@@ -254,13 +254,13 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
             placeholder={mode === 'topic' && scopeLabel !== undefined ? `В топике «${scopeLabel}»` : 'Поиск заметок'}
             autoCapitalize="sentences"
             autoCorrect="off"
-            className="min-h-11 flex-1 rounded-2xl border border-border bg-muted px-4 py-3 text-base outline-none placeholder:text-muted-foreground focus:border-ring"
+            className="input-press min-h-11 flex-1 rounded-2xl border border-border bg-muted px-4 py-3 text-base outline-none placeholder:text-muted-foreground focus:border-ring"
           />
           {query !== '' && (
             <button
               type="button"
               aria-label="Очистить"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground btn-press"
               onClick={() => {
                 setQuery('');
                 inputRef.current?.focus();
@@ -280,7 +280,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
             <button
               type="button"
               aria-pressed={mode === 'topic'}
-              className={`flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
+              className={`btn-press flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
                 mode === 'topic' ? 'bg-primary text-white' : 'text-muted-foreground'
               }`}
               onClick={() => setMode('topic')}
@@ -291,7 +291,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
           <button
             type="button"
             aria-pressed={mode === 'global'}
-            className={`flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
+            className={`btn-press flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
               mode === 'global' ? 'bg-primary text-white' : 'text-muted-foreground'
             }`}
             onClick={() => setMode('global')}

@@ -128,14 +128,14 @@ export function ReminderForm({
         onBlur={() => {
           setPickerOpen(false);
         }}
-        className="cursor-pointer rounded-lg border border-border bg-muted px-3 py-2 text-sm outline-none focus:border-ring"
+        className="input-press cursor-pointer rounded-lg border border-border bg-muted px-3 py-2 text-sm outline-none focus:border-ring"
       />
       <div className="flex gap-1 rounded-lg bg-border/40 p-1">
         {REPEAT_ITEMS.map((item) => (
           <button
             key={item}
             type="button"
-            className={`h-8 flex-1 rounded-md text-xs transition-colors ${
+            className={`btn-press h-8 flex-1 rounded-md text-xs transition-colors ${
               repeat === item ? 'bg-muted font-medium shadow-sm' : 'text-muted-foreground'
             }`}
             onClick={() => {
@@ -148,12 +148,12 @@ export function ReminderForm({
       </div>
       {error !== '' && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
-        <button type="button" className="h-10 flex-1 rounded-lg border border-border text-sm" onClick={onCancel}>
+        <button type="button" className="btn-press h-10 flex-1 rounded-lg border border-border text-sm" onClick={onCancel}>
           Отмена
         </button>
         <button
           type="submit"
-          className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50"
+          className="btn-press flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50"
           disabled={busy || value === ''}
         >
           {busy ? <Spinner size="15px" /> : 'Сохранить'}

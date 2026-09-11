@@ -110,7 +110,7 @@ export function FolderRow({ folder, onOpen, onMenu }: FolderRowProps) {
   return (
     <button
       type="button"
-      className="glass-card flex w-full touch-pan-y select-none items-center gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none]"
+      className="glass-card flex w-full touch-pan-y select-none items-center gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm btn-press-soft [-webkit-touch-callout:none]"
       onClick={onRowClick}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

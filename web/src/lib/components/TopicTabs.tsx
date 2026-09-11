@@ -59,7 +59,7 @@ export function TopicTabs() {
           <button
             key={topic.id}
             type="button"
-            className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] ${
+            className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm btn-press-soft ${
               topic.id === activeTopicID
                 ? 'bg-primary text-white'
                 : 'bg-muted text-foreground'

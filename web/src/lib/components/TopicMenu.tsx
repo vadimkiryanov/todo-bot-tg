@@ -114,14 +114,14 @@ export function TopicMenu() {
               value={renameName}
               onChange={onRenameInput}
               maxLength={64}
-              className="h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
+              className="input-press h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
               autoFocus
             />
             {renameError !== '' && <p className="text-sm text-destructive">{renameError}</p>}
             <div className="flex gap-2">
               <button
                 type="button"
-                className="h-11 flex-1 rounded-xl border border-border text-sm"
+                className="btn-press h-11 flex-1 rounded-xl border border-border text-sm"
                 onClick={() => {
                   setRenameMode(false);
                   setRenameError('');
@@ -131,7 +131,7 @@ export function TopicMenu() {
               </button>
               <button
                 type="submit"
-                className="h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
+                className="btn-press h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
                 disabled={busy}
               >
                 Сохранить
@@ -143,7 +143,7 @@ export function TopicMenu() {
             <h2 className="px-2 pb-2 pt-1 text-lg font-semibold">{topic.name}</h2>
             <button
               type="button"
-              className="flex h-12 items-center gap-3 rounded-xl px-2 text-base"
+              className="btn-press-soft flex h-12 items-center gap-3 rounded-xl px-2 text-base"
               onClick={() => {
                 close();
                 useUiStore.setState({ topicCreateOpen: true });
@@ -153,7 +153,7 @@ export function TopicMenu() {
             </button>
             <button
               type="button"
-              className="flex h-12 items-center gap-3 rounded-xl px-2 text-base disabled:opacity-50"
+              className="btn-press-soft flex h-12 items-center gap-3 rounded-xl px-2 text-base disabled:opacity-50"
               disabled={busy}
               onClick={() => {
                 void togglePin();
@@ -164,14 +164,14 @@ export function TopicMenu() {
             {pinError !== '' && <p className="px-2 text-sm text-destructive">{pinError}</p>}
             <button
               type="button"
-              className="flex h-12 items-center gap-3 rounded-xl px-2 text-base"
+              className="btn-press-soft flex h-12 items-center gap-3 rounded-xl px-2 text-base"
               onClick={openRename}
             >
               <span>✏️</span> Переименовать
             </button>
             <button
               type="button"
-              className="flex h-12 items-center gap-3 rounded-xl px-2 text-base text-destructive"
+              className="btn-press-soft flex h-12 items-center gap-3 rounded-xl px-2 text-base text-destructive"
               onClick={() => {
                 setDeleteError('');
                 setShowDelete(true);
@@ -181,7 +181,7 @@ export function TopicMenu() {
             </button>
             <button
               type="button"
-              className="mt-2 h-11 rounded-xl border border-border text-sm"
+              className="btn-press mt-2 h-11 rounded-xl border border-border text-sm"
               onClick={close}
             >
               Отмена

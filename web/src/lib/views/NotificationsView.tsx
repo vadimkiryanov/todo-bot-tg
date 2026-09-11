@@ -50,7 +50,7 @@ export function NotificationsView() {
           <button
             type="button"
             aria-label="Назад"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
             onClick={() => navigate('/')}
           >
             ←
@@ -59,7 +59,7 @@ export function NotificationsView() {
           <button
             type="button"
             aria-label="Выйти"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg active:bg-border/50"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
             onClick={() => void doLogout()}
           >
             🚪
@@ -74,7 +74,7 @@ export function NotificationsView() {
               <EmptyState emoji="⚠️" text={error} />
               <button
                 type="button"
-                className="h-11 rounded-xl border border-border px-6 text-sm"
+                className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
                 onClick={() => void loadNotifications()}
               >
                 Повторить
@@ -90,7 +90,7 @@ export function NotificationsView() {
                 <button
                   key={item.id}
                   type="button"
-                  className="glass-card flex w-full touch-manipulation select-none flex-col gap-1 rounded-2xl px-4 py-3 text-left shadow-sm transition-[background-color,transform] active:scale-[0.98] [-webkit-touch-callout:none]"
+                  className="glass-card flex w-full touch-manipulation select-none flex-col gap-1 rounded-2xl px-4 py-3 text-left shadow-sm btn-press-soft [-webkit-touch-callout:none]"
                   onClick={() => void openByNotification(item.note_id)}
                 >
                   <span className="flex min-w-0 items-start gap-2.5">

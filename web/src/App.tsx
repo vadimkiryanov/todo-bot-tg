@@ -10,6 +10,7 @@ import { initRouter, replacePath, useRouteStore } from './lib/router';
 import { clearSession, initSession, useSessionStore } from './lib/stores/session';
 import { initNetwork, useNetworkStore } from './lib/stores/network';
 import { loadNotifications } from './lib/stores/notifications';
+import { installPress } from './lib/utils/press';
 import { ArchivedView } from './lib/views/ArchivedView';
 import { ChatView } from './lib/views/ChatView';
 import { DoneView } from './lib/views/DoneView';
@@ -36,7 +37,8 @@ export function App() {
   const path = useRouteStore((s) => s.path);
 
   // Одноразовая инициализация: 401 → сброс сессии и на экран входа, PWA,
-  // подписки на сеть и навигацию (popstate), восстановление сессии.
+  // подписки на сеть, навигацию (popstate) и отклик нажатий, восстановление
+  // сессии.
   useEffect(() => {
     setUnauthorizedHandler(() => {
       clearSession();
@@ -45,10 +47,12 @@ export function App() {
     registerSW({ immediate: true });
     const stopNetwork = initNetwork();
     const stopRouter = initRouter();
+    const stopPress = installPress();
     void initSession();
     return () => {
       stopNetwork();
       stopRouter();
+      stopPress();
     };
   }, []);
 

@@ -137,14 +137,14 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
             value={renameName}
             onChange={onRenameInput}
             maxLength={64}
-            className="h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
+            className="input-press h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
             autoFocus
           />
           {error !== '' && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
             <button
               type="button"
-              className="h-11 flex-1 rounded-xl border border-border text-sm"
+              className="btn-press h-11 flex-1 rounded-xl border border-border text-sm"
               onClick={() => {
                 setMode('menu');
                 setError('');
@@ -154,7 +154,7 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
             </button>
             <button
               type="submit"
-              className="h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
+              className="btn-press h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
               disabled={busy}
             >
               Сохранить
@@ -189,7 +189,7 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
         <button
           type="button"
           role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left transition-colors active:bg-border/50"
+          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
           onClick={openRename}
         >
           <span className="w-6 shrink-0 text-center text-base">✏️</span>
@@ -198,7 +198,7 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
         <button
           type="button"
           role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left text-destructive transition-colors active:bg-border/50"
+          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left text-destructive btn-press-soft transition-colors active:bg-border/50"
           onClick={() => {
             setError('');
             setConfirmDelete(true);

@@ -35,7 +35,7 @@ export function ConfirmModal({
         <div className="flex gap-2">
           <button
             type="button"
-            className="h-11 flex-1 rounded-xl border border-border text-sm disabled:opacity-50"
+            className="btn-press h-11 flex-1 rounded-xl border border-border text-sm disabled:opacity-50"
             disabled={busy}
             onClick={onClose}
           >
@@ -43,7 +43,7 @@ export function ConfirmModal({
           </button>
           <button
             type="button"
-            className="h-11 flex-1 rounded-xl bg-destructive text-sm font-medium text-white disabled:opacity-50"
+            className="btn-press h-11 flex-1 rounded-xl bg-destructive text-sm font-medium text-white disabled:opacity-50"
             disabled={busy}
             onClick={onConfirm}
           >

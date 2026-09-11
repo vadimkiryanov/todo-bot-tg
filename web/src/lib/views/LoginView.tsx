@@ -89,7 +89,7 @@ export function LoginView() {
           type="button"
           role="tab"
           aria-selected={mode === 'login'}
-          className={`h-9 flex-1 rounded-full transition-colors ${mode === 'login' ? 'bg-background shadow' : 'text-muted-foreground'}`}
+          className={`btn-press h-9 flex-1 rounded-full transition-colors ${mode === 'login' ? 'bg-background shadow' : 'text-muted-foreground'}`}
           onClick={() => switchMode('login')}
         >
           Вход
@@ -98,7 +98,7 @@ export function LoginView() {
           type="button"
           role="tab"
           aria-selected={mode === 'register'}
-          className={`h-9 flex-1 rounded-full transition-colors ${mode === 'register' ? 'bg-background shadow' : 'text-muted-foreground'}`}
+          className={`btn-press h-9 flex-1 rounded-full transition-colors ${mode === 'register' ? 'bg-background shadow' : 'text-muted-foreground'}`}
           onClick={() => switchMode('register')}
         >
           Регистрация
@@ -125,14 +125,14 @@ export function LoginView() {
         }}
       >
         <input
-          className="h-11 rounded-xl border border-border bg-background px-4 outline-none focus:border-ring"
+          className="input-press h-11 rounded-xl border border-border bg-background px-4 outline-none focus:border-ring"
           placeholder="Логин"
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
         <input
-          className="h-11 rounded-xl border border-border bg-background px-4 outline-none focus:border-ring"
+          className="input-press h-11 rounded-xl border border-border bg-background px-4 outline-none focus:border-ring"
           placeholder="Пароль"
           type="password"
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
@@ -142,7 +142,7 @@ export function LoginView() {
         {error !== '' && <p className="text-sm text-destructive">{error}</p>}
         <button
           type="submit"
-          className="h-11 rounded-xl bg-primary font-medium text-white disabled:opacity-50"
+          className="btn-press h-11 rounded-xl bg-primary font-medium text-white disabled:opacity-50"
           disabled={pending}
         >
           {pending ? '…' : title}

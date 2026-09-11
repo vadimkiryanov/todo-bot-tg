@@ -522,7 +522,7 @@ export function TopicIsland({
             data-topic-id={topic.id}
             aria-selected={active}
             title={extended ? `${topic.name} › ${chainNames.join(' › ')}` : topic.name}
-            className={`relative z-10 flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm ${
+            className={`btn-press-plain relative z-10 flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm ${
               extended ? 'max-w-full' : ''
             } ${w >= 1 ? 'text-white' : 'text-foreground'}`}
             style={{ color: w > 0 && w < 1 ? textMix(w) : undefined }}

@@ -129,7 +129,7 @@ export function FolderBar() {
           <div className="tree flex flex-col gap-1">
             <button
               type="button"
-              className={`flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] ${
+              className={`flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm btn-press-soft ${
                 activeFolderID === null ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'
               }`}
               onClick={() => setActiveFolder(null)}
@@ -140,7 +140,7 @@ export function FolderBar() {
               <button
                 key={node.folder.id}
                 type="button"
-                className={`flex h-10 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm text-foreground transition-[background-color,transform] active:scale-[0.97] ${
+                className={`flex h-10 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm text-foreground btn-press-soft ${
                   node.folder.id === activeFolderID
                     ? 'bg-primary text-white'
                     : 'bg-muted active:bg-border'
@@ -178,21 +178,21 @@ export function FolderBar() {
                 value={renameName}
                 onChange={onRenameInput}
                 maxLength={64}
-                className="h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
+                className="input-press h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
                 autoFocus
               />
               {menuError !== '' && <p className="text-sm text-destructive">{menuError}</p>}
               <div className="flex gap-2">
                 <button
                   type="button"
-                  className="h-11 flex-1 rounded-xl border border-border text-sm"
+                  className="btn-press h-11 flex-1 rounded-xl border border-border text-sm"
                   onClick={() => setRenameMode(false)}
                 >
                   Назад
                 </button>
                 <button
                   type="submit"
-                  className="h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
+                  className="btn-press h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
                   disabled={busy}
                 >
                   Сохранить
@@ -205,14 +205,14 @@ export function FolderBar() {
               {menuError !== '' && <p className="px-2 pb-2 text-sm text-destructive">{menuError}</p>}
               <button
                 type="button"
-                className="flex h-12 items-center gap-3 rounded-xl px-2 text-base"
+                className="btn-press-soft flex h-12 items-center gap-3 rounded-xl px-2 text-base"
                 onClick={() => setRenameMode(true)}
               >
                 <span>✏️</span> Переименовать
               </button>
               <button
                 type="button"
-                className="flex h-12 items-center gap-3 rounded-xl px-2 text-base text-destructive"
+                className="btn-press-soft flex h-12 items-center gap-3 rounded-xl px-2 text-base text-destructive"
                 onClick={() => {
                   setDeleteError('');
                   setShowDelete(true);
@@ -222,7 +222,7 @@ export function FolderBar() {
               </button>
               <button
                 type="button"
-                className="mt-2 h-11 rounded-xl border border-border text-sm"
+                className="btn-press mt-2 h-11 rounded-xl border border-border text-sm"
                 onClick={closeMenu}
               >
                 Отмена

@@ -33,7 +33,7 @@ export function ToastHost() {
           key={toast.id}
           type="button"
           onClick={() => dismissToast(toast.id)}
-          className={`toast-anim glass-menu pointer-events-auto flex max-w-full items-center gap-2 rounded-2xl border px-4 py-2.5 text-left text-sm shadow-lg ${TONES[toast.kind]}`}
+          className={`btn-press-soft toast-anim glass-menu pointer-events-auto flex max-w-full items-center gap-2 rounded-2xl border px-4 py-2.5 text-left text-sm shadow-lg ${TONES[toast.kind]}`}
         >
           <span className="shrink-0">{ICONS[toast.kind]}</span>
           <span className="min-w-0 break-words">{toast.message}</span>

@@ -256,6 +256,9 @@ export function InputBar({
     return () => window.removeEventListener('keydown', onKeydown);
   }, [menuOpen]);
 
+  // Есть ли текст для отправки: панель действий и кнопка ➤ зависят от этого.
+  const hasText = text.trim() !== '';
+
   return (
     <div className="relative px-3 py-2">
       {menuOpen && (
@@ -273,7 +276,7 @@ export function InputBar({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
               onClick={() => {
                 void goNotifications();
               }}
@@ -291,7 +294,7 @@ export function InputBar({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
               onClick={() => {
                 void goTimers();
               }}
@@ -302,7 +305,7 @@ export function InputBar({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
               onClick={() => {
                 void goDone();
               }}
@@ -313,7 +316,7 @@ export function InputBar({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
               onClick={() => {
                 void goArchived();
               }}
@@ -324,7 +327,7 @@ export function InputBar({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
               onClick={openSettings}
             >
               <span className="w-6 shrink-0 text-center text-base">⚙️</span>
@@ -333,7 +336,7 @@ export function InputBar({
             <button
               type="button"
               role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors active:bg-border/50"
+              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
               onClick={() => {
                 void doLogout();
               }}
@@ -398,7 +401,7 @@ export function InputBar({
             aria-label="Папки"
             aria-expanded={folderActive}
             title={folderActive ? 'Вы в папке — открыть папки' : 'Открыть папки'}
-            className={`glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
+            className={`glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg btn-press ${
               folderActive ? 'text-primary' : 'text-muted-foreground'
             }`}
             onClick={() => press(() => onOpenFolders?.())}
@@ -409,7 +412,7 @@ export function InputBar({
         <button
           type="button"
           aria-label="Топики"
-          className="glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
+          className="glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground btn-press"
           onClick={() => press(() => onOpenTopics?.())}
         >
           📚
@@ -425,7 +428,7 @@ export function InputBar({
           ref={searchBtnRef}
           type="button"
           aria-label="Поиск по заметкам"
-          className="glass-fab absolute bottom-full right-3 mb-2 flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground transition-[background-color,transform] active:scale-90"
+          className="glass-fab absolute bottom-full right-3 mb-2 flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground btn-press"
           onClick={() => {
             const rect = searchBtnRef.current?.getBoundingClientRect();
             if (rect !== undefined) onOpenSearch?.(rect);
@@ -435,82 +438,94 @@ export function InputBar({
         </button>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        {text.trim() !== '' && (
-          /* Панель действий новой заметки (видна при вводе текста): тап по
-             кнопке не уводит фокус из поля ввода (press возвращает фокус) */
-          <div className="flex items-center gap-2 px-1">
-            <button
-              type="button"
-              aria-label={`Приоритет: ${priorityLabel(priority)}`}
-              aria-pressed={priority !== 'none'}
-              title={`Приоритет: ${priorityLabel(priority)}`}
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
-                priority !== 'none' ? 'bg-border/60' : 'bg-muted'
-              }`}
-              onClick={() => press(() => setPriority(nextPriority(priority)))}
-            >
-              {priorityEmoji(priority)}
-            </button>
-            <button
-              type="button"
-              aria-label={reminderAt !== null ? 'Снять напоминание' : 'Добавить напоминание'}
-              aria-pressed={reminderAt !== null}
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
-                reminderAt !== null ? 'bg-border/60' : 'bg-muted'
-              }`}
-              onClick={() => press(toggleReminderForm)}
-            >
-              ⏰
-            </button>
-            <button
-              type="button"
-              aria-label={pinned ? 'Открепить' : 'Закрепить'}
-              aria-pressed={pinned}
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
-                pinned ? 'bg-border/60' : 'bg-muted'
-              }`}
-              onClick={() => press(() => setPinned(!pinned))}
-            >
-              📌
-            </button>
-            {/* ⤢ — созданная заметка будет развёрнута: карточка покажет текст
-                целиком (то же, что «⤢ Развернуть» в меню заметки). */}
-            <button
-              type="button"
-              aria-label={expanded ? 'Заметка не будет развёрнута' : 'Развернуть заметку'}
-              aria-pressed={expanded}
-              title={expanded ? 'Заметка будет развёрнута' : 'Развернуть заметку'}
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition-[background-color,transform] active:scale-90 ${
-                expanded ? 'bg-border/60' : 'bg-muted'
-              }`}
-              onClick={() => press(() => setExpanded(!expanded))}
-            >
-              ⤢
-            </button>
-            {/* ✏️ прижата вправо: создать заметку и сразу открыть её в полном
-                редакторе (форматирование, заголовки, списки). */}
-            <button
-              type="button"
-              aria-label="Открыть в полном редакторе"
-              title="Открыть в полном редакторе"
-              className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground transition-[background-color,transform] active:scale-90 active:bg-border disabled:opacity-40"
-              disabled={sending}
-              onClick={() => {
-                void submit(true);
-              }}
-            >
-              ✏️
-            </button>
+      <div className="flex flex-col">
+        {/* Панель действий новой заметки: плавно раскрывается по высоте при
+            вводе текста и так же прячется при очистке поля. Держим её в DOM
+            всегда — grid-rows 0fr→1fr (CSS не анимирует высоту к auto, а
+            условный рендер давал бы резкий скачок строки ввода). inert и
+            aria-hidden в скрытом состоянии — кнопки не ловят фокус. Тап по
+            кнопке не уводит фокус из поля ввода (press возвращает фокус). */}
+        <div
+          className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none ${
+            hasText ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+          }`}
+          aria-hidden={!hasText}
+          inert={!hasText}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="flex items-center gap-2 px-1 pb-1.5">
+              <button
+                type="button"
+                aria-label={`Приоритет: ${priorityLabel(priority)}`}
+                aria-pressed={priority !== 'none'}
+                title={`Приоритет: ${priorityLabel(priority)}`}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg btn-press ${
+                  priority !== 'none' ? 'bg-border/60' : 'bg-muted'
+                }`}
+                onClick={() => press(() => setPriority(nextPriority(priority)))}
+              >
+                {priorityEmoji(priority)}
+              </button>
+              <button
+                type="button"
+                aria-label={reminderAt !== null ? 'Снять напоминание' : 'Добавить напоминание'}
+                aria-pressed={reminderAt !== null}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg btn-press ${
+                  reminderAt !== null ? 'bg-border/60' : 'bg-muted'
+                }`}
+                onClick={() => press(toggleReminderForm)}
+              >
+                ⏰
+              </button>
+              <button
+                type="button"
+                aria-label={pinned ? 'Открепить' : 'Закрепить'}
+                aria-pressed={pinned}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg btn-press ${
+                  pinned ? 'bg-border/60' : 'bg-muted'
+                }`}
+                onClick={() => press(() => setPinned(!pinned))}
+              >
+                📌
+              </button>
+              {/* ⤢ — созданная заметка будет развёрнута: карточка покажет текст
+                  целиком (то же, что «⤢ Развернуть» в меню заметки). */}
+              <button
+                type="button"
+                aria-label={expanded ? 'Заметка не будет развёрнута' : 'Развернуть заметку'}
+                aria-pressed={expanded}
+                title={expanded ? 'Заметка будет развёрнута' : 'Развернуть заметку'}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg btn-press ${
+                  expanded ? 'bg-border/60' : 'bg-muted'
+                }`}
+                onClick={() => press(() => setExpanded(!expanded))}
+              >
+                ⤢
+              </button>
+              {/* ✏️ прижата вправо: создать заметку и сразу открыть её в полном
+                  редакторе (форматирование, заголовки, списки). */}
+              <button
+                type="button"
+                aria-label="Открыть в полном редакторе"
+                title="Открыть в полном редакторе"
+                className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground btn-press active:bg-border disabled:opacity-40"
+                disabled={sending}
+                onClick={() => {
+                  void submit(true);
+                }}
+              >
+                ✏️
+              </button>
+            </div>
           </div>
-        )}
+        </div>
 
         <div className="flex items-end gap-1.5">
           <button
             type="button"
             aria-label={badgeCount > 0 ? `Меню (${badgeCount} непрочитанных уведомлений)` : 'Меню'}
             aria-expanded={menuOpen}
-            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground transition-[background-color,transform] active:scale-90 active:bg-border"
+            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground btn-press active:bg-border"
             onClick={toggleMenu}
           >
             ☰
@@ -524,6 +539,10 @@ export function InputBar({
               </span>
             )}
           </button>
+          {/* Поле ввода: тап пальцем/стилусом «продавливает» поле (лёгкое
+              сжатие) и пружинисто отпускает — тактильный отклик касания, как
+              у кнопок Telegram. Отклик общий для всех полей приложения
+              (.input-press в app.css, состояние — нативный :active). */}
           <textarea
             ref={input}
             rows={1}
@@ -534,13 +553,13 @@ export function InputBar({
               autoResize();
             }}
             onKeyDown={onKeydown}
-            className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-muted px-4 py-3 text-base leading-5 outline-none focus:border-ring placeholder:text-muted-foreground"
+            className="input-press max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-muted px-4 py-3 text-base leading-5 outline-none focus:border-ring placeholder:text-muted-foreground"
           ></textarea>
           <button
             type="button"
             aria-label="Отправить"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-[opacity,transform] active:scale-90 disabled:opacity-40"
-            disabled={sending || text.trim() === ''}
+            className="btn-press flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-40"
+            disabled={sending || !hasText}
             onClick={() => {
               void send();
             }}

@@ -114,7 +114,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
             <button
               key={topic.id}
               type="button"
-              className={`flex h-9 min-w-0 items-center gap-1.5 rounded-full px-3 text-sm transition-[background-color,transform] active:scale-[0.97] ${
+              className={`flex h-9 min-w-0 items-center gap-1.5 rounded-full px-3 text-sm btn-press-soft ${
                 topic.id === selectedTopicId ? 'bg-primary text-white' : 'bg-muted text-foreground'
               }`}
               disabled={busy}
@@ -137,7 +137,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
             {/* Корень выбранного топика */}
             <button
               type="button"
-              className={`flex h-11 items-center rounded-xl px-2 text-base ${
+              className={`btn-press-soft flex h-11 items-center rounded-xl px-2 text-base ${
                 hereRoot ? 'cursor-default text-muted-foreground' : 'active:bg-border/50'
               }`}
               disabled={busy || hereRoot}
@@ -155,7 +155,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
                 <button
                   key={folder.id}
                   type="button"
-                  className={`flex h-11 items-center rounded-xl px-2 text-base ${
+                  className={`btn-press-soft flex h-11 items-center rounded-xl px-2 text-base ${
                     active ? 'cursor-default text-muted-foreground' : 'active:bg-border/50'
                   }`}
                   style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}
@@ -175,7 +175,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
 
         <button
           type="button"
-          className="mt-1 h-11 rounded-xl border border-border text-sm"
+          className="btn-press mt-1 h-11 rounded-xl border border-border text-sm"
           onClick={onClose}
         >
           Отмена
