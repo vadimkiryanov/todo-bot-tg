@@ -10,8 +10,18 @@
 //              переключает галочку без входа в поле; курсор встаёт в место тапа;
 //   'toggle' — превью и правка переключаются кнопкой ✏️/👁 в шапке, тап по
 //              тексту ничего не меняет (защита от случайной правки).
-// Кнопки «Сохранить»/«Отмена» появляются только когда текст изменён;
-// панель форматирования — при фокусе поля либо при включённом режиме правки.
+// Как выглядит сама правка, тоже настройка (stores/settings.editorView):
+//   'formatted' — текст правится прямо в вёрстке просмотра (contenteditable):
+//                 те же блоки и те же классы, символы разметки заменены
+//                 оформлением, поэтому при входе в правку текст не меняет ни
+//                 размеров, ни положения — по умолчанию;
+//   'plain'     — текст с markdown-разметкой, как раньше.
+// Кнопки «Сохранить»/«Отмена» появляются только когда текст изменён; после
+// сохранения страница возвращается в просмотр (правка закрывается).
+// Панель форматирования — при фокусе поля либо при включённом режиме правки.
+// Enter переносит формат строки на новую строку (# / ## / 1. / - / - [ ]),
+// Shift+Enter — обычный перенос. В просмотре текст можно выделять (десктоп):
+// выделение не включает правку, иначе фокус поля сбрасывал бы его.
 // Действия (✅/🔄/⏰/⋯) зависят от состояния заметки
 // (active/done/archived). Закрытие с несохранённым текстом спрашивает:
 // «Сохранить? / Не сохранять?».
@@ -55,12 +65,31 @@ import type { Note, ReminderRepeat } from '../types/api';
 import {
   formatReminderAt,
   markdownDraftOffsets,
-  markdownFromEntities,
   nextPriority,
+  parseMarkdown,
   priorityEmoji,
   priorityLabel,
 } from '../utils/format';
-import { parseNoteLines, renderNoteBlocksHtml } from '../utils/blocks';
+import { parseNoteLines, lineContinuation, renderNoteBlocksHtml } from '../utils/blocks';
+import {
+  applyInlineFormat,
+  applyTypedMarkerRule,
+  backspaceAtBlockStart,
+  currentRange,
+  deleteAtBlockEnd,
+  focusEditorEnd,
+  insertPlainText,
+  noteToRich,
+  placeCaretAtPlainOffset,
+  restoreRange,
+  richBlockOf,
+  richDraftOf,
+  richEditorHtml,
+  richMarkdown,
+  splitBlockOnEnter,
+  toggleBlockChecked,
+  toggleBlockKind,
+} from '../utils/richtext';
 
 interface NotePageProps {
   note: Note;
@@ -165,6 +194,16 @@ function contentCharAt(block: HTMLElement, x: number, y: number): number | null 
   return null;
 }
 
+/** Классы текста заметки: одни и те же у слоя просмотра и у слоя правки
+    ('formatted'). Поэтому вход в правку не меняет ни размер шрифта, ни
+    отступов, ни положения текста — открывается тот же текст, но живой. */
+const NOTE_TEXT_CLASS =
+  'absolute inset-0 touch-pan-y overflow-y-auto whitespace-pre-wrap break-words bg-background px-4 py-4 text-[16px] leading-6 text-foreground [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2';
+
+/** Структурный маркер строки для панели форматирования: в разметке ('plain')
+    это «# »-маркер в начале строки, в живой вёрстке — вид блока. */
+type MarkerKind = 'h1' | 'h2' | 'ol' | 'list' | 'check';
+
 export function NotePage({ note, startEditing = false, onClose }: NotePageProps) {
   // Живое состояние: при store-мутациях родитель передаёт обновлённый объект
   // из списка; для «чужой» заметки (из уведомления) обновляем локально.
@@ -177,16 +216,13 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   // «store-мутация vs прямой API-вызов» в каждом действии.
   const owned = hasLoadedNote(pageNote.id);
 
-  // ── Текст: поле с markdown-разметкой (правка) + просмотр с форматированием ─
-  // В поле показываем markdown-разметку (**жирный** и т.п.), восстановленную
-  // из entities сервера (markdownFromEntities) — как в старом редакторе.
-  const saved = useMemo(
-    () => markdownFromEntities(pageNote.text, pageNote.entities),
-    [pageNote],
-  );
-  const [draft, setDraft] = useState<string>(() =>
-    markdownFromEntities(note.text, note.entities),
-  );
+  // ── Текст: правка (живая вёрстка либо markdown) + просмотр ──────────────
+  // Заметка живёт в двух видах: block-модель (text + entities) и markdown-строка.
+  // Правка ведётся в markdown — в нём текст уходит на сервер и он же
+  // показывается, когда правка идёт «как есть» ('plain'). saved — та же
+  // строка, что построена из заметки: сравнение с ней и есть «есть правки?».
+  const saved = useMemo(() => richMarkdown(pageNote.text, pageNote.entities), [pageNote]);
+  const [draft, setDraft] = useState<string>(() => richMarkdown(note.text, note.entities));
   /** Не-реактивная память: последнее значение, пришедшее снаружи. Пока draft
       не разошёлся с ним, внешние обновления (родитель передал обновлённую
       заметку) зеркалятся в draft; иначе локальные правки не затираются. */
@@ -205,12 +241,28 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const editorMode = useSettingsStore((s) => s.editorMode);
   const toggleMode = editorMode === 'toggle';
 
+  // Вид правки — тоже настройка устройства (stores/settings.editorView):
+  // 'formatted' — текст правится прямо в вёрстке просмотра (contenteditable):
+  //               те же блоки и классы, маркеры строк — оформлением
+  //               (utils/richtext); 'plain' — сырой markdown-текст, как раньше.
+  const editorView = useSettingsStore((s) => s.editorView);
+  const rich = editorView === 'formatted';
+
   /** Поле в фокусе: в режиме «тапом» по нему показываем панель форматирования. */
   const [focused, setFocused] = useState(startEditing);
   /** Режим «кнопкой»: правка включена явно (кнопка ✏️), фокус не важен. */
   const [manualEdit, setManualEdit] = useState(startEditing);
   const [saving, setSaving] = useState(false);
+  /** Поле правки в виде 'plain' — текст с markdown-разметкой. */
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  /** Слой правки в виде 'formatted' — живая вёрстка просмотра. */
+  const richElRef = useRef<HTMLDivElement | null>(null);
+  /** Markdown, который сейчас отрисован в живой вёрстке: пока он совпадает с
+      draft, DOM не пересобираем. Вёрстка правки «своя» у пользователя —
+      каретка, выделение, состав узлов; пересборка их теряет. */
+  const richShownRef = useRef<string | null>(null);
+  /** Идёт набор IME: на время композиции правила ввода и Enter не применяем. */
+  const composingRef = useRef(false);
   /** Корневой узел панели форматирования (сниппет toolbar). */
   const toolbarElRef = useRef<HTMLDivElement | null>(null);
   /** Попытка закрыть страницу с несохранённым текстом: диалог «Сохранить?». */
@@ -221,8 +273,12 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   // размонтированием), чтобы позиция скролла просмотра сохранялась при
   // переключениях «тапнул — редактирую — вышел из поля».
   const viewElRef = useRef<HTMLDivElement | null>(null);
-  /** Курсор поля, запомненный тапом по просмотру (смещение в разметке). */
+  /** Курсор правки, запомненный тапом по просмотру (смещение в тексте
+      заметки: из него каретка ставится и в вёрстку, и в разметку). */
   const pendingCaretRef = useRef<number | null>(null);
+  /** Точка нажатия мыши в просмотре: по смещению до отпускания отличаем
+      протяжку (выделение текста) от одиночного клика (включить правку). */
+  const viewDownRef = useRef<{ x: number; y: number } | null>(null);
   /** Идёт редактирование: поле показано, просмотр скрыт. */
   const editing = toggleMode ? manualEdit || dirty : focused || dirty;
   const viewMode = !editing;
@@ -230,22 +286,78 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       «тапом») либо пока включён режим правки кнопкой (✏️). */
   const showToolbar = toggleMode ? editing : focused;
 
+  /** Узел правки: живая вёрстка ('formatted') или поле с разметкой ('plain'). */
+  function editorEl(): HTMLElement | null {
+    return rich ? richElRef.current : textareaRef.current;
+  }
+
+  /** Собрать живую вёрстку из markdown: заметка пришла извне (сохранение,
+      обновление из списка), «Отмена» правок, переключение вида правки. */
+  function rebuildRich(md: string): void {
+    const el = richElRef.current;
+    if (el === null) return;
+    const note = parseMarkdown(md);
+    el.innerHTML = richEditorHtml(noteToRich(note.text, note.entities), isActive);
+    richShownRef.current = md;
+  }
+
+  /** Прочитать вёрстку правки в draft — после любой правки в DOM. */
+  function syncDraftFromRich(): void {
+    const el = richElRef.current;
+    if (el === null) return;
+    const next = richDraftOf(el);
+    richShownRef.current = next;
+    setDraft(next);
+  }
+
+  /** Дать фокус правке. В живой вёрстке каретку при необходимости ставим в
+      конец: панель форматирования берёт место правки из каретки. */
+  function focusEditor(placeCaret = true): void {
+    if (!rich) {
+      textareaRef.current?.focus();
+      return;
+    }
+    const el = richElRef.current;
+    if (el === null) return;
+    el.focus();
+    if (placeCaret && currentRange(el) === null) focusEditorEnd(el);
+  }
+
+  // Вёрстка должна отражать draft: разошлись (заметка обновилась, «Отмена»,
+  // смена вида правки) — пересобираем. Свой ввод сюда не попадает: он идёт
+  // из DOM в draft, и richShownRef сразу получает то же значение.
+  useEffect(() => {
+    if (!rich || richShownRef.current === draft) return;
+    rebuildRich(draft);
+  }, [rich, draft]);
+
   /** Переключить превью ↔ правку (режим «кнопкой»): кнопка ✏️/👁 в шапке. */
   function toggleEditing(): void {
     if (editing) {
-      textareaRef.current?.blur();
+      editorEl()?.blur();
       setManualEdit(false);
       return;
     }
     setManualEdit(true);
-    requestAnimationFrame(() => textareaRef.current?.focus());
+    requestAnimationFrame(() => focusEditor());
   }
 
-  // Страница открыта сразу в режиме правки (кнопка ✏️ панели ввода): поле
+  /** Закрыть правку: страница снова показывает отформатированный текст (после
+      сохранения — и в режиме «тапом», и в режиме «кнопкой»). Скролл текста
+      переносим в просмотр: он остаётся на том же месте, где его оставили. */
+  function exitEditing(): void {
+    const el = editorEl();
+    if (el !== null && viewElRef.current !== null) viewElRef.current.scrollTop = el.scrollTop;
+    el?.blur();
+    setFocused(false);
+    setManualEdit(false);
+  }
+
+  // Страница открыта сразу в режиме правки (кнопка ✏️ панели ввода): правку
   // получаем в фокус, чтобы можно было продолжать набор с клавиатуры.
   useEffect(() => {
     if (!startEditing) return;
-    const frame = requestAnimationFrame(() => textareaRef.current?.focus());
+    const frame = requestAnimationFrame(() => focusEditor());
     return () => cancelAnimationFrame(frame);
   }, [startEditing]);
 
@@ -288,7 +400,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     if (closing) return;
     if (dirty) {
       // Клавиатуру прячем: диалог должен быть виден целиком.
-      textareaRef.current?.blur();
+      editorEl()?.blur();
       setExitConfirm(true);
       return;
     }
@@ -311,7 +423,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     [],
   );
 
-  /** Кнопка «Отмена»: вернуть текст к сохранённому (правки отменяются). */
+  /** Кнопка «Отмена»: вернуть текст к сохранённому (правки отменяются).
+      В живую вёрстку сохранённый вид вернёт пересборка по draft. */
   function discard(): void {
     if (saving) return;
     setDraft(saved);
@@ -326,23 +439,31 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
    * не даёт и onMouseDown preventDefault (см. toolbar); здесь страхуем
    * программные переходы — инпут ссылки (autofocus), Tab-навигацию.
    */
-  function onEditorBlur(e: FocusEvent<HTMLTextAreaElement>): void {
+  function onEditorBlur(e: FocusEvent<HTMLElement>): void {
     const next = e.relatedTarget;
     if (next instanceof Node && toolbarElRef.current?.contains(next)) return;
     setFocused(false);
   }
 
-  /** Фокус вошёл в поле: если есть отложенный курсор от тапа по просмотру —
-      применить в следующем кадре (после перерисовки вёрстки). */
+  /** Фокус вошёл в правку: если есть отложенная каретка от тапа по просмотру —
+      применить в следующем кадре (после перерисовки слоя правки). */
   function onEditorFocus(): void {
     setFocused(true);
-    const caret = pendingCaretRef.current;
+    const plain = pendingCaretRef.current;
     pendingCaretRef.current = null;
-    if (caret === null) return;
+    if (plain === null) return;
     requestAnimationFrame(() => {
+      if (rich) {
+        // Вёрстка построена из тех же строк, что просмотр: номер блока и
+        // место в нём совпадают, достаточно смещения в тексте заметки.
+        const el = richElRef.current;
+        if (el !== null) placeCaretAtPlainOffset(el, pageNote.text, plain);
+        return;
+      }
       const ta = textareaRef.current;
       if (ta === null) return;
-      const at = Math.min(Math.max(0, caret), ta.value.length);
+      const at =
+        markdownDraftOffsets(pageNote.text, pageNote.entities)[plain] ?? ta.value.length;
       ta.setSelectionRange(at, at);
     });
   }
@@ -380,17 +501,42 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     return Math.min(line.end, contentStart + within);
   }
 
-  /** Тап по просмотру: включить поле и поставить курсор в место тапа. */
+  /** Тап по просмотру: включить правку и поставить каретку в место тапа.
+      Запоминаем смещение в тексте заметки; сам слой правки в этом же рендере
+      занимает место просмотра, поэтому скролл переносим сразу — текст остаётся
+      там же, где был. */
   function startEditAt(e: MouseEvent<HTMLDivElement>): void {
-    const plain = tapTextOffset(e);
-    pendingCaretRef.current =
-      markdownDraftOffsets(pageNote.text, pageNote.entities)[plain] ?? null;
-    textareaRef.current?.focus();
+    pendingCaretRef.current = tapTextOffset(e);
+    const top = viewElRef.current?.scrollTop ?? 0;
+    focusEditor(false);
+    const el = editorEl();
+    if (el === null) return;
+    el.scrollTop = top;
+    // Каретку (и возможный сдвиг скролла от неё) применяем кадром позже.
+    requestAnimationFrame(() => {
+      el.scrollTop = top;
+    });
+  }
+
+  /** Есть непустое выделение внутри просмотра: мышью протяжкой (десктоп) или
+      длинным тапом. Выделять текст в просмотре можно — правку тогда не
+      включаем: focus() поля сбрасывает выделение и текст не скопировать. */
+  function hasViewSelection(): boolean {
+    const view = viewElRef.current;
+    const sel = window.getSelection();
+    if (view === null || sel === null || sel.rangeCount === 0 || sel.isCollapsed) return false;
+    return view.contains(sel.getRangeAt(0).commonAncestorContainer);
+  }
+
+  /** Нажатие в просмотре: запоминаем точку — отпускание сравнит смещение. */
+  function onViewMouseDown(e: MouseEvent<HTMLDivElement>): void {
+    viewDownRef.current = { x: e.clientX, y: e.clientY };
   }
 
   /** Клик по просмотру: чекбокс чеклиста — переключить «[ ]»↔«[x]» и
       сохранить, не входя в поле; ссылка — открывается браузером (поле не
-      включаем); остальной тап — включить поле с курсором в месте тапа. */
+      включаем); протяжка мышью — выделение текста (не мешаем копировать);
+      остальной тап — включить поле с курсором в месте тапа. */
   function onViewClick(e: MouseEvent<HTMLDivElement>): void {
     const target = e.target as Element | null;
     const cb = target?.closest('[data-cb]');
@@ -406,6 +552,15 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     // Режим «кнопкой»: тап по тексту ничего не делает — правка включается
     // только кнопкой ✏️ в шапке (чекбоксы и ссылки выше работают всегда).
     if (toggleMode) return;
+    // Протяжка отличаем по смещению курсора между down и up, а не только по
+    // window.getSelection(): браузер схлопывает выделение уже после обработчика
+    // click, и одиночный клик по выделенному тексту считался бы выделением —
+    // правка не включалась бы. Протяжку без выделения (буллет, пустое место)
+    // по-прежнему считаем тапом.
+    const down = viewDownRef.current;
+    viewDownRef.current = null;
+    const dragged = down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 3;
+    if (dragged && hasViewSelection()) return;
     e.preventDefault();
     startEditAt(e);
   }
@@ -449,10 +604,10 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       setError('текст не может быть пустым');
       return;
     }
-    if (value === pageNote.text) {
-      // Правки «схлопнулись» в исходный текст (например, лишние пробелы в
-      // конце) — сеть не дёргаем, просто возвращаем поле к сохранённому виду.
-      setDraft(saved);
+    if (value === saved) {
+      // Правки «схлопнулись» в сохранённый вид (например, лишние пробелы в
+      // конце) — сеть не дёргаем, просто возвращаем правку к сохранённому.
+      discard();
       if (closeAfter) closeNow();
       return;
     }
@@ -465,7 +620,15 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         const updated = await apiUpdateNote(pageNote.id, { text: value });
         setPageNote(updated);
       }
-      if (closeAfter) closeNow();
+      if (closeAfter) {
+        closeNow();
+        return;
+      }
+      // Сохранили — закрываем правку и показываем отформатированный текст.
+      // draft приводим к сохранённому: при обрезке пробелов по краям поле
+      // иначе осталось бы «изменённым» (draft !== saved) и не вышло из правки.
+      if (value !== draft) setDraft(value);
+      exitEditing();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ошибка');
     } finally {
@@ -726,17 +889,41 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     setError('');
   }
 
-  // ── Форматирование: обёртки выделения markdown-маркерами ────────────────
-  // Работают с полем текста (draft). Кнопки: **жирный**, *курсив*, `код`,
-  // [ссылка](url); строковые маркеры # / ## / - / - [ ] — по текущей строке.
+  // ── Форматирование (панель) ─────────────────────────────────────────────
+  // Живая вёрстка: оформление — тегами на выделении, маркер строки — видом
+  // блока. Разметка: те же действия маркерами (**жирный**, *курсив*, `код`,
+  // [ссылка](url), # / ## / - / - [ ] в начале строки).
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const linkInputRef = useRef<HTMLInputElement | null>(null);
+  /** Выделение, под которое открыли форму ссылки: фокус уходит в поле адреса
+      и уносит выделение с собой — возвращаем его при вставке. */
+  const linkRangeRef = useRef<Range | null>(null);
 
   function selection(): { start: number; end: number } {
     const ta = textareaRef.current;
     if (!ta) return { start: 0, end: 0 };
     return { start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0 };
+  }
+
+  /** Действие панели в живой вёрстке. Каретки в ней может не быть (режим
+      «кнопкой», фокус не в тексте) — тогда сначала входим в текст, иначе
+      форматировать нечего. После правки DOM читаем вёрстку в draft. */
+  function inRich(action: (el: HTMLElement) => void): void {
+    const el = richElRef.current;
+    if (el === null) return;
+    if (currentRange(el) === null) focusEditor();
+    action(el);
+    syncDraftFromRich();
+  }
+
+  /** Инлайн-оформление выделения: вёрстке — теги, разметке — маркеры. */
+  function formatInline(type: string, open: string, close: string, placeholder = 'текст'): void {
+    if (rich) {
+      inRich((el) => applyInlineFormat(el, type));
+      return;
+    }
+    wrap(open, close, placeholder);
   }
 
   /** Обернуть выделение маркерами; пустое выделение — вставить с плейсхолдером. */
@@ -755,6 +942,9 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   function toggleLink(): void {
     setLinkOpen((v) => {
       if (!v) {
+        // Выделение запоминаем до ухода фокуса в поле адреса.
+        const el = richElRef.current;
+        linkRangeRef.current = el === null ? null : currentRange(el);
         requestAnimationFrame(() => linkInputRef.current?.focus());
       }
       return !v;
@@ -765,6 +955,18 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   function applyLink(): void {
     const url = linkUrl.trim();
     if (url === '') return;
+    if (rich) {
+      const el = richElRef.current;
+      if (el === null) return;
+      restoreRange(linkRangeRef.current);
+      linkRangeRef.current = null;
+      applyInlineFormat(el, 'text_link', url);
+      syncDraftFromRich();
+      setLinkOpen(false);
+      setLinkUrl('');
+      focusEditor(false);
+      return;
+    }
     const { start, end } = selection();
     const sel = draft.slice(start, end);
     const label = sel === '' ? 'ссылка' : sel;
@@ -782,10 +984,21 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const LINE_MARKERS = {
     h1: '# ',
     h2: '## ',
+    ol: '1. ',
     list: '- ',
     check: '- [ ] ',
   } as const;
   type LineMarkerKind = keyof typeof LINE_MARKERS;
+
+  /** Структурный маркер строки: в живой вёрстке — вид блока, в разметке —
+      маркер в начале строки (включается/снимается одним и тем же кликом). */
+  function formatLine(kind: MarkerKind): void {
+    if (rich) {
+      inRich((el) => toggleBlockKind(el, kind));
+      return;
+    }
+    toggleLineMarker(kind);
+  }
 
   /** Границы строки под курсором (без учёта выделения в другие строки). */
   function currentLine(): { start: number; end: number } {
@@ -797,10 +1010,14 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     return { start, end: nl === -1 ? draft.length : nl };
   }
 
-  /** Структурный маркер в начале строки, если есть (любой из четырёх). */
+  /** Структурный маркер в начале строки, если есть (любой из пяти). */
   function existingMarker(
     raw: string,
   ): { kind: LineMarkerKind; marker: string } | null {
+    // У нумерованного пункта маркер свой — «7. », поэтому ищем его первым и
+    // возвращаем как есть (снятие нумерации сравнивает вид, а не строку).
+    const ol = /^\d+\. /.exec(raw);
+    if (ol !== null) return { kind: 'ol', marker: ol[0] };
     const defs: [LineMarkerKind, string][] = [
       ['check', '- [x] '],
       ['check', '- [ ] '],
@@ -821,10 +1038,13 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     const raw = draft.slice(start, end);
     const cur = existingMarker(raw);
     const target = LINE_MARKERS[kind];
+    // Нумерованный пункт — «тот же маркер», даже если номер другой: повторный
+    // клик по «1.» снимает нумерацию с «7. пункт», а не заменяет её на «1. ».
+    const same = cur !== null && (cur.kind === 'ol' ? kind === 'ol' : cur.marker === target);
 
     let newLine: string;
     let delta: number;
-    if (cur !== null && cur.marker === target) {
+    if (cur !== null && same) {
       // Тот же маркер уже стоит — снимаем.
       newLine = raw.slice(cur.marker.length);
       delta = -cur.marker.length;
@@ -842,6 +1062,115 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       const inLine = Math.min(Math.max(caret - start + delta, 0), newLine.length);
       textareaRef.current?.setSelectionRange(start + inLine, start + inLine);
     });
+  }
+
+  /**
+   * Enter в поле: формат строки переносится на новую строку — «# », «## »,
+   * «- », «- [ ] » как есть (чеклист всегда снятый), «1. » со следующим
+   * номером; пустой пункт закрывает формат. Выделение и Shift+Enter —
+   * обычный перенос.
+   */
+  function onTextKeydown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    const ta = e.currentTarget;
+    if (ta.selectionStart !== ta.selectionEnd) return;
+    const { start, end } = currentLine();
+    const cont = lineContinuation(draft.slice(start, end));
+    if (cont === null) return;
+    e.preventDefault();
+    const caret = ta.selectionStart ?? start;
+    const next =
+      cont.action === 'clear'
+        ? // В пункте ничего нет: маркер снимаем — из списка/формата выходим.
+          { text: draft.slice(0, start) + draft.slice(end), caret: start }
+        : {
+            text: draft.slice(0, caret) + '\n' + cont.marker + draft.slice(caret),
+            caret: caret + cont.marker.length + 1,
+          };
+    setDraft(next.text);
+    requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (node === null) return;
+      node.focus();
+      node.setSelectionRange(next.caret, next.caret);
+    });
+  }
+
+  // ── Живая вёрстка: ввод, перенос строки, буфер обмена, чекбокс ─────────
+  // Правки читаем из DOM в draft (richDraftOf): он и уходит на сервер, и он
+  // же — то, из чего вёрстка собирается заново при внешних изменениях.
+
+  /** Ввод символа: набранный маркер («# », «- », «1. », «- [ ] ») превращает
+      строку в блок, сам маркер пропадает — в заметке он появится из вида. */
+  function onRichInput(): void {
+    const el = richElRef.current;
+    if (el === null) return;
+    if (!composingRef.current) applyTypedMarkerRule(el);
+    syncDraftFromRich();
+  }
+
+  function onRichKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
+    const el = richElRef.current;
+    if (el === null || e.nativeEvent.isComposing) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      // Свой Enter вместо браузерного: браузер создал бы безымянный <div>,
+      // который выпал бы из вёрстки строк вместе со своим текстом.
+      e.preventDefault();
+      const sel = window.getSelection();
+      if (sel !== null && !sel.isCollapsed) sel.deleteFromDocument();
+      splitBlockOnEnter(el);
+      syncDraftFromRich();
+      return;
+    }
+    if (e.key === 'Backspace' && backspaceAtBlockStart(el)) {
+      e.preventDefault();
+      syncDraftFromRich();
+      return;
+    }
+    if (e.key === 'Delete' && deleteAtBlockEnd(el)) {
+      e.preventDefault();
+      syncDraftFromRich();
+    }
+  }
+
+  /** Вставка из буфера: только простой текст — чужие теги и стили в заметке
+      не нужны (оформление в ней своё, из entities). */
+  function onRichPaste(e: React.ClipboardEvent<HTMLDivElement>): void {
+    const el = richElRef.current;
+    if (el === null) return;
+    e.preventDefault();
+    insertPlainText(el, e.clipboardData.getData('text/plain'));
+    if (!composingRef.current) applyTypedMarkerRule(el);
+    syncDraftFromRich();
+  }
+
+  /** Клик в правке: чекбокс чеклиста — переключить (не уходя с места правки),
+      остальное — обычное поведение (ссылка по клику не открывается: кликом по
+      тексту ставят каретку, в просмотре ссылка работает как обычно). */
+  function onRichClick(e: MouseEvent<HTMLDivElement>): void {
+    const el = richElRef.current;
+    if (el === null) return;
+    const target = e.target as Element | null;
+    const cb = target?.closest('.note-cb');
+    if (cb instanceof HTMLButtonElement) {
+      e.preventDefault();
+      const block = richBlockOf(cb);
+      if (block !== null && el.contains(block)) {
+        toggleBlockChecked(block);
+        syncDraftFromRich();
+      }
+      return;
+    }
+    if (target?.closest('a[href]')) e.preventDefault();
+  }
+
+  function onRichCompositionStart(): void {
+    composingRef.current = true;
+  }
+
+  function onRichCompositionEnd(): void {
+    composingRef.current = false;
+    onRichInput();
   }
 
   // Escape: диалог → меню → форму напоминания → закрыть страницу (при
@@ -908,7 +1237,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           title="Жирный"
           className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] btn-press active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => wrap('**', '**')}
+          onClick={() => formatInline('bold', '**', '**')}
         >
           <span className="font-bold">B</span>
         </button>
@@ -918,7 +1247,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           title="Курсив"
           className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] btn-press active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => wrap('*', '*')}
+          onClick={() => formatInline('italic', '*', '*')}
         >
           <span className="italic">I</span>
         </button>
@@ -928,7 +1257,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           title="Код"
           className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted font-mono text-[13px] btn-press active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => wrap('`', '`', 'код')}
+          onClick={() => formatInline('code', '`', '`', 'код')}
         >
           {'</>'}
         </button>
@@ -951,7 +1280,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           title="Заголовок"
           className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] font-bold btn-press active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => toggleLineMarker('h1')}
+          onClick={() => formatLine('h1')}
         >
           {'# '}
         </button>
@@ -961,9 +1290,19 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           title="Подзаголовок"
           className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] font-semibold btn-press active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => toggleLineMarker('h2')}
+          onClick={() => formatLine('h2')}
         >
           {'##'}
+        </button>
+        <button
+          type="button"
+          aria-label="Нумерованный список (1. в начале строки)"
+          title="Нумерованный список"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] btn-press active:bg-border/60"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => formatLine('ol')}
+        >
+          {'1.'}
         </button>
         <button
           type="button"
@@ -971,7 +1310,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           title="Список"
           className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[17px] btn-press active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => toggleLineMarker('list')}
+          onClick={() => formatLine('list')}
         >
           ••
         </button>
@@ -981,7 +1320,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           title="Чеклист"
           className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-[15px] btn-press active:bg-border/60"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => toggleLineMarker('check')}
+          onClick={() => formatLine('check')}
         >
           ☑
         </button>
@@ -1011,8 +1350,9 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       )}
 
       <p className="text-xs text-muted-foreground">
-        # заголовок · ## подзаголовок · - список · - [ ] чеклист · **жирный**, *курсив*, `код`,
-        [ссылка](https://…)
+        {rich
+          ? 'Оформление — кнопками панели: применяется к выделению или к строке с курсором. Enter переносит формат строки дальше.'
+          : '# заголовок · ## подзаголовок · 1. нумерованный список · - список · - [ ] чеклист · **жирный**, *курсив*, `код`, [ссылка](https://…)'}
       </p>
     </div>
   );
@@ -1063,32 +1403,75 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         )}
       </header>
 
-      {/* Текст заметки: под полем (всегда в markdown-разметке, скролл свой)
-          лежит «просмотр» — отформатированный текст, видимый, пока поле не
-          редактируется (не в фокусе и без правок). Просмотр поверх поля,
-          прячется display:none (не размонтируется) — своя позиция скролла
-          сохраняется при переключениях. Тап по тексту включает поле с курсором
-          в месте тапа; чекбоксы чеклиста и ссылки работают без входа в поле.
+      {/* Текст заметки. Слой просмотра — отформатированный текст, видимый,
+          пока заметка не редактируется (не в фокусе и без правок); он лежит
+          поверх слоя правки и прячется display:none (не размонтируется) — своя
+          позиция скролла сохраняется при переключениях. Тап по тексту включает
+          правку с курсором в месте тапа; чекбоксы чеклиста и ссылки работают
+          без входа в правку.
+
+          При настройке «правка без разметки» (editorView: formatted) правится
+          прямо вёрстка просмотра: тот же HTML, те же блоки и классы
+          (contenteditable), символы разметки в тексте не показываются — их
+          место занимает оформление. Слой правки виден всегда (его закрывает
+          непрозрачный слой просмотра, а не display:none) — иначе .focus() из
+          тапа по тексту не сработал бы. Обёртка держит отклик нажатия
+          (сжатие) — на ней одной, чтобы слои не разъезжались.
+
           touch-pan-y: вертикальный скролл нативный, горизонтальный свайп
           (закрытие страницы) достаётся корневому контейнеру. */}
       <main className="relative min-h-0 flex-1">
-        <textarea
-          ref={textareaRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onFocus={onEditorFocus}
-          onBlur={onEditorBlur}
-          className="input-press-soft absolute inset-0 h-full w-full resize-none touch-pan-y overflow-y-auto whitespace-pre-wrap bg-background px-4 py-4 text-[16px] leading-6 text-foreground caret-primary outline-none placeholder:text-muted-foreground"
-          placeholder="Начните печатать…"
-        ></textarea>
+        <div className={`absolute inset-0${rich ? ' input-press-soft' : ''}`}>
+          {rich && (
+            <div
+              ref={richElRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-multiline="true"
+              aria-label="Текст заметки"
+              onInput={onRichInput}
+              onKeyDown={onRichKeyDown}
+              onPaste={onRichPaste}
+              onClick={onRichClick}
+              onFocus={onEditorFocus}
+              onBlur={onEditorBlur}
+              onCompositionStart={onRichCompositionStart}
+              onCompositionEnd={onRichCompositionEnd}
+              className={`note-editor note-view caret-primary outline-none ${NOTE_TEXT_CLASS} ${
+                isDone ? 'note-done' : ''
+              }`}
+            ></div>
+          )}
+
+          {!rich && (
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onTextKeydown}
+              onFocus={onEditorFocus}
+              onBlur={onEditorBlur}
+              className="input-press-soft absolute inset-0 h-full w-full resize-none touch-pan-y overflow-y-auto whitespace-pre-wrap bg-background px-4 py-4 text-[16px] leading-6 text-foreground caret-primary outline-none placeholder:text-muted-foreground"
+              placeholder="Начните печатать…"
+            ></textarea>
+          )}
+
+          {/* Пустая заметка: у вёрстки правки нет нативного placeholder —
+              рисуем его сами, пока в заметке нет ни одного символа. */}
+          {rich && !viewMode && draft === '' && (
+            <p className="pointer-events-none absolute left-4 top-4 text-[16px] leading-6 text-muted-foreground">
+              Начните печатать…
+            </p>
+          )}
+        </div>
 
         <div
           ref={viewElRef}
-          className={`absolute inset-0 touch-pan-y overflow-y-auto whitespace-pre-wrap break-words bg-background px-4 py-4 text-[16px] leading-6 text-foreground [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-border/40 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-border/40 [&_pre]:p-2 ${
-            isDone ? 'note-done' : ''
-          }`}
+          className={`note-view ${NOTE_TEXT_CLASS} ${isDone ? 'note-done' : ''}`}
           style={{ display: viewMode ? 'block' : 'none' }}
           onClick={onViewClick}
+          onMouseDown={onViewMouseDown}
           dangerouslySetInnerHTML={{ __html: viewHtml }}
         ></div>
       </main>

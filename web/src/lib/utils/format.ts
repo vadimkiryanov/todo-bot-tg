@@ -119,7 +119,7 @@ const TAG: Record<string, [string, string]> = {
   spoiler: ['<span class="spoiler">', '</span>'],
 };
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -128,7 +128,8 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function safeUrl(url: string): string | null {
+/** Проверка адреса перед вставкой в href (редактор и просмотр — одинаково). */
+export function safeUrl(url: string): string | null {
   // Разрешаем только http/https (и относительные ссылки без схемы).
   if (/^(https?:)?\/\//i.test(url)) return url;
   return null;
@@ -160,23 +161,37 @@ function trimUrlTail(url: string): string {
   return out;
 }
 
+/** Диапазон «голой» ссылки в тексте: смещение и длина в UTF-16. */
+export interface AutoLink {
+  offset: number;
+  length: number;
+  href: string;
+}
+
+/** Находит «голые» ссылки (http/https/www) в тексте — те же, что linkifyHtml
+ *  превращает в теги; редактору нужны их границы, чтобы показать ссылку как в
+ *  просмотре, не создавая entity (в заметке такие адреса остаются текстом). */
+export function autoLinks(raw: string): AutoLink[] {
+  const out: AutoLink[] = [];
+  for (const m of raw.matchAll(AUTO_LINK_RE)) {
+    const url = trimUrlTail(m[0]);
+    if (url === '') continue;
+    const href = url.startsWith('www.') ? `https://${url}` : url;
+    out.push({ offset: m.index, length: url.length, href });
+  }
+  return out;
+}
+
 /** Экранирует сырой текст и оборачивает найденные URL в безопасные <a>. */
 function linkifyHtml(raw: string): string {
   let html = '';
   let last = 0;
-  for (const m of raw.matchAll(AUTO_LINK_RE)) {
-    const url = trimUrlTail(m[0]);
-    html += escapeHtml(raw.slice(last, m.index));
-    if (url !== '') {
-      const href = url.startsWith('www.') ? `https://${url}` : url;
-      html += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`;
-      // Хвостовая пунктуация (обрезанная у ссылки) остаётся обычным текстом.
-      html += escapeHtml(m[0].slice(url.length));
-    } else {
-      // Ссылка обрезалась целиком — оставляем как есть.
-      html += escapeHtml(m[0]);
-    }
-    last = m.index + m[0].length;
+  for (const link of autoLinks(raw)) {
+    html += escapeHtml(raw.slice(last, link.offset));
+    const text = raw.slice(link.offset, link.offset + link.length);
+    html += `<a href="${escapeHtml(link.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+    // Хвостовая пунктуация (обрезанная у ссылки) остаётся обычным текстом.
+    last = link.offset + link.length;
   }
   html += escapeHtml(raw.slice(last));
   return html;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseNoteLines, previewBlocksHtml, renderNoteBlocksHtml } from './blocks';
+import { lineContinuation, parseNoteLines, previewBlocksHtml, renderNoteBlocksHtml } from './blocks';
 
 describe('parseNoteLines', () => {
   it('распознаёт заголовки, список, чеклист и текст', () => {
@@ -12,6 +12,19 @@ describe('parseNoteLines', () => {
       { kind: 'check', start: 40, end: 53, markerLen: 6, checked: true },
       { kind: 'text', start: 54, end: 61, markerLen: 0 },
     ]);
+  });
+
+  it('распознаёт нумерованный список (длина маркера зависит от номера)', () => {
+    const lines = parseNoteLines('1. первый\n12. двенадцатый');
+    expect(lines).toEqual([
+      { kind: 'ol', start: 0, end: 9, markerLen: 3 },
+      { kind: 'ol', start: 10, end: 25, markerLen: 4 },
+    ]);
+  });
+
+  it('«1.» без пробела — не маркер, «1. » без текста — пустой пункт', () => {
+    const lines = parseNoteLines('1.нет\n1. ');
+    expect(lines.map((l) => l.kind)).toEqual(['text', 'ol']);
   });
 
   it('«#» без пробела и «##» без текста — не маркеры', () => {
@@ -45,6 +58,14 @@ describe('renderNoteBlocksHtml', () => {
     const html = renderNoteBlocksHtml('- пункт', []);
     expect(html).toBe(
       '<div class="note-li"><span class="note-bullet">•</span><span class="note-li-text">пункт</span></div>',
+    );
+  });
+
+  it('нумерованный список: номер из текста, текст в отдельном span', () => {
+    const html = renderNoteBlocksHtml('1. первый\n12. двенадцатый', []);
+    expect(html).toBe(
+      '<div class="note-li"><span class="note-ol-num">1.</span><span class="note-li-text">первый</span></div>' +
+        '<div class="note-li"><span class="note-ol-num">12.</span><span class="note-li-text">двенадцатый</span></div>',
     );
   });
 
@@ -132,5 +153,40 @@ describe('previewBlocksHtml', () => {
 
   it('пустой текст — пустой HTML', () => {
     expect(previewBlocksHtml('', [])).toBe('');
+  });
+});
+
+describe('lineContinuation', () => {
+  it('структурные маркеры переносятся на новую строку как есть', () => {
+    expect(lineContinuation('# Заголовок')).toEqual({ action: 'continue', marker: '# ' });
+    expect(lineContinuation('## Подзаголовок')).toEqual({ action: 'continue', marker: '## ' });
+    expect(lineContinuation('- пункт')).toEqual({ action: 'continue', marker: '- ' });
+  });
+
+  it('чеклист продолжается всегда снятой галочкой', () => {
+    expect(lineContinuation('- [ ] задача')).toEqual({ action: 'continue', marker: '- [ ] ' });
+    expect(lineContinuation('- [x] готово')).toEqual({ action: 'continue', marker: '- [ ] ' });
+  });
+
+  it('нумерация продолжается следующим номером', () => {
+    expect(lineContinuation('1. первый')).toEqual({ action: 'continue', marker: '2. ' });
+    expect(lineContinuation('9. девятый')).toEqual({ action: 'continue', marker: '10. ' });
+    expect(lineContinuation('12. двенадцатый')).toEqual({ action: 'continue', marker: '13. ' });
+  });
+
+  it('пустой пункт закрывает формат (маркер снимается)', () => {
+    expect(lineContinuation('- ')).toEqual({ action: 'clear' });
+    expect(lineContinuation('## ')).toEqual({ action: 'clear' });
+    expect(lineContinuation('- [ ] ')).toEqual({ action: 'clear' });
+    expect(lineContinuation('3. ')).toEqual({ action: 'clear' });
+    expect(lineContinuation('-    ')).toEqual({ action: 'clear' });
+  });
+
+  it('обычная строка и «маркеры» без пробела формат не продолжают', () => {
+    expect(lineContinuation('просто текст')).toBeNull();
+    expect(lineContinuation('')).toBeNull();
+    expect(lineContinuation('#нет')).toBeNull();
+    expect(lineContinuation('1.нет')).toBeNull();
+    expect(lineContinuation('нет - не маркер')).toBeNull();
   });
 });

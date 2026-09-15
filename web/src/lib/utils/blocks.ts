@@ -1,19 +1,21 @@
 // Построчный рендер заметки: кроме inline-разметки (**bold** и т.п., entities
 // Telegram) веб понимает «структурные» маркеры в начале строк — # заголовок,
-// ## подзаголовок, - список, - [ ] чеклист. Маркеры остаются в тексте как
-// есть (их как текст видит бот), оформление добавляется только при показе
-// в вебе. Смещения — в UTF-16 единицах (String.slice совпадает с Telegram).
+// ## подзаголовок, 1. нумерованный список, - список, - [ ] чеклист. Маркеры
+// остаются в тексте как есть (их как текст видит бот), оформление добавляется
+// только при показе в вебе. Смещения — в UTF-16 единицах (String.slice
+// совпадает с Telegram).
 
 import type { NoteEntity } from '../types/api';
 import { renderNoteHtml } from './format';
 
-export type NoteLineKind = 'h1' | 'h2' | 'list' | 'check' | 'text';
+export type NoteLineKind = 'h1' | 'h2' | 'ol' | 'list' | 'check' | 'text';
 
 export interface NoteLine {
   kind: NoteLineKind;
   /** Смещение начала строки (вместе с маркером) в исходном тексте. */
   start: number;
-  /** Длина маркера: '# '=2, '## '=3, '- '=2, '- [ ] '/'- [x] '=6, у текста 0. */
+  /** Длина маркера: '# '=2, '## '=3, '1. ' — 3 и больше (номер), '- '=2,
+      '- [ ] '/'- [x] '=6, у текста 0. */
   markerLen: number;
   /** Смещение конца строки (без переноса). */
   end: number;
@@ -22,6 +24,8 @@ export interface NoteLine {
 }
 
 const CHECK_RE = /^-\s\[( |x)\]\s/;
+/** Нумерованный пункт: «1. », «12. » (не больше 9 цифр — как в редакторах). */
+const OL_RE = /^(\d{1,9})\.\s/;
 
 /** Разбирает текст на строки и распознаёт структурные маркеры в их начале. */
 export function parseNoteLines(text: string): NoteLine[] {
@@ -43,10 +47,14 @@ export function parseNoteLines(text: string): NoteLine[] {
       markerLen = 2;
     } else {
       const m = CHECK_RE.exec(raw);
+      const ol = OL_RE.exec(raw);
       if (m !== null) {
         kind = 'check';
         markerLen = 6;
         checked = m[1] === 'x';
+      } else if (ol !== null) {
+        kind = 'ol';
+        markerLen = ol[0].length;
       } else if (raw.startsWith('- ')) {
         kind = 'list';
         markerLen = 2;
@@ -60,7 +68,7 @@ export function parseNoteLines(text: string): NoteLine[] {
 }
 
 /** Entities, пересекающие диапазон [start, end), со смещениями относительно него. */
-function clipEntities(entities: NoteEntity[], start: number, end: number): NoteEntity[] {
+export function clipEntities(entities: NoteEntity[], start: number, end: number): NoteEntity[] {
   const out: NoteEntity[] = [];
   for (const e of entities) {
     const from = Math.max(e.offset, start);
@@ -89,6 +97,12 @@ function renderBlockLine(
       return `<div class="note-h2">${inner}</div>`;
     case 'list':
       return `<div class="note-li"><span class="note-bullet">•</span><span class="note-li-text">${inner}</span></div>`;
+    case 'ol': {
+      // Номер берём из самого текста строки (в маркере только цифры и точка —
+      // экранировать нечего), чтобы нумерация оставалась авторской.
+      const num = text.slice(line.start, line.start + line.markerLen - 1);
+      return `<div class="note-li"><span class="note-ol-num">${num}</span><span class="note-li-text">${inner}</span></div>`;
+    }
     case 'check': {
       const checked = line.checked === true;
       const box = checkable
@@ -119,6 +133,53 @@ export function renderNoteBlocksHtml(
     html += renderBlockLine(text, entities, line, checkable);
   }
   return html;
+}
+
+// --- Продолжение строкового формата при Enter (редактор заметки) ---------
+
+/** Что делать с форматом строки при Enter (без Shift). */
+export type LineContinuation =
+  /** Формат продолжается: маркер новой строки (у нумерованного — следующий номер). */
+  | { action: 'continue'; marker: string }
+  /** В пункте ничего нет — маркер снимается, из формата выходим. */
+  | { action: 'clear' };
+
+/** Маркеры, которые переносятся на новую строку как есть. */
+const PLAIN_MARKERS = ['- ', '## ', '# '];
+
+/**
+ * Формат строки, который надо применить к новой строке при Enter: «# », «## »
+ * и «- » переносятся как есть, «- [ ] » — всегда снятая галочка, «1. » — со
+ * следующим номером. Пустой пункт (в строке только маркер) закрывает формат —
+ * маркер снимается, как в markdown- и обычных редакторах, чтобы из списка
+ * можно было выйти. Обычная строка — null: перенос нативный.
+ */
+export function lineContinuation(raw: string): LineContinuation | null {
+  const check = CHECK_RE.exec(raw);
+  if (check !== null) {
+    return isEmptyItem(raw, check[0].length)
+      ? { action: 'clear' }
+      : { action: 'continue', marker: '- [ ] ' };
+  }
+  const ol = OL_RE.exec(raw);
+  if (ol !== null) {
+    return isEmptyItem(raw, ol[0].length)
+      ? { action: 'clear' }
+      : { action: 'continue', marker: `${Number(ol[1]) + 1}. ` };
+  }
+  for (const marker of PLAIN_MARKERS) {
+    if (raw.startsWith(marker)) {
+      return isEmptyItem(raw, marker.length)
+        ? { action: 'clear' }
+        : { action: 'continue', marker };
+    }
+  }
+  return null;
+}
+
+/** В пункте после маркера ничего нет (только пробелы). */
+function isEmptyItem(raw: string, markerLen: number): boolean {
+  return raw.slice(markerLen).trim() === '';
 }
 
 // --- Превью карточки (компактное, с блоками) -----------------------------

@@ -5,11 +5,20 @@
 //    островка топиков или отдельной строкой под ним (pathMode).
 // 3. ✏️ как включается редактирование заметки (NotePage): тапом по тексту
 //    или кнопкой ✏️/👁 в шапке (editorMode).
-// 4. 🔀 как перелистываются топики: сдвигом контента вбок (как раньше) или
+// 4. 👁 как выглядит само поле правки: текст с оформлением, без символов
+//    markdown-разметки, или сырой текст с разметкой (editorView).
+// 5. 🔀 как перелистываются топики: сдвигом контента вбок (как раньше) или
 //    кросс-фейдом без сдвига (swipeMode).
 // Выбор применяется сразу и сохраняется в localStorage.
-import { setEditorMode, setFoldersMode, setPathMode, setSwipeMode, useSettingsStore } from '../stores/settings';
-import type { EditorMode, FoldersMode, PathMode, SwipeMode } from '../stores/settings';
+import {
+  setEditorMode,
+  setEditorView,
+  setFoldersMode,
+  setPathMode,
+  setSwipeMode,
+  useSettingsStore,
+} from '../stores/settings';
+import type { EditorMode, EditorView, FoldersMode, PathMode, SwipeMode } from '../stores/settings';
 
 import { Modal } from './Modal';
 
@@ -57,6 +66,19 @@ const editorModes: { value: EditorMode; label: string; caption: string }[] = [
   },
 ];
 
+const editorViews: { value: EditorView; label: string; caption: string }[] = [
+  {
+    value: 'formatted',
+    label: 'Без разметки',
+    caption: 'заголовки, списки, чеклист, жирный/курсив/код/ссылка — маркеры скрыты',
+  },
+  {
+    value: 'plain',
+    label: 'С разметкой',
+    caption: 'видно символы **жирный**, - пункт, # заголовок (как раньше)',
+  },
+];
+
 const swipeModes: { value: SwipeMode; label: string; caption: string }[] = [
   {
     value: 'slide',
@@ -74,6 +96,7 @@ export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
   const foldersMode = useSettingsStore((s) => s.foldersMode);
   const pathMode = useSettingsStore((s) => s.pathMode);
   const editorMode = useSettingsStore((s) => s.editorMode);
+  const editorView = useSettingsStore((s) => s.editorView);
   const swipeMode = useSettingsStore((s) => s.swipeMode);
 
   return (
@@ -154,6 +177,32 @@ export function SettingsSheet({ open = false, onClose }: SettingsSheetProps) {
               </span>
             </span>
             {editorMode === mode.value && <span className="shrink-0 text-sm">✓</span>}
+          </button>
+        ))}
+        <h3 className="px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          👁 Вид правки
+        </h3>
+        {editorViews.map((view) => (
+          <button
+            key={view.value}
+            type="button"
+            aria-pressed={editorView === view.value}
+            onClick={() => setEditorView(view.value)}
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left btn-press-soft transition-colors ${
+              editorView === view.value ? 'bg-primary text-white' : 'active:bg-border/50'
+            }`}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-medium leading-5">{view.label}</span>
+              <span
+                className={`block text-xs leading-4 ${
+                  editorView === view.value ? 'text-white/75' : 'text-muted-foreground'
+                }`}
+              >
+                {view.caption}
+              </span>
+            </span>
+            {editorView === view.value && <span className="shrink-0 text-sm">✓</span>}
           </button>
         ))}
         <h3 className="px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">

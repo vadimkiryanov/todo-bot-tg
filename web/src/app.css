@@ -287,6 +287,14 @@ html {
   width: 1em;
   text-align: center;
 }
+/* Нумерованный список: номер вместо буллета, выключка вправо — разряды цифр
+   выравниваются по правому краю, текст пунктов начинается в одной колонке. */
+.note-ol-num {
+  flex: none;
+  min-width: 1.4em;
+  text-align: right;
+  color: var(--color-muted-foreground);
+}
 .note-li-text {
   min-width: 0;
   flex: 1;
@@ -335,6 +343,7 @@ html {
 .note-done .note-h2,
 .note-done .note-li,
 .note-done .note-bullet,
+.note-done .note-ol-num,
 .note-done .note-li-text {
   color: var(--color-muted-foreground);
 }
@@ -379,6 +388,25 @@ html {
   user-select: none;
   -webkit-touch-callout: none;
   pointer-events: none;
+}
+
+/* ── Живая вёрстка правки (настройка «правка без разметки») ─────────────
+   Правится тот же HTML, что и в просмотре: те же блоки строк и то же
+   инлайн-оформление, поэтому при входе в правку текст не меняет ни размеров,
+   ни положения, а символов разметки в нём нет — их место занимает оформление.
+   Здесь только то, что отличает поле ввода от статичного текста. */
+.note-editor,
+.note-editor * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Служебные узлы строки (буллет, номер пункта, чекбокс) в выделение не
+   попадают: они не текст заметки, и обёртки вокруг них не будет. */
+.note-editor .note-bullet,
+.note-editor .note-ol-num,
+.note-editor .note-cb {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Ссылки и так перекрыты акцентным цветом ([&_a] контейнера) — зачёркивание
@@ -714,6 +742,18 @@ button {
    он вызывал временную перерисовку эмодзи запасным шрифтом. */
 .notepage-settle {
   transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* Слой просмотра заметки (отформатированный текст, пока поле не правится):
+   текст должен выделяться мышью — иначе его не скопировать. Корневой
+   user-select:none (см. body) нужен ленте, здесь его отменяем. Только
+   устройства с мышью (@media pointer: fine): на тач-экранах выделение
+   перехватывало бы длинный тап и свайп-закрытие страницы. */
+@media (pointer: fine) {
+  .note-view,
+  .note-view * {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 /* TopicTabs: scoped-стили из TopicTabs.svelte (портированы в React) */

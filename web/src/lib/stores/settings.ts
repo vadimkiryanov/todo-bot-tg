@@ -13,6 +13,10 @@
 //     'tap'    — тапом по тексту заметки (поле ввода включается сразу);
 //     'toggle' — кнопкой ✏️/👁 в шапке (превью и редактирование
 //                переключаются явно, тап по тексту ничего не меняет).
+//   editorView — как выглядит поле правки заметки:
+//     'formatted' — разметка скрыта, вместо неё оформление (заголовки,
+//                   списки, чеклист, жирный/курсив/код/ссылка) — по умолчанию;
+//     'plain'     — текст с markdown-разметкой (как раньше).
 //   swipeMode — как переключаются топики свайпом по ленте:
 //     'slide' — контент уезжает вбок (как раньше);
 //     'fade'  — контент не едет: заметки проявляются друг через друга
@@ -24,6 +28,7 @@ import { create } from 'zustand';
 export type FoldersMode = 'list' | 'button';
 export type PathMode = 'tab' | 'strip';
 export type EditorMode = 'tap' | 'toggle';
+export type EditorView = 'formatted' | 'plain';
 export type SwipeMode = 'slide' | 'fade';
 
 const FOLDERS_MODE_KEY = 'todo.foldersMode';
@@ -32,6 +37,8 @@ const PATH_MODE_KEY = 'todo.pathMode';
 const PATH_MODE_DEFAULT: PathMode = 'tab';
 const EDITOR_MODE_KEY = 'todo.editorMode';
 const EDITOR_MODE_DEFAULT: EditorMode = 'tap';
+const EDITOR_VIEW_KEY = 'todo.editorView';
+const EDITOR_VIEW_DEFAULT: EditorView = 'formatted';
 const SWIPE_MODE_KEY = 'todo.swipeMode';
 const SWIPE_MODE_DEFAULT: SwipeMode = 'slide';
 
@@ -66,6 +73,16 @@ function readEditorMode(): EditorMode {
   }
 }
 
+function readEditorView(): EditorView {
+  if (typeof localStorage === 'undefined') return EDITOR_VIEW_DEFAULT;
+  try {
+    const raw = localStorage.getItem(EDITOR_VIEW_KEY);
+    return raw === 'plain' ? 'plain' : EDITOR_VIEW_DEFAULT;
+  } catch {
+    return EDITOR_VIEW_DEFAULT;
+  }
+}
+
 function readSwipeMode(): SwipeMode {
   if (typeof localStorage === 'undefined') return SWIPE_MODE_DEFAULT;
   try {
@@ -80,6 +97,7 @@ interface SettingsState {
   foldersMode: FoldersMode;
   pathMode: PathMode;
   editorMode: EditorMode;
+  editorView: EditorView;
   swipeMode: SwipeMode;
 }
 
@@ -87,6 +105,7 @@ export const useSettingsStore = create<SettingsState>()(() => ({
   foldersMode: readFoldersMode(),
   pathMode: readPathMode(),
   editorMode: readEditorMode(),
+  editorView: readEditorView(),
   swipeMode: readSwipeMode(),
 }));
 
@@ -115,6 +134,16 @@ export function setEditorMode(mode: EditorMode): void {
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(EDITOR_MODE_KEY, mode);
+  } catch {
+    // localStorage недоступен — режим живёт до перезагрузки страницы
+  }
+}
+
+export function setEditorView(mode: EditorView): void {
+  useSettingsStore.setState({ editorView: mode });
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(EDITOR_VIEW_KEY, mode);
   } catch {
     // localStorage недоступен — режим живёт до перезагрузки страницы
   }
