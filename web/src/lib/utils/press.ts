@@ -1,5 +1,5 @@
 // Отклик нажатия под пальцем: поля ввода и кнопки (см. app.css —
-// .input-press* и .btn-press*). Класс .pressed ставится на элемент под
+// .input-press и .btn-press*). Класс .pressed ставится на элемент под
 // пальцем и снимается на отпускании.
 //
 // Почему не чистый CSS :active: на телефоне :active не срабатывает —
@@ -18,7 +18,7 @@
 // Мышь класс не трогает: на десктопе тот же вид даёт нативный :active.
 // Выключенные элементы (disabled/aria-disabled) не продавливаются.
 
-const PRESSABLE = '.input-press, .input-press-soft, .btn-press, .btn-press-soft, .btn-press-plain';
+const PRESSABLE = '.input-press, .btn-press, .btn-press-soft, .btn-press-plain';
 
 let pressed: HTMLElement | null = null;
 

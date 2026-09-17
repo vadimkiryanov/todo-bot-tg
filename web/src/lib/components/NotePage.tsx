@@ -77,6 +77,7 @@ import {
   backspaceAtBlockStart,
   currentRange,
   deleteAtBlockEnd,
+  editorBlockAt,
   focusEditorEnd,
   insertPlainText,
   noteToRich,
@@ -90,6 +91,7 @@ import {
   toggleBlockChecked,
   toggleBlockKind,
 } from '../utils/richtext';
+import { revealRect, textareaCaretRect } from '../utils/scroll';
 
 interface NotePageProps {
   note: Note;
@@ -257,6 +259,11 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   /** Слой правки в виде 'formatted' — живая вёрстка просмотра. */
   const richElRef = useRef<HTMLDivElement | null>(null);
+  /** Зона прокрутки живой вёрстки: сама вёрстка (contenteditable) растёт по
+      тексту, а прокручивает её контейнер вокруг — поле правки, которое само
+      себе зона прокрутки, на телефоне не листается пальцем
+      (iOS не отдаёт касание в contenteditable-скроллер). */
+  const richScrollRef = useRef<HTMLDivElement | null>(null);
   /** Markdown, который сейчас отрисован в живой вёрстке: пока он совпадает с
       draft, DOM не пересобираем. Вёрстка правки «своя» у пользователя —
       каретка, выделение, состав узлов; пересборка их теряет. */
@@ -289,6 +296,38 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   /** Узел правки: живая вёрстка ('formatted') или поле с разметкой ('plain'). */
   function editorEl(): HTMLElement | null {
     return rich ? richElRef.current : textareaRef.current;
+  }
+
+  /** Зона прокрутки слоя правки: у живой вёрстки — контейнер вокруг неё
+      (сама вёрстка растёт по тексту), у поля с разметкой — само поле. */
+  function editorScrollEl(): HTMLElement | null {
+    return rich ? richScrollRef.current : textareaRef.current;
+  }
+
+  /** Подтянуть каретку правки в видимую часть текста. Клавиатура и панель
+      форматирования растут внизу и забирают высоту у main — без этого строка
+      с кареткой остаётся под панелью. Каретка живой вёрстки — прямоугольник
+      выделения; у схлопнутого выделения он бывает пустым (каретка на стыке
+      блоков), тогда ориентир — блок, в котором каретка стоит. Каретку поля с
+      разметкой браузер не измеряет — её даёт зеркальный замер. */
+  function revealCaret(): void {
+    if (rich) {
+      const el = richElRef.current;
+      const scroller = richScrollRef.current;
+      if (el === null || scroller === null || !el.contains(document.activeElement)) return;
+      const range = currentRange(el);
+      let rect: { top: number; bottom: number } | null =
+        range === null ? null : range.getBoundingClientRect();
+      if (rect === null || (rect.top === 0 && rect.bottom === 0)) {
+        const block = editorBlockAt(el);
+        rect = block === null ? null : block.getBoundingClientRect();
+      }
+      if (rect !== null) revealRect(scroller, rect);
+      return;
+    }
+    const ta = textareaRef.current;
+    if (ta === null || document.activeElement !== ta) return;
+    revealRect(ta, textareaCaretRect(ta));
   }
 
   /** Собрать живую вёрстку из markdown: заметка пришла извне (сохранение,
@@ -346,9 +385,11 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       сохранения — и в режиме «тапом», и в режиме «кнопкой»). Скролл текста
       переносим в просмотр: он остаётся на том же месте, где его оставили. */
   function exitEditing(): void {
-    const el = editorEl();
-    if (el !== null && viewElRef.current !== null) viewElRef.current.scrollTop = el.scrollTop;
-    el?.blur();
+    const scroller = editorScrollEl();
+    if (scroller !== null && viewElRef.current !== null) {
+      viewElRef.current.scrollTop = scroller.scrollTop;
+    }
+    editorEl()?.blur();
     setFocused(false);
     setManualEdit(false);
   }
@@ -378,6 +419,18 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       vv.removeEventListener('scroll', update);
     };
   }, []);
+
+  // Зона правки изменилась в высоту (клавиатура, панель, ряд действий):
+  // строка с кареткой не должна остаться за краем — подтягиваем её в видимую
+  // часть. Следим за размером, а не за состояниями: менять высоту может и
+  // клавиатура (via keyboardInset выше), и состав футера.
+  useEffect(() => {
+    const scroller = rich ? richScrollRef.current : textareaRef.current;
+    if (scroller === null) return;
+    const observer = new ResizeObserver(() => revealCaret());
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [rich]);
 
   // ── Анимация: слайд справа (въезд) / вправо (закрытие) ──────────────────
   const [visible, setVisible] = useState(false);
@@ -446,25 +499,29 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   }
 
   /** Фокус вошёл в правку: если есть отложенная каретка от тапа по просмотру —
-      применить в следующем кадре (после перерисовки слоя правки). */
+      применить в следующем кадре (после перерисовки слоя правки), а затем
+      показать каретку над панелью и клавиатурой. */
   function onEditorFocus(): void {
     setFocused(true);
     const plain = pendingCaretRef.current;
     pendingCaretRef.current = null;
-    if (plain === null) return;
     requestAnimationFrame(() => {
-      if (rich) {
-        // Вёрстка построена из тех же строк, что просмотр: номер блока и
-        // место в нём совпадают, достаточно смещения в тексте заметки.
-        const el = richElRef.current;
-        if (el !== null) placeCaretAtPlainOffset(el, pageNote.text, plain);
-        return;
+      if (plain !== null) {
+        if (rich) {
+          // Вёрстка построена из тех же строк, что просмотр: номер блока и
+          // место в нём совпадают, достаточно смещения в тексте заметки.
+          const el = richElRef.current;
+          if (el !== null) placeCaretAtPlainOffset(el, pageNote.text, plain);
+        } else {
+          const ta = textareaRef.current;
+          if (ta !== null) {
+            const at =
+              markdownDraftOffsets(pageNote.text, pageNote.entities)[plain] ?? ta.value.length;
+            ta.setSelectionRange(at, at);
+          }
+        }
       }
-      const ta = textareaRef.current;
-      if (ta === null) return;
-      const at =
-        markdownDraftOffsets(pageNote.text, pageNote.entities)[plain] ?? ta.value.length;
-      ta.setSelectionRange(at, at);
+      revealCaret();
     });
   }
 
@@ -509,12 +566,12 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     pendingCaretRef.current = tapTextOffset(e);
     const top = viewElRef.current?.scrollTop ?? 0;
     focusEditor(false);
-    const el = editorEl();
-    if (el === null) return;
-    el.scrollTop = top;
+    const scroller = editorScrollEl();
+    if (scroller === null) return;
+    scroller.scrollTop = top;
     // Каретку (и возможный сдвиг скролла от неё) применяем кадром позже.
     requestAnimationFrame(() => {
-      el.scrollTop = top;
+      scroller.scrollTop = top;
     });
   }
 
@@ -1415,14 +1472,27 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           (contenteditable), символы разметки в тексте не показываются — их
           место занимает оформление. Слой правки виден всегда (его закрывает
           непрозрачный слой просмотра, а не display:none) — иначе .focus() из
-          тапа по тексту не сработал бы. Обёртка держит отклик нажатия
-          (сжатие) — на ней одной, чтобы слои не разъезжались.
+          тапа по тексту не сработал бы. Классы текста (отступы, шрифт,
+          прокрутка) стоят на том же контейнере, что и у слоя просмотра,
+          поэтому вход в правку текст не двигает.
+
+          Прокрутка живой вёрстки — на контейнере вокруг неё, а не на ней
+          самой: поле, которое само себе зона прокрутки, на телефоне не
+          листается пальцем (iOS не отдаёт касание внутрь contenteditable-
+          скроллера), а вокруг него — обычный блок с прокруткой. Сама вёрстка
+          растёт по тексту, как в ProseMirror-редакторах.
 
           touch-pan-y: вертикальный скролл нативный, горизонтальный свайп
-          (закрытие страницы) достаётся корневому контейнеру. */}
+          (закрытие страницы) достаётся корневому контейнеру. Отклика нажатия
+          (сжатия) у слоя правки нет: сдвиг поверхности сбивает системное окно
+          выделения — долгий тап с «вырезать/скопировать» выглядел так, будто
+          текст не выделялся. */}
       <main className="relative min-h-0 flex-1">
-        <div className={`absolute inset-0${rich ? ' input-press-soft' : ''}`}>
-          {rich && (
+        {rich && (
+          <div
+            ref={richScrollRef}
+            className={`${NOTE_TEXT_CLASS} ${isDone ? 'note-done' : ''}`}
+          >
             <div
               ref={richElRef}
               contentEditable
@@ -1438,33 +1508,31 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
               onBlur={onEditorBlur}
               onCompositionStart={onRichCompositionStart}
               onCompositionEnd={onRichCompositionEnd}
-              className={`note-editor note-view caret-primary outline-none ${NOTE_TEXT_CLASS} ${
-                isDone ? 'note-done' : ''
-              }`}
+              className="note-editor min-h-full caret-primary outline-none"
             ></div>
-          )}
+          </div>
+        )}
 
-          {!rich && (
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onTextKeydown}
-              onFocus={onEditorFocus}
-              onBlur={onEditorBlur}
-              className="input-press-soft absolute inset-0 h-full w-full resize-none touch-pan-y overflow-y-auto whitespace-pre-wrap bg-background px-4 py-4 text-[16px] leading-6 text-foreground caret-primary outline-none placeholder:text-muted-foreground"
-              placeholder="Начните печатать…"
-            ></textarea>
-          )}
+        {!rich && (
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onTextKeydown}
+            onFocus={onEditorFocus}
+            onBlur={onEditorBlur}
+            className="absolute inset-0 h-full w-full resize-none touch-pan-y overflow-y-auto whitespace-pre-wrap bg-background px-4 py-4 text-[16px] leading-6 text-foreground caret-primary outline-none placeholder:text-muted-foreground"
+            placeholder="Начните печатать…"
+          ></textarea>
+        )}
 
-          {/* Пустая заметка: у вёрстки правки нет нативного placeholder —
-              рисуем его сами, пока в заметке нет ни одного символа. */}
-          {rich && !viewMode && draft === '' && (
-            <p className="pointer-events-none absolute left-4 top-4 text-[16px] leading-6 text-muted-foreground">
-              Начните печатать…
-            </p>
-          )}
-        </div>
+        {/* Пустая заметка: у вёрстки правки нет нативного placeholder —
+            рисуем его сами, пока в заметке нет ни одного символа. */}
+        {rich && !viewMode && draft === '' && (
+          <p className="pointer-events-none absolute left-4 top-4 text-[16px] leading-6 text-muted-foreground">
+            Начните печатать…
+          </p>
+        )}
 
         <div
           ref={viewElRef}
