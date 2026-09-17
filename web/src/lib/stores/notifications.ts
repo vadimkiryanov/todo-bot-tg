@@ -1,6 +1,6 @@
 // Уведомления (журнал сработавших напоминаний, серверная таблица).
 // Список опрашивается при авторизации, затем поллингом (root App);
-// счётчик непрочитанных показывает бейдж на пункте 🔔 бургер-меню.
+// счётчик непрочитанных показывает бейдж на пункте «Уведомления» бургер-меню.
 import { create } from 'zustand';
 
 import { listNotifications, markNotificationsRead } from '../api/notifications';
@@ -18,7 +18,7 @@ export const useNotificationsStore = create<NotificationsState>()(() => ({
   error: null,
 }));
 
-/** Сколько непрочитанных среди загруженных (для бейджа 🔔). */
+/** Сколько непрочитанных среди загруженных (для бейджа «Меню»). */
 export function unreadCount(): number {
   return useNotificationsStore
     .getState()

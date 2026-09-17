@@ -1,20 +1,42 @@
-// Нижняя панель: белая панель с инпутом, где слева от textarea стоит
-// бургер ☰ (как раньше). Над панелью парят кнопки: слева столбик 📁 «Папки»
-// (выше) и 📚 «Топики» (ниже), справа — 🔍 «Поиск» (над ➤) — вне белой
-// заливки, между ними видны заметки чата. Каждая открывает свою шторку.
+// Нижняя панель: инпут с полем ввода, слева от него — кнопка «Меню».
+// Над панелью парят кнопки: слева столбик «Папки» (выше) и «Топики» (ниже) —
+// вне заливки панели, между ними видны заметки чата. Каждая открывает свою
+// шторку. Подписей-иконок для папок/топиков/поиска в наборе
+// @telegram-apps/telegram-ui нет, поэтому кнопки подписаны словами (политика
+// иконок — в web/AGENTS.md). Кнопка «Поиск» живёт не здесь, а рядом с панелью
+// ввода (ChatView): у неё своя заливка, и она не должна попадать в контейнер
+// панели.
+// Меню — плоские строки-Cell на компонентах @telegram-apps/telegram-ui
+// (как списки уведомлений и шторок). Кнопки панели действий, «Меню» и
+// плавающие кнопки — IconButton той же библиотеки: mode="gray" — нейтральная,
+// mode="bezeled" — включённая опция; круглые тач-цели 44 px возвращаются
+// оверрайдами (h-11 w-11 rounded-full! p-0!), а «стекло» плавающих кнопок —
+// нашим классом .glass-fab. Поле ввода остаётся своим textarea: у библиотеки
+// Textarea — форм-поле с min-height 84px, а Input однострочный и сломал бы
+// «Enter = отправить, Shift+Enter = новая строка».
 // При вводе текста над инпутом появляется панель действий новой заметки:
-// 🔴🟡🔵 приоритет (цикл), ⏰ напоминание (модалка), 📌 закрепление,
-// ⤢ «развернуть» (созданная заметка показывается на карточке целиком)
-// и справа ✏️ «полный редактор» — создать заметку и открыть её в NotePage.
+// приоритет (цикл; метка — '!'/'!!'/'!!!', у «без приоритета» — тире),
+// напоминание (колокольчик, модалка), закрепление (слово «Пин»),
+// «развернуть» (шеврон; созданная заметка показывается на карточке целиком)
+// и справа карандаш «полный редактор» — создать заметку и открыть её в NotePage.
 // Тап по кнопкам панели/плавающим кнопкам не уводит фокус из поля ввода —
 // можно нажимать опции и продолжать набор.
 // Enter — отправить, Shift+Enter — новая строка. После отправки поле очищается.
 //
-// TODO(router): пункты бургер-меню переходят на экраны /archive, /done,
+// TODO(router): пункты меню переходят на экраны /archive, /done,
 // /notifications, /timers, /login. Смена экранов — дело микро-роутера уровня
 // вью, поэтому здесь переходы оставлены колбэком onNavigate(path): вью
 // (родитель) передаёт его и выполняет навигацию, данные грузятся тут.
 import { useEffect, useRef, useState } from 'react';
+import { IconButton, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
+import { Icon24ChevronDown } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_down';
+import { Icon24ChevronRight } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_right';
+import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
+import { Icon24PersonRemove } from '@telegram-apps/telegram-ui/dist/icons/24/person_remove';
+import { Icon24SunLow } from '@telegram-apps/telegram-ui/dist/icons/24/sun_low';
+import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive';
+import { Icon28Edit } from '@telegram-apps/telegram-ui/dist/icons/28/edit';
 
 import { createNote, loadArchived, loadDone, loadTimers } from '../stores/notes';
 import { loadNotifications, useNotificationsStore } from '../stores/notifications';
@@ -22,11 +44,11 @@ import { useNavigationStore } from '../stores/navigation';
 import { setNoteExpanded } from '../stores/noteView';
 import { logout } from '../stores/session';
 import { useSettingsStore } from '../stores/settings';
-import { useTopicsStore } from '../stores/topics';
 import type { Note, Priority, ReminderRepeat } from '../types/api';
-import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
+import { nextPriority, priorityLabel, priorityMark } from '../utils/format';
 
 import { Modal } from './Modal';
+import { MenuRow } from './MenuRow';
 import { ReminderForm } from './ReminderForm';
 import { SettingsSheet } from './SettingsSheet';
 import { Spinner } from './Spinner';
@@ -36,9 +58,6 @@ interface InputBarProps {
   onOpenTopics?: () => void;
   /** Открыть шторку папок. */
   onOpenFolders?: () => void;
-  /** Открыть поиск по заметкам (rect — геометрия кнопки 🔍: панель поиска
-      раскрывается из неё круговой анимацией). */
-  onOpenSearch?: (rect: DOMRect) => void;
   /** Переход на экран уровня вью: '/archive', '/done', '/notifications',
       '/timers', '/login' (см. TODO(router) в шапке). */
   onNavigate?: (path: string) => void;
@@ -49,7 +68,6 @@ interface InputBarProps {
 export function InputBar({
   onOpenTopics,
   onOpenFolders,
-  onOpenSearch,
   onNavigate,
   onOpenNote,
 }: InputBarProps) {
@@ -61,7 +79,7 @@ export function InputBar({
   const [priority, setPriority] = useState<Priority>('none');
   const [pinned, setPinned] = useState(false);
   // «Развёрнуто» — созданная заметка сразу показывается на карточке целиком
-  // (как пункт «⤢ Развернуть» в меню заметки), без обрезки превью.
+  // (как пункт «Развернуть» в меню заметки), без обрезки превью.
   const [expanded, setExpanded] = useState(false);
   const [reminderAt, setReminderAt] = useState<string | null>(null); // ISO 8601 UTC
   const [reminderRepeat, setReminderRepeat] = useState<ReminderRepeat>('once');
@@ -69,18 +87,14 @@ export function InputBar({
 
   // Бургер-меню: выполненные, архив, настройки и выход.
   const [menuOpen, setMenuOpen] = useState(false);
-  // Шторка настроек: открывается из бургер-меню (⚙️ Настройки).
+  // Шторка настроек: открывается из меню (строка «Настройки»).
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Активна ли папка (влияет на вид 📁-кнопки).
+  // Активна ли папка (влияет на вид кнопки «Папки»).
   const folderActive = useNavigationStore((s) => s.activeFolderID !== null);
-  // Режим показа папок на списке: кнопка 📁 нужна только в режиме 'button'.
+  // Режим показа папок на списке: кнопка «Папки» нужна только в режиме 'button'.
   const foldersMode = useSettingsStore((s) => s.foldersMode);
-  // Поиск по заметкам показываем только когда есть топики: по пустому списку
-  // искать нечего. Кнопка 🔍 парит справа над ➤ (зеркально столбику 📁/📚).
-  const hasTopics = useTopicsStore((s) => s.topics.length > 0);
-  const searchBtnRef = useRef<HTMLButtonElement>(null);
-  // Бейдж непрочитанных уведомлений на 🔔 и на бургере (считаем из списка,
+  // Бейдж непрочитанных уведомлений на кнопке «Меню» (считаем из списка,
   // на который подписались — в zustand нет реактивного getState()).
   const notificationItems = useNotificationsStore((s) => s.items);
   const badgeCount = notificationItems.reduce((acc, n) => acc + (n.read ? 0 : 1), 0);
@@ -126,8 +140,8 @@ export function InputBar({
 
   /**
    * Создать заметку из текущего ввода. openEditor — открыть созданную заметку
-   * в полном редакторе (кнопка ✏️ на панели действий): сразу можно дописать
-   * форматирование, как будто уже перешли в заметку.
+   * в полном редакторе (кнопка-карандаш на панели действий): сразу можно
+   * дописать форматирование, как будто уже перешли в заметку.
    */
   async function submit(openEditor: boolean): Promise<void> {
     const value = text.trim();
@@ -163,7 +177,7 @@ export function InputBar({
     await submit(false);
   }
 
-  /** Тап по ⏰: открыть модалку напоминания или снять уже заданное. */
+  /** Тап по кнопке напоминания: открыть модалку или снять уже заданное. */
   function toggleReminderForm(): void {
     if (reminderAt !== null) {
       setReminderAt(null);
@@ -256,7 +270,8 @@ export function InputBar({
     return () => window.removeEventListener('keydown', onKeydown);
   }, [menuOpen]);
 
-  // Есть ли текст для отправки: панель действий и кнопка ➤ зависят от этого.
+  // Есть ли текст для отправки: панель действий и кнопка отправки зависят от
+  // этого.
   const hasText = text.trim() !== '';
 
   return (
@@ -269,81 +284,63 @@ export function InputBar({
             onClick={closeMenu}
             aria-hidden="true"
           ></div>
+          {/* px-0! py-0! — снимаем собственные отступы List (10px 18px): поля
+              меню задаёт карточка-секция, как в шторке настроек. */}
           <div
-            className="glass-menu menu-anim absolute bottom-full left-2 z-50 mb-2 flex w-56 flex-col gap-1 rounded-2xl p-2 shadow-xl"
+            className="glass-menu menu-anim absolute bottom-full left-2 z-50 mb-2 w-56 rounded-2xl p-2 shadow-xl"
             role="menu"
           >
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-              onClick={() => {
-                void goNotifications();
-              }}
-            >
-              <span className="relative w-6 shrink-0 text-center text-base">
-                🔔
-                {badgeCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-white">
-                    {badgeCount > 99 ? '99+' : badgeCount}
-                  </span>
-                )}
-              </span>
-              Уведомления
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-              onClick={() => {
-                void goTimers();
-              }}
-            >
-              <span className="w-6 shrink-0 text-center text-base">⏰</span>
-              Таймеры
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-              onClick={() => {
-                void goDone();
-              }}
-            >
-              <span className="w-6 shrink-0 text-center text-base">✅</span>
-              Выполненные
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-              onClick={() => {
-                void goArchived();
-              }}
-            >
-              <span className="w-6 shrink-0 text-center text-base">🗄</span>
-              Архив
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-              onClick={openSettings}
-            >
-              <span className="w-6 shrink-0 text-center text-base">⚙️</span>
-              Настройки
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-              onClick={() => {
-                void doLogout();
-              }}
-            >
-              <span className="w-6 shrink-0 text-center text-base">🚪</span>
-              Выход
-            </button>
+            <List className="px-0! py-0!">
+              <Section>
+                <MenuRow
+                  icon={<Icon24Notifications />}
+                  badge={badgeCount}
+                  onSelect={() => {
+                    void goNotifications();
+                  }}
+                >
+                  Уведомления
+                </MenuRow>
+                <MenuRow
+                  icon={<Icon24Notifications />}
+                  onSelect={() => {
+                    void goTimers();
+                  }}
+                >
+                  Таймеры
+                </MenuRow>
+                <MenuRow
+                  icon={<Icon20Select />}
+                  onSelect={() => {
+                    void goDone();
+                  }}
+                >
+                  Выполненные
+                </MenuRow>
+                <MenuRow
+                  icon={<Icon28Archive />}
+                  onSelect={() => {
+                    void goArchived();
+                  }}
+                >
+                  Архив
+                </MenuRow>
+                <MenuRow
+                  icon={<Icon24SunLow />}
+                  onSelect={openSettings}
+                >
+                  Настройки
+                </MenuRow>
+                <MenuRow
+                  icon={<Icon24PersonRemove />}
+                  onSelect={() => {
+                    void doLogout();
+                  }}
+                >
+                  Выход
+                </MenuRow>
+              </Section>
+            </List>
           </div>
         </>
       )}
@@ -357,7 +354,7 @@ export function InputBar({
           }}
         >
           <div className="flex flex-col gap-1 px-1 py-2">
-            <h2 className="text-center text-sm text-muted-foreground">⏰ Напоминание</h2>
+            <h2 className="text-center text-sm text-muted-foreground">Напоминание</h2>
             <ReminderForm
               initial={reminderAt ?? ''}
               initialRepeat={reminderRepeat}
@@ -390,53 +387,40 @@ export function InputBar({
       )}
 
       {/* Плавающие кнопки над нижней панелью (слева, вне белой заливки):
-           📚 «Топики» — шторка топиков. 📁 «Папки» показываем только в режиме
+           «Топики» — шторка топиков. «Папки» показываем только в режиме
            «Отдельная кнопка»: в режиме «в списке» папки видны строками прямо
            в списке заметок, отдельная кнопка не нужна (строка текущей папки
-           над списком остаётся в обоих режимах). Тап не уводит фокус из ввода. */}
-      <div className="absolute bottom-full left-3 mb-2 flex flex-col items-center gap-2">
+           над списком остаётся в обоих режимах). Тап не уводит фокус из ввода.
+           Иконок «папки»/«топики» в наборе библиотеки нет — кнопки-пилюли
+           подписаны словами (тач-цель та же, h-11). */}
+      <div className="absolute bottom-full left-3 mb-2 flex flex-col items-start gap-2">
         {foldersMode === 'button' && (
-          <button
+          <IconButton
             type="button"
+            size="m"
+            mode="gray"
             aria-label="Папки"
             aria-expanded={folderActive}
             title={folderActive ? 'Вы в папке — открыть папки' : 'Открыть папки'}
-            className={`glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg btn-press ${
-              folderActive ? 'text-primary' : 'text-muted-foreground'
+            className={`glass-fab h-11 items-center justify-center rounded-full! px-4! text-sm btn-press ${
+              folderActive ? 'text-primary!' : 'text-muted-foreground!'
             }`}
             onClick={() => press(() => onOpenFolders?.())}
           >
-            📁
-          </button>
+            Папки
+          </IconButton>
         )}
-        <button
+        <IconButton
           type="button"
+          size="m"
+          mode="gray"
           aria-label="Топики"
-          className="glass-fab flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground btn-press"
+          className="glass-fab h-11 items-center justify-center rounded-full! px-4! text-sm text-muted-foreground! btn-press"
           onClick={() => press(() => onOpenTopics?.())}
         >
-          📚
-        </button>
+          Топики
+        </IconButton>
       </div>
-
-      {/* 🔍 «Поиск» — справа, на одном уровне со столбиком слева, над ➤
-          (кнопкой отправки заметки). Тап открывает полноэкранный поиск;
-          панель раскрывается круговой «развёрткой» из центра этой кнопки —
-          она же даёт геометрию (searchBtnRef) через onOpenSearch. */}
-      {hasTopics && (
-        <button
-          ref={searchBtnRef}
-          type="button"
-          aria-label="Поиск по заметкам"
-          className="glass-fab absolute bottom-full right-3 mb-2 flex h-11 w-11 items-center justify-center rounded-full text-lg text-muted-foreground btn-press"
-          onClick={() => {
-            const rect = searchBtnRef.current?.getBoundingClientRect();
-            if (rect !== undefined) onOpenSearch?.(rect);
-          }}
-        >
-          🔍
-        </button>
-      )}
 
       <div className="flex flex-col">
         {/* Панель действий новой заметки: плавно раскрывается по высоте при
@@ -454,83 +438,92 @@ export function InputBar({
         >
           <div className="min-h-0 overflow-hidden">
             <div className="flex items-center gap-2 px-1 pb-1.5">
-              <button
+              <IconButton
                 type="button"
+                size="m"
+                mode={priority !== 'none' ? 'bezeled' : 'gray'}
                 aria-label={`Приоритет: ${priorityLabel(priority)}`}
                 aria-pressed={priority !== 'none'}
                 title={`Приоритет: ${priorityLabel(priority)}`}
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg btn-press ${
-                  priority !== 'none' ? 'bg-border/60' : 'bg-muted'
-                }`}
+                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
                 onClick={() => press(() => setPriority(nextPriority(priority)))}
               >
-                {priorityEmoji(priority)}
-              </button>
-              <button
+                <span className="text-base font-semibold leading-none">
+                  {priorityMark(priority)}
+                </span>
+              </IconButton>
+              <IconButton
                 type="button"
+                size="m"
+                mode={reminderAt !== null ? 'bezeled' : 'gray'}
                 aria-label={reminderAt !== null ? 'Снять напоминание' : 'Добавить напоминание'}
                 aria-pressed={reminderAt !== null}
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg btn-press ${
-                  reminderAt !== null ? 'bg-border/60' : 'bg-muted'
-                }`}
+                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
                 onClick={() => press(toggleReminderForm)}
               >
-                ⏰
-              </button>
-              <button
+                <Icon24Notifications className="h-6 w-6" />
+              </IconButton>
+              <IconButton
                 type="button"
+                size="m"
+                mode={pinned ? 'bezeled' : 'gray'}
                 aria-label={pinned ? 'Открепить' : 'Закрепить'}
                 aria-pressed={pinned}
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg btn-press ${
-                  pinned ? 'bg-border/60' : 'bg-muted'
-                }`}
+                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
                 onClick={() => press(() => setPinned(!pinned))}
               >
-                📌
-              </button>
-              {/* ⤢ — созданная заметка будет развёрнута: карточка покажет текст
-                  целиком (то же, что «⤢ Развернуть» в меню заметки). */}
-              <button
+                {/* Иконки закрепления в наборе библиотеки нет — кнопку
+                    подписываем словом. */}
+                <span className="text-sm leading-none">Пин</span>
+              </IconButton>
+              {/* Шеврон вниз — созданная заметка будет развёрнута: карточка
+                  покажет текст целиком (то же, что «Развернуть» в меню заметки). */}
+              <IconButton
                 type="button"
+                size="m"
+                mode={expanded ? 'bezeled' : 'gray'}
                 aria-label={expanded ? 'Заметка не будет развёрнута' : 'Развернуть заметку'}
                 aria-pressed={expanded}
                 title={expanded ? 'Заметка будет развёрнута' : 'Развернуть заметку'}
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg btn-press ${
-                  expanded ? 'bg-border/60' : 'bg-muted'
-                }`}
+                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
                 onClick={() => press(() => setExpanded(!expanded))}
               >
-                ⤢
-              </button>
-              {/* ✏️ прижата вправо: создать заметку и сразу открыть её в полном
-                  редакторе (форматирование, заголовки, списки). */}
-              <button
+                <Icon24ChevronDown className="h-6 w-6" />
+              </IconButton>
+              {/* Карандаш прижат вправо: создать заметку и сразу открыть её
+                  в полном редакторе (форматирование, заголовки, списки). */}
+              <IconButton
                 type="button"
+                size="m"
+                mode="gray"
                 aria-label="Открыть в полном редакторе"
                 title="Открыть в полном редакторе"
-                className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground btn-press active:bg-border disabled:opacity-40"
+                className="ml-auto h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! text-muted-foreground! btn-press disabled:opacity-40"
                 disabled={sending}
                 onClick={() => {
                   void submit(true);
                 }}
               >
-                ✏️
-              </button>
+                <Icon28Edit />
+              </IconButton>
             </div>
           </div>
         </div>
 
         <div className="flex items-end gap-1.5">
-          <button
+          <IconButton
             type="button"
+            size="m"
+            mode="gray"
             aria-label={badgeCount > 0 ? `Меню (${badgeCount} непрочитанных уведомлений)` : 'Меню'}
             aria-expanded={menuOpen}
-            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground btn-press active:bg-border"
+            className="relative h-11 min-w-11 shrink-0 items-center justify-center rounded-full! px-3! text-sm text-muted-foreground! btn-press"
             onClick={toggleMenu}
           >
-            ☰
+            Меню
             {badgeCount > 0 && (
-              /* Бейдж непрочитанных на самом бургере: видно, что в 🔔 что-то есть */
+              /* Бейдж непрочитанных на самой кнопке: видно, что в уведомлениях
+                 что-то есть */
               <span
                 className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-white"
                 aria-hidden="true"
@@ -538,7 +531,7 @@ export function InputBar({
                 {badgeCount > 99 ? '99+' : badgeCount}
               </span>
             )}
-          </button>
+          </IconButton>
           {/* Поле ввода: тап пальцем/стилусом «продавливает» поле (лёгкое
               сжатие) и пружинисто отпускает — тактильный отклик касания, как
               у кнопок Telegram. Отклик общий для всех полей приложения
@@ -555,17 +548,19 @@ export function InputBar({
             onKeyDown={onKeydown}
             className="input-press max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-muted px-4 py-3 text-base leading-5 outline-none focus:border-ring placeholder:text-muted-foreground"
           ></textarea>
-          <button
+          <IconButton
             type="button"
+            size="m"
+            mode="plain"
             aria-label="Отправить"
-            className="btn-press flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-40"
+            className="h-11 w-11 shrink-0 items-center justify-center rounded-full! bg-primary! p-0! text-white! btn-press disabled:opacity-40"
             disabled={sending || !hasText}
             onClick={() => {
               void send();
             }}
           >
-            {sending ? <Spinner size="20px" /> : <span className="text-xl leading-none">➤</span>}
-          </button>
+            {sending ? <Spinner size="20px" /> : <Icon24ChevronRight className="h-6 w-6" />}
+          </IconButton>
         </div>
       </div>
     </div>

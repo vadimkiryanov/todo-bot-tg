@@ -1,7 +1,14 @@
 // Вход/регистрация (URL /login). Telegram Login Widget (VITE_TG_LOGIN задаётся
 // при сборке web) или форма логина/регистрации. Guard в App перенаправляет
 // авторизованного в чат; после login/register здесь — явный переход на /.
+// Поля и кнопка «войти» — из @telegram-apps/telegram-ui: у Input библиотечная
+// заливка совпадает с фоном страницы, поэтому возвращаем прежний вид полей
+// (bg-background! + рамка border-border!); кнопке h-11! возвращает тач-цель
+// 44 px (size m = 42 px), loading сам показывает спиннер вместо прежнего «…».
+// Табы «Вход/Регистрация» остаются своими: у Button нет состояния «выбран».
 import { useEffect, useState } from 'react';
+import { Button, Input } from '@telegram-apps/telegram-ui';
+import { Icon28Edit } from '@telegram-apps/telegram-ui/dist/icons/28/edit';
 
 import { login, register } from '../stores/session';
 import { navigate } from '../router';
@@ -79,7 +86,7 @@ export function LoginView() {
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 px-6">
-      <div className="text-6xl">📝</div>
+      <Icon28Edit className="h-16 w-16 text-muted-foreground" />
 
       <div
         className="flex w-full max-w-xs items-center rounded-full bg-muted p-1 text-sm"
@@ -124,15 +131,15 @@ export function LoginView() {
           void submit();
         }}
       >
-        <input
-          className="input-press h-11 rounded-xl border border-border bg-background px-4 outline-none focus:border-ring"
+        <Input
+          className="bg-background! border border-border!"
           placeholder="Логин"
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
-        <input
-          className="input-press h-11 rounded-xl border border-border bg-background px-4 outline-none focus:border-ring"
+        <Input
+          className="bg-background! border border-border!"
           placeholder="Пароль"
           type="password"
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
@@ -140,13 +147,15 @@ export function LoginView() {
           onChange={(e) => setPassword(e.target.value)}
         />
         {error !== '' && <p className="text-sm text-destructive">{error}</p>}
-        <button
+        <Button
           type="submit"
-          className="btn-press h-11 rounded-xl bg-primary font-medium text-white disabled:opacity-50"
+          mode="filled"
+          className="h-11! disabled:opacity-50"
           disabled={pending}
+          loading={pending}
         >
-          {pending ? '…' : title}
-        </button>
+          {title}
+        </Button>
       </form>
     </div>
   );

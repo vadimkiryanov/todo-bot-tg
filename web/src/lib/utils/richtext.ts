@@ -556,7 +556,7 @@ export function placeCaretAtPlainOffset(root: HTMLElement, text: string, plain: 
 }
 
 /** Поставить каретку в конец вёрстки — когда в неё входят программно
- *  (кнопка ✏️, панель форматирования без каретки в тексте). */
+ *  (кнопка-карандаш, панель форматирования без каретки в тексте). */
 export function focusEditorEnd(root: HTMLElement): void {
   const blocks = editorBlocks(root);
   const last = blocks[blocks.length - 1];

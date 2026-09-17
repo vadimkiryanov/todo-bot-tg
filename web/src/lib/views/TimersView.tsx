@@ -1,9 +1,17 @@
-// Экран «⏰ Таймеры» (URL /timers): все заметки с установленным напоминанием,
-// из любых топиков — как /timers в боте. Каждая строка: ✅ выполненной +
-// превью + время напоминания и режим (🔂 разовый / 🔁 ежедневный).
+// Экран таймеров (URL /timers): все заметки с установленным напоминанием,
+// из любых топиков — как /timers в боте. Каждая строка: галочка выполненной +
+// превью + время напоминания и режим («ежедневно» / «один раз»).
 // Приоритет — цветная обводка строки (note-priority-*), как в списке заметок.
 // Тап по строке — полноэкранная «страница» заметки (NotePage).
+// Список — строки-Cell на компонентах @telegram-apps/telegram-ui
+// (AppRoot поднят в App.tsx — он задаёт токены --tgui--*).
 import { useEffect, useState } from 'react';
+import { Button, Cell, IconButton, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
+import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
+import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
+import { Icon24PersonRemove } from '@telegram-apps/telegram-ui/dist/icons/24/person_remove';
 
 import { EmptyState } from '../components/EmptyState';
 import { Loader } from '../components/Loader';
@@ -49,23 +57,27 @@ export function TimersView() {
     <>
       <div className="flex h-full flex-col">
         <header className="flex shrink-0 items-center justify-between border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
-          <button
+          <IconButton
             type="button"
+            size="m"
+            mode="plain"
             aria-label="Назад"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
+            className="h-10 w-10 items-center justify-center rounded-full! p-0! text-foreground! btn-press"
             onClick={() => navigate('/')}
           >
-            ←
-          </button>
-          <span className="text-xl">⏰</span>
-          <button
+            <Icon24ChevronLeft />
+          </IconButton>
+          <Icon24Notifications className="h-6 w-6" />
+          <IconButton
             type="button"
+            size="m"
+            mode="plain"
             aria-label="Выйти"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
+            className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
             onClick={() => void doLogout()}
           >
-            🚪
-          </button>
+            <Icon24PersonRemove />
+          </IconButton>
         </header>
 
         <main className="scroll-area flex-1 overflow-y-auto">
@@ -73,51 +85,58 @@ export function TimersView() {
             <Loader />
           ) : timersError ? (
             <div className="flex flex-col items-center gap-4 px-6 py-16">
-              <EmptyState emoji="⚠️" text={timersError} />
-              <button
+              <EmptyState icon={<Icon16Cancel />} text={timersError} />
+              <Button
                 type="button"
-                className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
+                size="s"
+                mode="outline"
+                className="h-11!"
                 onClick={() => void loadTimers()}
               >
                 Повторить
-              </button>
+              </Button>
             </div>
           ) : timersNotes.length === 0 ? (
-            <EmptyState emoji="⏰" text="Таймеров нет" />
+            <EmptyState icon={<Icon24Notifications />} text="Таймеров нет" />
           ) : (
-            <div className="flex flex-col gap-2 px-3 py-3">
-              {timersNotes.map((note) => (
-                // Тап по строке — страница заметки (там снимают/переносят таймер)
-                <button
-                  key={note.id}
-                  type="button"
-                  className={`glass-card flex w-full touch-manipulation select-none flex-col gap-1 rounded-2xl px-4 py-3 text-left shadow-sm btn-press-soft [-webkit-touch-callout:none] ${
-                    note.priority === 'high'
-                      ? 'note-priority-high'
-                      : note.priority === 'medium'
-                        ? 'note-priority-medium'
-                        : note.priority === 'low'
-                          ? 'note-priority-low'
-                          : ''
-                  }`}
-                  onClick={() => setSelectedId(note.id)}
-                >
-                  <span className="flex min-w-0 items-start gap-2.5">
-                    {note.done && <span className="w-5 shrink-0 text-center text-sm leading-6">✅</span>}
+            <List>
+              <Section>
+                {timersNotes.map((note) => (
+                  // Тап по строке — страница заметки (там снимают/переносят таймер)
+                  <Cell
+                    key={note.id}
+                    Component="button"
+                    type="button"
+                    multiline
+                    // w-full обязателен: <button> не растягивается как блочный
+                    // бокс — короткая строка не заняла бы карточку.
+                    className={`w-full select-none text-left touch-manipulation [-webkit-touch-callout:none] ${
+                      note.priority === 'high'
+                        ? 'note-priority-high'
+                        : note.priority === 'medium'
+                          ? 'note-priority-medium'
+                          : note.priority === 'low'
+                            ? 'note-priority-low'
+                            : ''
+                    }`}
+                    before={
+                      note.done ? <Icon20Select className="h-5 w-5" /> : undefined
+                    }
+                    subtitle={`${formatReminderAt(note.reminder_at!, note.reminder_repeat)}${
+                      note.reminder_repeat === 'daily' ? ' · ежедневно' : ' · один раз'
+                    }`}
+                    onClick={() => setSelectedId(note.id)}
+                  >
                     <span
-                      className={`line-clamp-2 min-w-0 flex-1 break-words text-[15px] leading-6 ${
+                      className={`line-clamp-2 min-w-0 break-words text-[15px] leading-6 ${
                         note.done ? 'text-muted-foreground line-through' : 'text-foreground'
                       }`}
                       dangerouslySetInnerHTML={{ __html: firstLineHtml(note.text, note.entities) }}
                     />
-                  </span>
-                  <span className="pl-7 text-xs text-muted-foreground">
-                    ⏰ {formatReminderAt(note.reminder_at!, note.reminder_repeat)}
-                    {note.reminder_repeat === 'daily' ? '· 🔁 ежедневно' : '· 🔂 один раз'}
-                  </span>
-                </button>
-              ))}
-            </div>
+                  </Cell>
+                ))}
+              </Section>
+            </List>
           )}
         </main>
       </div>

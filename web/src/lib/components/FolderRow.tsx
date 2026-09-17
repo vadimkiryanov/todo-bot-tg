@@ -1,11 +1,13 @@
 // Строка папки в общем списке заметок (режим «в списке»): тап — вход
-// в папку; долгий тач (300 мс, как у карточек заметок) или правый клик
+// в папку; долгий тач (300 мс, как у строк заметок) или правый клик
 // на десктопе — контекстное меню папки (FolderMenu: переименовать/удалить).
-import { useEffect, useRef } from 'react';
-import type * as React from 'react';
+// Строка — Cell на компонентах @telegram-apps/telegram-ui: список чата
+// (заметки и папки) выглядит одним плоским списком Telegram, как остальные
+// списки приложения.
+import { Cell } from '@telegram-apps/telegram-ui';
 
 import type { Folder } from '../types/api';
-import { suppressNextClick } from '../utils/click';
+import { useLongPress } from '../utils/longPress';
 
 interface FolderRowProps {
   folder: Folder;
@@ -14,114 +16,44 @@ interface FolderRowProps {
 }
 
 export function FolderRow({ folder, onOpen, onMenu }: FolderRowProps) {
-  // ── Долгий тач ──────────────────────────────────────────────
-  // Удержание 300 мс без движения >10px открывает меню и подавляет
-  // следующий клик (иначе вместе с меню произойдёт и вход в папку).
-  const LONG_PRESS_MS = 300;
-  const MOVE_THRESHOLD = 10;
-
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressTriggered = useRef(false);
-  const startX = useRef(0);
-  const startY = useRef(0);
-
-  function clearPressTimer(): void {
-    if (pressTimer.current !== null) {
-      clearTimeout(pressTimer.current);
-      pressTimer.current = null;
-    }
-  }
-
-  // Горизонтальный свайп раскладывает список в «сцену» — строка под пальцем
-  // размонтируется (и пересоздаётся в панели сцены). Её таймер долгого нажатия
-  // иначе дожил бы до конца и открыл меню посреди свайпа: pointermove на
-  // размонтированном элементе уже не приходит, движение таймер не сбрасывает.
-  // Гасим таймер вместе с жизнью строки; на случай гонки (таймер уже в очереди)
-  // проверяем, что строка ещё в документе.
-  useEffect(
-    () => () => {
-      clearPressTimer();
-    },
-    [],
+  // Удержание 300 мс — как у строк заметок в этом же списке. Таймер снимается
+  // сам: движение > 10 px обрывает удержание, размонтирование (свайп собрал
+  // «сцену» и пересоздал список) — очистка хука; на гонку есть проверка
+  // el.isConnected.
+  const press = useLongPress(
+    onMenu === undefined
+      ? undefined
+      : (el) => {
+          onMenu(folder, el.getBoundingClientRect());
+        },
   );
 
-  function onPointerDown(e: React.PointerEvent<HTMLButtonElement>): void {
-    if (e.button !== 0) return;
-    // Мобильный браузер при удержании пальца начинает выделять текст —
-    // сбрасываем выделение, чтобы долгий тап не выделял соседние элементы.
-    window.getSelection()?.removeAllRanges();
-    const active = document.activeElement;
-    if (active instanceof HTMLElement && active !== document.body) active.blur();
-    // Элемент захватываем сразу: внутри setTimeout у события currentTarget уже null.
-    const el = e.currentTarget;
-    startX.current = e.clientX;
-    startY.current = e.clientY;
-    longPressTriggered.current = false;
-    clearPressTimer();
-    pressTimer.current = setTimeout(() => {
-      pressTimer.current = null;
-      // Строку размонтировали (свайп собрал сцену, список сменился) — меню
-      // не открываем: таймер мог сработать раньше, чем unmount-очистка его сняла.
-      if (!el.isConnected) return;
-      longPressTriggered.current = true;
-      suppressNextClick();
-      onMenu?.(folder, el.getBoundingClientRect());
-    }, LONG_PRESS_MS);
-  }
-
-  function onPointerMove(e: React.PointerEvent<HTMLButtonElement>): void {
-    if (pressTimer.current === null) return;
-    const dx = e.clientX - startX.current;
-    const dy = e.clientY - startY.current;
-    if (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD) {
-      clearPressTimer();
-    }
-  }
-
-  function onPointerUp(): void {
-    clearPressTimer();
-    if (longPressTriggered.current) {
-      // iOS после долгого тапа может оставить выделение — снимаем его.
-      window.getSelection()?.removeAllRanges();
-    }
-  }
-
-  function onPointerCancel(): void {
-    clearPressTimer();
-  }
-
-  function onRowClick(): void {
-    if (longPressTriggered.current) {
-      // Клик после долгого тача: меню уже открыто, в папку не входим.
-      longPressTriggered.current = false;
-      return;
-    }
-    onOpen(folder);
-  }
-
-  // Android Chrome генерирует contextmenu при долгом таче; на десктопе
-  // правый клик открывает то же меню.
-  function onContextMenu(e: React.MouseEvent<HTMLButtonElement>): void {
-    e.preventDefault();
-    if (longPressTriggered.current) return;
-    onMenu?.(folder, e.currentTarget.getBoundingClientRect());
-  }
-
   return (
-    <button
+    <Cell
+      Component="button"
       type="button"
-      className="glass-card flex w-full touch-pan-y select-none items-center gap-2.5 rounded-2xl px-4 py-3 text-left shadow-sm btn-press-soft [-webkit-touch-callout:none]"
-      onClick={onRowClick}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
-      onContextMenu={onContextMenu}
+      // w-full обязателен: <button> в Chromium не растягивается как блочный
+      // бокс, а схлопывается по содержимому — короткое имя папки не заняло бы
+      // карточку, и область тапа оказалась бы уже карточки.
+      className="w-full select-none text-left btn-press-soft [-webkit-touch-callout:none]"
+      onClick={() => {
+        if (press.skipClick()) return;
+        onOpen(folder);
+      }}
+      onPointerDown={press.onPointerDown}
+      onPointerMove={press.onPointerMove}
+      onPointerUp={press.onPointerUp}
+      onPointerCancel={press.onPointerCancel}
+      onContextMenu={press.onContextMenu}
     >
-      <span className="w-5 shrink-0 text-center text-sm leading-6">📁</span>
-      <span className="min-w-0 flex-1 truncate text-[15px] leading-6 text-foreground">
-        {folder.name}
+      <span className="flex min-w-0 items-center gap-2 text-[15px] leading-6">
+        {/* Папки в наборе иконок библиотеки нет — строку помечаем словом:
+            иначе в общем списке она не отличалась бы от заметки. */}
+        <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+          папка
+        </span>
+        <span className="truncate">{folder.name}</span>
       </span>
-    </button>
+    </Cell>
   );
 }

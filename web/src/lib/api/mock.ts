@@ -556,13 +556,14 @@ function mockSearchNotes(q: string, topicId: number | null): Note[] {
 
 function mockListNotes(topicId: number, folderId: number | null): Note[] {
   const user = requireUser();
-  // Выполненные скрыты из основного списка — они живут на экране «✅ Выполненные»
+  // Выполненные скрыты из основного списка — они живут на экране «Выполненные»
   // (done=true), как на бэкенде.
   const notes = notesOf(user.id).filter((n) => n.topic_id === topicId && !n.archived && !n.done);
-  if (folderId !== null) {
-    return sortNotes(notes.filter((n) => n.folder_id === folderId)).map(toNote);
-  }
-  return sortNotes(notes).map(toNote);
+  // Уровень списка: корень топика — только заметки без папки (folder_id IS NULL),
+  // папка — заметки этой папки. Так же фильтрует бэкенд (repository/todo:
+  // `folder_id IS NULL` для корня) — иначе корневой список показывал бы и
+  // заметки из папок.
+  return sortNotes(notes.filter((n) => n.folder_id === (folderId ?? null))).map(toNote);
 }
 
 function mockListArchived(): Note[] {

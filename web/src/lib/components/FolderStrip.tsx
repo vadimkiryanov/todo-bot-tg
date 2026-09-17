@@ -1,8 +1,9 @@
-// Строка текущей папки под островком топиков: «📁 Папка › Подпапка» (или
+// Строка текущей папки под островком топиков: «Папка › Подпапка» (или
 // «Корень»). Тап — шторка папок (дерево активного топика); долгий тап —
 // дропдаун «Создать папку» (на текущем уровне) / «Создать топик».
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type * as React from 'react';
+import { Icon28AddCircle } from '@telegram-apps/telegram-ui/dist/icons/28/add_circle';
 
 import { CrumbPath } from './CrumbPath';
 import { QuickMenu } from './QuickMenu';
@@ -91,7 +92,6 @@ export function FolderStrip({ onOpen, displayFolderID }: FolderStripProps) {
         onPointerLeave={clearTimer}
         onClick={onTap}
       >
-        <span className="shrink-0 text-sm leading-none">📁</span>
         {!inFolder || chain.length === 0 ? (
           <span className="min-w-0 flex-1 truncate">Корень</span>
         ) : (
@@ -107,12 +107,12 @@ export function FolderStrip({ onOpen, displayFolderID }: FolderStripProps) {
           y={quickMenu.y}
           items={[
             {
-              emoji: '📁',
+              icon: <Icon28AddCircle />,
               label: 'Создать папку',
               action: () => useUiStore.setState({ folderCreateOpen: true }),
             },
             {
-              emoji: '📚',
+              icon: <Icon28AddCircle />,
               label: 'Создать топик',
               action: () => useUiStore.setState({ topicCreateOpen: true }),
             },

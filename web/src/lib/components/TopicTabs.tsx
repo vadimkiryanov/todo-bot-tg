@@ -1,83 +1,88 @@
-// Сетка топиков (шторка «Топики»): тап — выбор топика (шторка не
-// закрывается), долгий тап — меню топика (TopicMenu: создать/закрепить/
-// переименовать/удалить). Закреплённые помечены 📌 и идут первыми.
-import { useEffect, useRef } from 'react';
+// Список топиков (шторка «Топики») на компонентах @telegram-apps/telegram-ui:
+// тап — выбор топика (шторка не закрывается), долгий тач (правый клик) — меню
+// топика (TopicMenu: создать/закрепить/переименовать/удалить). Закреплённые
+// помечены коротким словом-меткой и идут первыми, число заметок — бейджем
+// у правого края, активный топик — галочкой, как строки настроек: шторки
+// выглядят одинаково.
+import { Badge, Cell, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
 
 import { setActiveTopic, useNavigationStore } from '../stores/navigation';
-import { useTopicsStore } from '../stores/topics';
 import { openTopicMenu } from '../stores/topic-menu';
-import { suppressNextClick } from '../utils/click';
+import { useTopicsStore } from '../stores/topics';
+import type { Topic } from '../types/api';
+import { useLongPress } from '../utils/longPress';
 
-const LONG_PRESS_MS = 500;
+/** Удержание — как у табов островка (не короче): тап по топику переключает,
+    меню открывается сознательным удержанием. */
+const HOLD_MS = 500;
+
+interface TopicRowProps {
+  topic: Topic;
+  active: boolean;
+}
+
+function TopicRow({ topic, active }: TopicRowProps) {
+  // Долгий тач — меню топика; клик после него подавляется хуком.
+  const press = useLongPress(() => {
+    openTopicMenu(topic);
+  }, HOLD_MS);
+
+  return (
+    <Cell
+      Component="button"
+      type="button"
+      // w-full обязателен: <button> в Chromium не растягивается как блочный
+      // бокс, а схлопывается по содержимому — короткое имя топика не заняло бы
+      // карточку, и бейдж с галочкой встали бы сразу за подписью.
+      className="w-full select-none text-left btn-press-soft [-webkit-touch-callout:none]"
+      after={
+        <span className="flex items-center gap-1">
+          {topic.note_count > 0 && (
+            <Badge type="number" mode="gray">
+              {topic.note_count}
+            </Badge>
+          )}
+          {active && <Icon20Select className="h-5 w-5 text-ring" />}
+        </span>
+      }
+      onClick={() => {
+        if (press.skipClick()) return;
+        setActiveTopic(topic.id);
+      }}
+      onPointerDown={press.onPointerDown}
+      onPointerMove={press.onPointerMove}
+      onPointerUp={press.onPointerUp}
+      onPointerCancel={press.onPointerCancel}
+      onContextMenu={press.onContextMenu}
+    >
+      <span className="flex min-w-0 items-center gap-1.5 text-[15px] leading-6">
+        {topic.pinned && (
+          /* Иконки закрепления в наборе библиотеки нет — метка словом. */
+          <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+            пин
+          </span>
+        )}
+        <span className="truncate">{topic.name}</span>
+      </span>
+    </Cell>
+  );
+}
 
 export function TopicTabs() {
   const topics = useTopicsStore((s) => s.topics);
   const activeTopicID = useNavigationStore((s) => s.activeTopicID);
 
-  const longPressTimer = useRef<number | undefined>(undefined);
-  const longPressFired = useRef(false);
-
-  // Таймер долгого нажатия гасим вместе с жизнью компонента.
-  useEffect(
-    () => () => {
-      window.clearTimeout(longPressTimer.current);
-    },
-    [],
-  );
-
-  function handlePointerDown(id: number): void {
-    longPressFired.current = false;
-    longPressTimer.current = window.setTimeout(() => {
-      longPressFired.current = true;
-      suppressNextClick();
-      const topic = useTopicsStore.getState().topics.find((t) => t.id === id);
-      if (topic !== undefined) {
-        openTopicMenu(topic);
-      }
-    }, LONG_PRESS_MS);
-  }
-
-  function cancelLongPress(): void {
-    window.clearTimeout(longPressTimer.current);
-  }
-
-  function onTap(id: number): void {
-    if (longPressFired.current) {
-      longPressFired.current = false;
-      return;
-    }
-    setActiveTopic(id);
-  }
-
   return (
-    <div className="shrink-0 px-1 pb-1">
-      {/* Сетка топиков (2 колонки): долгий тап по топику — меню. Высота не
-          ограничена изнутри — длинный список раскрывает шторку до 85dvh,
-          скроллится сама шторка (Modal). */}
-      <div className="topic-grid grid grid-cols-2 gap-2">
+    // px-0! — снимаем собственные отступы List (10px 18px на iOS):
+    // горизонтальные отступы задаёт шторка, иначе карточка-секция уезжает
+    // к центру и становится узкой (как в шторке настроек).
+    <List className="px-0!">
+      <Section>
         {topics.map((topic) => (
-          <button
-            key={topic.id}
-            type="button"
-            className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm btn-press-soft ${
-              topic.id === activeTopicID
-                ? 'bg-primary text-white'
-                : 'bg-muted text-foreground'
-            }`}
-            onPointerDown={() => handlePointerDown(topic.id)}
-            onPointerUp={cancelLongPress}
-            onPointerCancel={cancelLongPress}
-            onPointerLeave={cancelLongPress}
-            onClick={() => onTap(topic.id)}
-          >
-            {topic.pinned && <span className="shrink-0 text-xs">📌</span>}
-            <span className="truncate">{topic.name}</span>
-            {topic.note_count > 0 && (
-              <span className="shrink-0 text-xs opacity-60">{topic.note_count}</span>
-            )}
-          </button>
+          <TopicRow key={topic.id} topic={topic} active={topic.id === activeTopicID} />
         ))}
-      </div>
-    </div>
+      </Section>
+    </List>
   );
 }

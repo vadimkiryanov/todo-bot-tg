@@ -1,7 +1,8 @@
 // Корневой компонент: офлайн-баннер, PWA, обработчик 401, восстановление
-// сессии, поллинг уведомлений (журнал сработавших напоминаний) для бейджа 🔔,
+// сессии, поллинг уведомлений (журнал сработавших напоминаний) для бейджа «Меню»,
 // микро-роутер с guard'ами сессии (паритет +page.ts: гость → /login, вход → /).
 import { useEffect, type ReactNode } from 'react';
+import { AppRoot } from '@telegram-apps/telegram-ui';
 import { registerSW } from 'virtual:pwa-register';
 
 import { setUnauthorizedHandler } from './lib/api/client';
@@ -18,7 +19,7 @@ import { LoginView } from './lib/views/LoginView';
 import { NotificationsView } from './lib/views/NotificationsView';
 import { TimersView } from './lib/views/TimersView';
 
-// Авторизованным — периодический опрос журнала уведомлений: бейдж 🔔 в меню
+// Авторизованным — периодический опрос журнала уведомлений: счётчик в меню
 // обновляется, даже если напоминание сработало, пока вкладка была свёрнута.
 // Поллинг тихий (silent) — ошибки сети не трогают загруженный список.
 const NOTIFY_POLL_MS = 30_000;
@@ -26,7 +27,7 @@ const NOTIFY_POLL_MS = 30_000;
 function OfflineBanner() {
   return (
     <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-2 bg-destructive px-3 pb-1 pt-[env(safe-area-inset-top)] text-sm text-white shadow">
-      <span>📡</span> Нет сети
+      Нет сети
     </div>
   );
 }
@@ -114,10 +115,16 @@ export function App() {
   }
 
   return (
-    <div className="h-full">
+    // AppRoot @telegram-apps/telegram-ui — единственное место, где объявлена
+    // платформа библиотеки: он навешивает классы с токенами --tgui--*, которые
+    // наследуют все строки-Cell и шторки. Вне Telegram библиотека определяет
+    // платформу как base (Material) — берём ios: серые заголовки секций и
+    // карточки-секции, как в iOS-клиенте. Своих стилей (фон, шрифт) класс
+    // AppRoot не задаёт, поэтому видеть его в корне безопасно.
+    <AppRoot platform="ios" className="h-full">
       {!online && <OfflineBanner />}
       {screen}
       <ToastHost />
-    </div>
+    </AppRoot>
   );
 }

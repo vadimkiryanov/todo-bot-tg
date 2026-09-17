@@ -6,8 +6,8 @@
 // у каждого слайда свой scroll-контейнер (.chat-scroll); сама лента не
 // скроллится (overflow скрыт). Активный слайд — «живой» список из стора;
 // соседние слайды — статичные превью корней из кеша
-// (peekCachedNotes/peekCachedFolders), без кеша — плейсхолдер ⏳, а хэндлеры
-// заглушены (no-op), чтобы долгий тап не открывал меню чужого топика.
+// (peekCachedNotes/peekCachedFolders), без кеша — плейсхолдер-крутилка, а
+// хэндлеры заглушены (no-op), чтобы долгий тап не открывал меню чужого топика.
 // Папки — уровни внутри слайда топика, поэтому у живого топика свой
 // ВЛОЖЕННЫЙ свайпер уровней (слайд = уровень: корень + цепочка папок до
 // активной). Внутри папки внешняя лента (топики) выключена целиком
@@ -18,13 +18,13 @@
 // превью из кеша. Вход в папку (тап по строке/крошке) — анимированный
 // переезд вглубь, как смена топиков.
 // Кроме жеста выход из папки — тапом по UI (в шторке
-// папок «📂 Корень»/уровень, таб-крошка островка в режиме пути 'tab',
+// папок строка «Корень»/уровень, таб-крошка островка в режиме пути 'tab',
 // строка-крошка FolderStrip в 'strip').
 // Путь в папках (настройка pathMode): по умолчанию расширяет активный таб
 // островка — «Топик › Папка › Подпапка», тап по табу открывает шторку
 // папок; в режиме 'strip' — прежняя строка-крошка под островком.
-// Папки/топики открываются отдельными шторками: 📁 и 📚 плавающие кнопки
-// над полем ввода (📁 — в режиме папок 'button').
+// Папки/топики открываются отдельными шторками: кнопки «Папки» и «Топики»
+// над полем ввода («Папки» — в режиме папок 'button').
 // Создание топика — долгий тап на табе островка/в меню топика; создание
 // папки — долгий тап на строке папки / заметке / пустом месте.
 //
@@ -32,6 +32,9 @@
 // react-адаптации Svelte-механик описаны по месту.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as React from 'react';
+import { Button, IconButton, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon28AddCircle } from '@telegram-apps/telegram-ui/dist/icons/28/add_circle';
 
 import { CreateFolderModal } from '../components/CreateFolderModal';
 import { CreateTopicModal } from '../components/CreateTopicModal';
@@ -44,7 +47,7 @@ import { InputBar } from '../components/InputBar';
 import { Loader } from '../components/Loader';
 import { Modal } from '../components/Modal';
 import { MoveModal } from '../components/MoveModal';
-import { NoteCard } from '../components/NoteCard';
+import { NoteCell } from '../components/NoteCell';
 import { NoteMenu } from '../components/NoteMenu';
 import { NotePage } from '../components/NotePage';
 import { QuickMenu } from '../components/QuickMenu';
@@ -107,8 +110,8 @@ export function ChatView() {
   // анимация закрытия страницы — держим объект до явного onClose.
   const [selectedId, setSelectedIdState] = useState<number | null>(null);
   const [selectedCache, setSelectedCache] = useState<Note | null>(null);
-  // Открывать страницу сразу в режиме редактирования (кнопка ✏️ панели ввода
-  // создаёт заметку и открывает её «как будто уже перешли в заметку»).
+  // Открывать страницу сразу в режиме редактирования (кнопка-карандаш панели
+  // ввода создаёт заметку и открывает её «как будто уже перешли в заметку»).
   const [selectedEdit, setSelectedEdit] = useState(false);
 
   // ВАЖНО: $state в Svelte присваивается синхронно, setState в React — нет.
@@ -140,8 +143,8 @@ export function ChatView() {
     setMenuRect(null);
   }
 
-  // Перемещение заметки из контекстного меню карточки (пункт «📂
-  // Переместить»): модалка с выбором топика и деревом его папок открывается
+  // Перемещение заметки из контекстного меню карточки (пункт «Переместить»):
+  // модалка с выбором топика и деревом его папок открывается
   // поверх списка. Папки грузит сама модалка — пункт виден всегда.
   const [moveTarget, setMoveTarget] = useState<Note | null>(null);
 
@@ -165,11 +168,13 @@ export function ChatView() {
     setFolderMenu(null);
   }
 
-  // Полноэкранный поиск по заметкам (кнопка 🔍 внизу справа, над ➤ отправки).
-  // origin — центр кнопки в координатах вьюпорта: панель раскрывается из неё
-  // круговой «развёрткой» (clip-path circle), как будто кнопка стала инпутом.
+  // Полноэкранный поиск по заметкам (кнопка «Поиск» внизу справа, над кнопкой
+  // отправки — вне панели ввода). origin — центр кнопки в координатах
+  // вьюпорта: панель раскрывается из неё круговой «развёрткой» (clip-path
+  // circle), как будто кнопка стала инпутом.
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchOrigin, setSearchOrigin] = useState<{ x: number; y: number } | null>(null);
+  const searchBtnRef = useRef<HTMLButtonElement>(null);
 
   // ── URL-синхронизация (?topic=&folder=&note=) ───────────────────────────
   // Навигация зеркалится в адресную строку: смена топика/папки — replaceState
@@ -236,7 +241,7 @@ export function ChatView() {
   }
 
   /** Открыть заметку (страница). pushState: «назад» браузера вернёт к списку.
-      startEditing — открыть сразу в режиме правки (кнопка ✏️ панели ввода). */
+      startEditing — открыть сразу в режиме правки (кнопка-карандаш панели ввода). */
   function openNoteObject(note: Note, startEditing = false): void {
     noteOpenedViaPushRef.current = true;
     // Кэш страницы заполняем сразу переданным объектом: заметка может ещё не
@@ -372,17 +377,18 @@ export function ChatView() {
   }
 
   // Шторки: топики (сетка) и папки (дерево активного топика) — раздельные,
-  // открываются плавающими кнопками 📚/📁 (и строкой папки). Не закрываются
-  // автоматически при выборе — только вручную (тап вне / Escape).
+  // открываются плавающими кнопками «Топики»/«Папки» (и строкой папки). Не
+  // закрываются автоматически при выборе — только вручную (тап вне / Escape).
   const [topicSheetOpen, setTopicSheetOpen] = useState(false);
   const [folderSheetOpen, setFolderSheetOpen] = useState(false);
 
   // ── Инлайн-папки (режим «в списке», как в боте) ─────────────────────────
-  // Включается в настройках (⚙️ → формат папок): папки текущего уровня
-  // показываются строками в общем списке заметок — порядок как у бота:
-  // закреплённые → папки → остальные заметки. Тап по строке — вход в папку;
-  // долгий тач/правый клик — контекстное меню папки (FolderMenu).
-  // В режиме «отдельная кнопка» папок в списке нет (только 📁/строка папки).
+  // Включается в настройках (меню «Меню» → «Настройки» → формат папок): папки
+  // текущего уровня показываются строками в общем списке заметок — порядок как
+  // у бота: закреплённые → папки → остальные заметки. Тап по строке — вход в
+  // папку; долгий тач/правый клик — контекстное меню папки (FolderMenu).
+  // В режиме «отдельная кнопка» папок в списке нет (только кнопка «Папки» /
+  // строка папки).
   // (levelFolders читает сторы напрямую — реактивность от подписок.)
   const inlineFolders = useMemo(
     () => (foldersMode === 'list' ? levelFolders() : []),
@@ -428,7 +434,7 @@ export function ChatView() {
   // в списке» корневые папки). Кеш — обычный Map, поэтому превью пересобирается
   // по реактивным счётчикам изменений кеша (notesCacheTick/foldersCacheTick).
   interface SlidePreview {
-    /** 'pending' — кеша ещё нет, слайд показывает плейсхолдер ⏳. */
+    /** 'pending' — кеша ещё нет, слайд показывает плейсхолдер-крутилку. */
     state: 'pending' | 'ready';
     pinned: Note[];
     rest: Note[];
@@ -986,9 +992,11 @@ export function ChatView() {
 
   // ── Сниппеты: списки и панели слайдов ───────────────────────────────────
   // Колонка списка: закреплённые → строки папок (режим «в списке») →
-  // остальные заметки. Без анимации появления: при перерисовке списка
+  // остальные заметки. Один плоский список Telegram: строки-Cell внутри
+  // карточки-секции (как на экранах архива/выполненных), разделители между
+  // строками рисует Section. Без анимации появления: при перерисовке списка
   // (переключение топиков/папок, морфинг слайда live ⇄ превью) каскадный
-  // въезд «мигал» бы карточками.
+  // въезд «мигал» бы строками.
   // В Svelte это был сниппет ({@render}); вызываем КАК ФУНКЦИЮ, не
   // компонент — иначе слайды размонтировались бы при каждом вызове.
   function noteList(
@@ -1000,31 +1008,37 @@ export function ChatView() {
     onOpenFolder: (folder: Folder) => void,
     onMenuFolder: (folder: Folder, rect: DOMRect) => void,
   ) {
+    // Пустой уровень (превью топика без заметок) — пустой карточки не рисуем.
+    if (pinned.length === 0 && rest.length === 0 && folderRows.length === 0) return null;
+
     return (
-      <div className="flex flex-col gap-2 px-3 py-3">
-        {pinned.map((note) => (
-          <NoteCard
-            key={note.id}
-            note={note}
-            highlighted={highlightedId === note.id}
-            onOpen={onOpenNote}
-            onMenu={onMenuNote}
-          />
-        ))}
-        {folderRows.length > 0 &&
-          folderRows.map((folder) => (
+      // px-3!/py-3! — снимаем собственные отступы List (10px 18px на iOS):
+      // отступы списка задаём сами, как прежний px-3 py-3 колонки.
+      <List className="px-3! py-3!">
+        <Section>
+          {pinned.map((note) => (
+            <NoteCell
+              key={note.id}
+              note={note}
+              highlighted={highlightedId === note.id}
+              onOpen={onOpenNote}
+              onMenu={onMenuNote}
+            />
+          ))}
+          {folderRows.map((folder) => (
             <FolderRow key={folder.id} folder={folder} onOpen={onOpenFolder} onMenu={onMenuFolder} />
           ))}
-        {rest.map((note) => (
-          <NoteCard
-            key={note.id}
-            note={note}
-            highlighted={highlightedId === note.id}
-            onOpen={onOpenNote}
-            onMenu={onMenuNote}
-          />
-        ))}
-      </div>
+          {rest.map((note) => (
+            <NoteCell
+              key={note.id}
+              note={note}
+              highlighted={highlightedId === note.id}
+              onOpen={onOpenNote}
+              onMenu={onMenuNote}
+            />
+          ))}
+        </Section>
+      </List>
     );
   }
 
@@ -1069,10 +1083,12 @@ export function ChatView() {
                     <Loader />
                   ) : notesError !== null ? (
                     <div className="flex flex-col items-center gap-4 px-6 py-16">
-                      <EmptyState emoji="⚠️" text={notesError} />
-                      <button
+                      <EmptyState icon={<Icon16Cancel />} text={notesError} />
+                      <Button
                         type="button"
-                        className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
+                        size="s"
+                        mode="outline"
+                        className="h-11!"
                         onClick={() => {
                           const nav = useNavigationStore.getState();
                           const topicId = nav.activeTopicID;
@@ -1080,7 +1096,7 @@ export function ChatView() {
                         }}
                       >
                         Повторить
-                      </button>
+                      </Button>
                     </div>
                   ) : notes.length === 0 && inlineFolders.length === 0 ? (
                     // Пустое место: долгое нажатие — дропдаун «Создать папку»
@@ -1190,25 +1206,30 @@ export function ChatView() {
           </div>
         ) : topicsError !== null ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6">
-            <EmptyState emoji="⚠️" text={topicsError} />
-            <button
+            <EmptyState icon={<Icon16Cancel />} text={topicsError} />
+            <Button
               type="button"
-              className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
+              size="s"
+              mode="outline"
+              className="h-11!"
               onClick={() => void loadTopics()}
             >
               Повторить
-            </button>
+            </Button>
           </div>
         ) : topics.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6">
-            <EmptyState emoji="＋" text="Создайте топик" />
-            <button
+            <EmptyState icon={<Icon28AddCircle />} text="Создайте топик" />
+            <Button
               type="button"
-              className="btn-press flex h-11 items-center gap-2 rounded-xl border border-border px-6 text-sm"
+              size="s"
+              mode="outline"
+              className="h-11!"
+              before={<Icon28AddCircle className="h-5 w-5" />}
               onClick={() => useUiStore.setState({ topicCreateOpen: true })}
             >
-              <span>＋</span> Создать
-            </button>
+              Создать
+            </Button>
           </div>
         ) : (
           // Зона ленты: слайд на каждый топик. Сама лента не скроллится
@@ -1226,11 +1247,11 @@ export function ChatView() {
               initialIndex={initialTopicIndex}
               draggable={!inFolder}
               duration={stripSpeed()}
-              // По настройке «Перелистывание топиков» (⚙️): 'fade' — заметки
-              // не уезжают вбок, а проявляются друг через друга (оба
-              // полупрозрачны на середине свайпа); капсулу островка ведёт тот
-              // же ondragmove. У вложенной ленты уровней внутри папки режим
-              // не применяется — там остаётся сдвиг.
+              // По настройке «Перелистывание топиков» (в шторке настроек):
+              // 'fade' — заметки не уезжают вбок, а проявляются друг через
+              // друга (оба полупрозрачны на середине свайпа); капсулу
+              // островка ведёт тот же ondragmove. У вложенной ленты уровней
+              // внутри папки режим не применяется — там остаётся сдвиг.
               fade={swipeMode === 'fade'}
               onchange={onTopicChange}
               ondragmove={onTopicDragMove}
@@ -1271,20 +1292,47 @@ export function ChatView() {
           )}
         </div>
 
-        <footer className="shrink-0 rounded-t-2xl border-t border-border bg-background pb-[env(safe-area-inset-bottom)]">
-          <InputBar
-            onOpenTopics={() => setTopicSheetOpen(true)}
-            onOpenFolders={() => setFolderSheetOpen(true)}
-            onOpenSearch={(rect) => {
-              setSearchOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-              setSearchOpen(true);
-            }}
-            onNavigate={navigate}
-            // ✏️ панели ввода: заметка уже создана — открываем её в полном
-            // редакторе сразу с курсором в тексте.
-            onOpenNote={(note) => openNoteObject(note, true)}
-          />
-        </footer>
+        {/* Панель ввода и кнопка «Поиск» — соседние блоки, а не один
+            контейнер: у кнопки своя заливка (.glass-fab), и она не должна
+            сидеть в боксе панели. Обёртка relative — точка отсчёта для
+            absolute-кнопки: она парит над панелью у правого края. */}
+        <div className="relative shrink-0">
+          <footer className="rounded-t-2xl border-t border-border bg-background pb-[env(safe-area-inset-bottom)]">
+            <InputBar
+              onOpenTopics={() => setTopicSheetOpen(true)}
+              onOpenFolders={() => setFolderSheetOpen(true)}
+              onNavigate={navigate}
+              // Кнопка-карандаш панели ввода: заметка уже создана — открываем её
+              // в полном редакторе сразу с курсором в тексте.
+              onOpenNote={(note) => openNoteObject(note, true)}
+            />
+          </footer>
+          {/* Поиск по заметкам — только когда есть топики: по пустому списку
+              искать нечего. Тап открывает полноэкранный поиск; панель
+              раскрывается круговой «развёрткой» из центра этой кнопки — она и
+              даёт геометрию. */}
+          {topics.length > 0 && (
+            <IconButton
+              ref={searchBtnRef}
+              type="button"
+              size="m"
+              mode="gray"
+              aria-label="Поиск по заметкам"
+              className="glass-fab absolute! bottom-full right-3 mb-2 h-11 items-center justify-center rounded-full! px-4! text-sm text-muted-foreground! btn-press"
+              onClick={() => {
+                const rect = searchBtnRef.current?.getBoundingClientRect();
+                if (rect === undefined) return;
+                setSearchOrigin({
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+                });
+                setSearchOpen(true);
+              }}
+            >
+              Поиск
+            </IconButton>
+          )}
+        </div>
       </div>
 
       {searchOpen && (
@@ -1327,7 +1375,7 @@ export function ChatView() {
           y={emptyMenu.y}
           items={[
             {
-              emoji: '📁',
+              icon: <Icon28AddCircle />,
               label: 'Создать папку',
               action: () => useUiStore.setState({ folderCreateOpen: true }),
             },

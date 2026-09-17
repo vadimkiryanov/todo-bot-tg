@@ -263,7 +263,7 @@ export function formatReminderAt(reminderAt: string, repeat: ReminderRepeat): st
 }
 
 /** Время «прихода» уведомления: «сегодня в 14:05», «вчера в 14:05»,
- *  «2 сент. в 14:05» — для журнала 🔔 (событие всегда в прошлом). */
+ *  «2 сент. в 14:05» — для журнала уведомлений (событие всегда в прошлом). */
 export function formatFiredAt(iso: string): string {
   const date = new Date(iso);
   const time = date.toLocaleTimeString([], {
@@ -412,14 +412,15 @@ export function nextPriority(p: Priority): Priority {
   return priorityOrder[(i + 1) % priorityOrder.length];
 }
 
-export function priorityEmoji(p: Priority): string {
+/** Метка приоритета текстом (иконок приоритета в наборе библиотеки нет). */
+export function priorityMark(p: Priority): string {
   switch (p) {
     case 'high':
-      return '🔴';
+      return '!!!';
     case 'medium':
-      return '🟡';
+      return '!!';
     case 'low':
-      return '🔵';
+      return '!';
     default:
       return '—';
   }

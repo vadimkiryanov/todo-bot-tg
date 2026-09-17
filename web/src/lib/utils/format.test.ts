@@ -7,8 +7,8 @@ import {
   markdownFromEntities,
   nextPriority,
   parseMarkdown,
-  priorityEmoji,
   priorityLabel,
+  priorityMark,
   renderNoteHtml,
 } from './format';
 
@@ -202,11 +202,11 @@ describe('приоритет', () => {
     expect(nextPriority('high')).toBe('none');
   });
 
-  it('эмодзи и подпись', () => {
-    expect(priorityEmoji('high')).toBe('🔴');
-    expect(priorityEmoji('medium')).toBe('🟡');
-    expect(priorityEmoji('low')).toBe('🔵');
-    expect(priorityEmoji('none')).toBe('—');
+  it('метка и подпись', () => {
+    expect(priorityMark('high')).toBe('!!!');
+    expect(priorityMark('medium')).toBe('!!');
+    expect(priorityMark('low')).toBe('!');
+    expect(priorityMark('none')).toBe('—');
     expect(priorityLabel('high')).toBe('высокий');
     expect(priorityLabel('none')).toBe('нет');
   });

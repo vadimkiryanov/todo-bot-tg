@@ -1,11 +1,18 @@
 // Экран выполненных (URL /done): выполненные заметки из всех топиков.
 // Открытие заметки — полноэкранная «страница» (NotePage): вернуть в работу /
 // удалить. Возврат на главный экран — стрелка в шапке.
+// Список — строки-Cell на компонентах @telegram-apps/telegram-ui
+// (AppRoot поднят в App.tsx — он задаёт токены --tgui--*).
 import { useEffect, useMemo, useState } from 'react';
+import { Button, IconButton, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
+import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
+import { Icon24PersonRemove } from '@telegram-apps/telegram-ui/dist/icons/24/person_remove';
 
 import { EmptyState } from '../components/EmptyState';
 import { Loader } from '../components/Loader';
-import { NoteCard } from '../components/NoteCard';
+import { NoteCell } from '../components/NoteCell';
 import { NoteMenu } from '../components/NoteMenu';
 import { NotePage } from '../components/NotePage';
 import { loadDone, useNotesStore } from '../stores/notes';
@@ -66,23 +73,27 @@ export function DoneView() {
     <>
       <div className="flex h-full flex-col">
         <header className="flex shrink-0 items-center justify-between border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
-          <button
+          <IconButton
             type="button"
+            size="m"
+            mode="plain"
             aria-label="Назад"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
+            className="h-10 w-10 items-center justify-center rounded-full! p-0! text-foreground! btn-press"
             onClick={() => navigate('/')}
           >
-            ←
-          </button>
-          <span className="text-xl">✅</span>
-          <button
+            <Icon24ChevronLeft />
+          </IconButton>
+          <Icon20Select className="h-6 w-6" />
+          <IconButton
             type="button"
+            size="m"
+            mode="plain"
             aria-label="Выйти"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
+            className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
             onClick={() => void doLogout()}
           >
-            🚪
-          </button>
+            <Icon24PersonRemove />
+          </IconButton>
         </header>
 
         <main className="scroll-area flex-1 overflow-y-auto">
@@ -90,23 +101,32 @@ export function DoneView() {
             <Loader />
           ) : doneError ? (
             <div className="flex flex-col items-center gap-4 px-6 py-16">
-              <EmptyState emoji="⚠️" text={doneError} />
-              <button
+              <EmptyState icon={<Icon16Cancel />} text={doneError} />
+              <Button
                 type="button"
-                className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
+                size="s"
+                mode="outline"
+                className="h-11!"
                 onClick={() => void loadDone()}
               >
                 Повторить
-              </button>
+              </Button>
             </div>
           ) : doneNotes.length === 0 ? (
-            <EmptyState emoji="✅" text="Выполненных нет" />
+            <EmptyState icon={<Icon20Select />} text="Выполненных нет" />
           ) : (
-            <div className="flex flex-col gap-2 px-3 py-3">
-              {doneNotes.map((note) => (
-                <NoteCard key={note.id} note={note} onOpen={(n) => setSelectedId(n.id)} onMenu={openMenu} />
-              ))}
-            </div>
+            <List>
+              <Section>
+                {doneNotes.map((note) => (
+                  <NoteCell
+                    key={note.id}
+                    note={note}
+                    onOpen={(n) => setSelectedId(n.id)}
+                    onMenu={openMenu}
+                  />
+                ))}
+              </Section>
+            </List>
           )}
         </main>
       </div>

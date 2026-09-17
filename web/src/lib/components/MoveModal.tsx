@@ -4,6 +4,13 @@
 // в foldersStore — список на экране под модалкой не меняется. Текущее
 // место заметки помечено «здесь» и недоступно; «Корень» — если заметка
 // не в корне выбранного топика.
+// Дерево — плоские строки-Cell (как дерево папок в шторке, FolderBar):
+// тап — перенос, вложенность — отступом ряда. Чипы топиков остаются своими:
+// выбранный топик у них залит основным цветом, а у Chip из библиотеки
+// состояния «выбран» нет (только elevated/mono/outline). «Отмена» внизу —
+// Button библиотеки: в flex-колонке кнопка растягивается сама, h-11!
+// возвращает тач-цель 44 px.
+import { Button, Cell, List, Section } from '@telegram-apps/telegram-ui';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Modal } from './Modal';
@@ -133,53 +140,71 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
             <Spinner />
           </div>
         ) : (
-          <>
-            {/* Корень выбранного топика */}
-            <button
-              type="button"
-              className={`btn-press-soft flex h-11 items-center rounded-xl px-2 text-base ${
-                hereRoot ? 'cursor-default text-muted-foreground' : 'active:bg-border/50'
-              }`}
-              disabled={busy || hereRoot}
-              onClick={() => {
-                void doMove(null);
-              }}
-            >
-              <span className="w-7 shrink-0 text-center">📂</span> Корень
-              {hereRoot && <span className="ml-auto text-sm text-muted-foreground">здесь</span>}
-            </button>
+          // px-0! — снимаем собственные отступы List (10px 18px на iOS):
+          // горизонтальные отступы задаёт шторка (как в дереве папок).
+          // Маркеров у строк нет: в списке только папки, иконки папки в наборе
+          // библиотеки нет, а «папка» перед каждым именем была бы шумом.
+          <List className="px-0!">
+            <Section>
+              {/* Корень выбранного топика */}
+              <Cell
+                Component="button"
+                type="button"
+                // w-full обязателен: <button> в Chromium схлопывается по
+                // содержимому — пометка «здесь» встала бы сразу за подписью.
+                className={`w-full select-none text-left btn-press-soft ${
+                  hereRoot ? 'text-muted-foreground' : ''
+                }`}
+                disabled={busy || hereRoot}
+                after={
+                  hereRoot ? (
+                    <span className="text-sm text-muted-foreground">здесь</span>
+                  ) : undefined
+                }
+                onClick={() => {
+                  void doMove(null);
+                }}
+              >
+                <span className="flex min-w-0 items-center gap-2 text-[15px] leading-6">
+                  <span className="truncate">Корень</span>
+                </span>
+              </Cell>
 
-            {tree.map(({ folder, depth }) => {
-              const active = inSelectedTopic && note.folder_id === folder.id;
-              return (
-                <button
-                  key={folder.id}
-                  type="button"
-                  className={`btn-press-soft flex h-11 items-center rounded-xl px-2 text-base ${
-                    active ? 'cursor-default text-muted-foreground' : 'active:bg-border/50'
-                  }`}
-                  style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}
-                  disabled={busy || active}
-                  onClick={() => {
-                    void doMove(folder.id);
-                  }}
-                >
-                  <span className="w-7 shrink-0 text-center">📁</span>
-                  <span className="truncate">{folder.name}</span>
-                  {active && <span className="ml-auto text-sm text-muted-foreground">здесь</span>}
-                </button>
-              );
-            })}
-          </>
+              {tree.map(({ folder, depth }) => {
+                const active = inSelectedTopic && note.folder_id === folder.id;
+                return (
+                  <Cell
+                    key={folder.id}
+                    Component="button"
+                    type="button"
+                    className={`w-full select-none text-left btn-press-soft ${
+                      active ? 'text-muted-foreground' : ''
+                    }`}
+                    // Вложенность — отступом всего ряда, как в дереве шторки.
+                    style={depth > 0 ? { paddingLeft: `${16 + depth * 16}px` } : undefined}
+                    disabled={busy || active}
+                    after={
+                      active ? (
+                        <span className="text-sm text-muted-foreground">здесь</span>
+                      ) : undefined
+                    }
+                    onClick={() => {
+                      void doMove(folder.id);
+                    }}
+                  >
+                    <span className="flex min-w-0 items-center gap-2 text-[15px] leading-6">
+                      <span className="truncate">{folder.name}</span>
+                    </span>
+                  </Cell>
+                );
+              })}
+            </Section>
+          </List>
         )}
 
-        <button
-          type="button"
-          className="btn-press mt-1 h-11 rounded-xl border border-border text-sm"
-          onClick={onClose}
-        >
+        <Button type="button" mode="outline" className="mt-1 h-11!" onClick={onClose}>
           Отмена
-        </button>
+        </Button>
       </div>
     </Modal>
   );

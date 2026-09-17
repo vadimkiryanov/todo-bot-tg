@@ -1,11 +1,19 @@
-// Папки под табами топиков: дерево всех папок топика (вложенность —
-// отступ слева, клик — переход в папку, активная подсвечена).
-// Долгий тап по папке — меню (переименовать/удалить); создание папки —
-// долгое нажатие на заметке или пустом месте в чате (CreateFolderModal).
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type * as React from 'react';
+// Дерево всех папок топика (шторка «Папки») на компонентах
+// @telegram-apps/telegram-ui: тап — переход в папку, вложенность — отступом
+// всего ряда слева, активная папка помечена галочкой; долгий тач (правый
+// клик) — меню папки (переименовать/удалить). Создание папки — долгое
+// нажатие на заметке или пустом месте в чате (CreateFolderModal).
+// Форма переименования и «Отмена» — тоже библиотечные Button/Input
+// (Input с bg-muted!: библиотечная заливка совпадает с фоном шторки).
+// «Отмена» под списком лежит в блочном div, а не в flex-колонке, поэтому
+// w-full у неё обязателен: <button> схлопывается по содержимому.
+import { useMemo, useState } from 'react';
+import { Button, Cell, Input, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
+import { Icon28Edit } from '@telegram-apps/telegram-ui/dist/icons/28/edit';
 
 import { ConfirmModal } from './ConfirmModal';
+import { MenuRow } from './MenuRow';
 import { Modal } from './Modal';
 import {
   deleteFolder,
@@ -15,6 +23,53 @@ import {
 } from '../stores/folders';
 import { setActiveFolder, useNavigationStore } from '../stores/navigation';
 import type { Folder } from '../types/api';
+import { useLongPress } from '../utils/longPress';
+
+/** Удержание — как у табов островка (не короче): тап входит в папку,
+    меню открывается сознательным удержанием. */
+const HOLD_MS = 500;
+
+interface FolderCellProps {
+  name: string;
+  /** Глубина вложенности (0 — корень топика): ряд сдвигается вправо. */
+  depth: number;
+  active: boolean;
+  onClick: () => void;
+  /** Долгий тач/правый клик — меню папки (у строки «Корень» его нет). */
+  onMenu?: () => void;
+}
+
+function FolderCell({ name, depth, active, onClick, onMenu }: FolderCellProps) {
+  const press = useLongPress(onMenu, HOLD_MS);
+
+  return (
+    <Cell
+      Component="button"
+      type="button"
+      // w-full обязателен: <button> в Chromium не растягивается как блочный
+      // бокс, а схлопывается по содержимому — короткое имя папки не заняло бы
+      // карточку, и галочка встала бы сразу за подписью.
+      className="w-full select-none text-left btn-press-soft [-webkit-touch-callout:none]"
+      // Вложенность — отступом всего ряда (имя сдвигается, как в дереве):
+      // класс Cell задаёт padding 0 16px, inline-стиль перебивает левую часть.
+      style={depth > 0 ? { paddingLeft: `${16 + depth * 16}px` } : undefined}
+      after={active ? <Icon20Select className="text-ring" /> : undefined}
+      onClick={() => {
+        if (press.skipClick()) return;
+        onClick();
+      }}
+      onPointerDown={press.onPointerDown}
+      onPointerMove={press.onPointerMove}
+      onPointerUp={press.onPointerUp}
+      onPointerCancel={press.onPointerCancel}
+      onContextMenu={press.onContextMenu}
+    >
+      <span className="flex min-w-0 items-center gap-2 text-[15px] leading-6">
+        <span className="truncate">{name}</span>
+      </span>
+    </Cell>
+  );
+}
 
 export function FolderBar() {
   const [menuFolder, setMenuFolder] = useState<Folder | null>(null);
@@ -26,10 +81,6 @@ export function FolderBar() {
   const [deleteError, setDeleteError] = useState('');
 
   const [busy, setBusy] = useState(false);
-  const longPressTimer = useRef<number | undefined>(undefined);
-  const longPressFired = useRef(false);
-
-  const LONG_PRESS_MS = 500;
 
   const folders = useFoldersStore((s) => s.all);
   const foldersLoading = useFoldersStore((s) => s.loading);
@@ -41,38 +92,11 @@ export function FolderBar() {
   // или активной папки (treeFolders читает стор напрямую).
   const tree = useMemo(() => treeFolders(), [folders, activeFolderID]);
 
-  // Таймер долгого нажатия гасим вместе с жизнью компонента.
-  useEffect(
-    () => () => {
-      window.clearTimeout(longPressTimer.current);
-    },
-    [],
-  );
-
-  function handlePointerDown(id: number): void {
-    longPressFired.current = false;
-    longPressTimer.current = window.setTimeout(() => {
-      longPressFired.current = true;
-      const folder = useFoldersStore.getState().all.find((f) => f.id === id);
-      if (folder !== undefined) {
-        setRenameMode(false);
-        setRenameName(folder.name);
-        setMenuError('');
-        setMenuFolder(folder);
-      }
-    }, LONG_PRESS_MS);
-  }
-
-  function cancelLongPress(): void {
-    window.clearTimeout(longPressTimer.current);
-  }
-
-  function onTap(id: number): void {
-    if (longPressFired.current) {
-      longPressFired.current = false;
-      return;
-    }
-    setActiveFolder(id);
+  function openFolderMenu(folder: Folder): void {
+    setRenameMode(false);
+    setRenameName(folder.name);
+    setMenuError('');
+    setMenuFolder(folder);
   }
 
   function closeMenu(): void {
@@ -119,48 +143,33 @@ export function FolderBar() {
 
   return (
     <>
-      <div className="shrink-0 px-3 py-2">
-        {foldersLoading && foldersTopicId !== activeTopicID ? (
-          <div className="h-10 animate-pulse rounded-full bg-border/40"></div>
-        ) : (
-          // Дерево всех папок топика: вложенность — отступ слева, клик — переход.
-          // Высота не ограничена изнутри — длинное дерево раскрывает шторку до
-          // 85dvh, скроллится сама шторка (Modal).
-          <div className="tree flex flex-col gap-1">
-            <button
-              type="button"
-              className={`flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm btn-press-soft ${
-                activeFolderID === null ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'
-              }`}
+      {foldersLoading && foldersTopicId !== activeTopicID ? (
+        <div className="h-16 animate-pulse rounded-xl bg-border/40"></div>
+      ) : (
+        // px-0! — снимаем собственные отступы List (10px 18px на iOS):
+        // горизонтальные отступы задаёт шторка, иначе карточка-секция уезжает
+        // к центру и становится узкой (как в шторке настроек).
+        <List className="px-0!">
+          <Section>
+            <FolderCell
+              name="Корень"
+              depth={0}
+              active={activeFolderID === null}
               onClick={() => setActiveFolder(null)}
-            >
-              📂 Корень
-            </button>
+            />
             {tree.map((node) => (
-              <button
+              <FolderCell
                 key={node.folder.id}
-                type="button"
-                className={`flex h-10 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm text-foreground btn-press-soft ${
-                  node.folder.id === activeFolderID
-                    ? 'bg-primary text-white'
-                    : 'bg-muted active:bg-border'
-                }`}
-                style={
-                  node.depth > 0 ? { paddingLeft: `${12 + node.depth * 16}px` } : undefined
-                }
-                onPointerDown={() => handlePointerDown(node.folder.id)}
-                onPointerUp={cancelLongPress}
-                onPointerCancel={cancelLongPress}
-                onPointerLeave={cancelLongPress}
-                onClick={() => onTap(node.folder.id)}
-              >
-                <span className="shrink-0">📁</span>
-                <span className="truncate">{node.folder.name}</span>
-              </button>
+                name={node.folder.name}
+                depth={node.depth}
+                active={node.folder.id === activeFolderID}
+                onClick={() => setActiveFolder(node.folder.id)}
+                onMenu={() => openFolderMenu(node.folder)}
+              />
             ))}
-          </div>
-        )}
-      </div>
+          </Section>
+        </List>
+      )}
 
       {menuFolder !== null && (
         <Modal open onClose={closeMenu}>
@@ -173,60 +182,62 @@ export function FolderBar() {
               }}
             >
               <h2 className="text-lg font-semibold">Переименовать</h2>
-              <input
+              <Input
                 type="text"
                 value={renameName}
                 onChange={onRenameInput}
                 maxLength={64}
-                className="input-press h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
+                className="bg-muted!"
                 autoFocus
               />
               {menuError !== '' && <p className="text-sm text-destructive">{menuError}</p>}
               <div className="flex gap-2">
-                <button
+                <Button
                   type="button"
-                  className="btn-press h-11 flex-1 rounded-xl border border-border text-sm"
+                  mode="outline"
+                  className="h-11! flex-1"
                   onClick={() => setRenameMode(false)}
                 >
                   Назад
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  className="btn-press h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
+                  mode="filled"
+                  className="h-11! flex-1 disabled:opacity-50"
                   disabled={busy}
                 >
                   Сохранить
-                </button>
+                </Button>
               </div>
             </form>
           ) : (
-            <div className="sheet-menu flex flex-col gap-1">
-              <h2 className="px-2 pb-2 pt-1 text-lg font-semibold">{menuFolder.name}</h2>
+            <div role="menu">
+              <h2 className="px-2 pb-2 text-lg font-semibold">{menuFolder.name}</h2>
               {menuError !== '' && <p className="px-2 pb-2 text-sm text-destructive">{menuError}</p>}
-              <button
+              <List className="px-0! py-0!">
+                <Section>
+                  <MenuRow icon={<Icon28Edit />} onSelect={() => setRenameMode(true)}>
+                    Переименовать
+                  </MenuRow>
+                  <MenuRow
+                    danger
+                    onSelect={() => {
+                      setDeleteError('');
+                      setShowDelete(true);
+                    }}
+                  >
+                    Удалить
+                  </MenuRow>
+                </Section>
+              </List>
+              <Button
                 type="button"
-                className="btn-press-soft flex h-12 items-center gap-3 rounded-xl px-2 text-base"
-                onClick={() => setRenameMode(true)}
-              >
-                <span>✏️</span> Переименовать
-              </button>
-              <button
-                type="button"
-                className="btn-press-soft flex h-12 items-center gap-3 rounded-xl px-2 text-base text-destructive"
-                onClick={() => {
-                  setDeleteError('');
-                  setShowDelete(true);
-                }}
-              >
-                <span>🗑</span> Удалить
-              </button>
-              <button
-                type="button"
-                className="btn-press mt-2 h-11 rounded-xl border border-border text-sm"
+                mode="outline"
+                className="mt-2 h-11! w-full"
                 onClick={closeMenu}
               >
                 Отмена
-              </button>
+              </Button>
             </div>
           )}
         </Modal>

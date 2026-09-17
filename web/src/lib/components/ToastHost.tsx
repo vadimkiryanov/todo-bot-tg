@@ -1,14 +1,21 @@
 // Слой всплывающих подсказок: фиксирован снизу по центру, выше панели ввода,
 // поверх любых модалок/шторок (z-[200]). Автоскрытие делает стор (toast.ts);
 // сам тост кликабелен и скрывается досрочно. Контейнер не ловит тапы.
+// Маркер вида — иконки библиотеки (галочка / крестик / вопрос): эмодзи в
+// тостах заменены на них, чтобы набор иконок в приложении был один.
+import type { ReactNode } from 'react';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon20QuestionMark } from '@telegram-apps/telegram-ui/dist/icons/20/question_mark';
+import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
+
 import { useToastStore } from '../stores/toast';
 import type { ToastItem, ToastKind } from '../stores/toast';
 import { dismissToast } from '../stores/toast';
 
-const ICONS: Record<ToastKind, string> = {
-  success: '✅',
-  error: '⚠️',
-  info: 'ℹ️',
+const ICONS: Record<ToastKind, ReactNode> = {
+  success: <Icon20Select className="h-5 w-5" />,
+  error: <Icon16Cancel className="h-5 w-5" />,
+  info: <Icon20QuestionMark className="h-5 w-5" />,
 };
 
 // Ошибка — акцентной рамкой, успех/инфо — обычной: цвет дублирует иконку.

@@ -309,7 +309,7 @@ describe('notes store', () => {
     expect(notesStore.notes[0].topic_id).toBe(topicId);
   });
 
-  it('moveNote переносит заметку в папку и обновляет список', async () => {
+  it('moveNote переносит заметку в папку и убирает её из корневого списка', async () => {
     const topicId = await setupTopic();
     const folder = await createFolderIn(topicId, 'Проект');
     await loadNotes(topicId);
@@ -318,9 +318,14 @@ describe('notes store', () => {
     const note = notesStore.notes[0];
     await moveNote(note, topicId, folder.id);
 
-    // Список корня перезагружен — заметка осталась (все заметки топика),
-    // но её папка обновилась.
-    expect(notesStore.notes[0].folder_id).toBe(folder.id);
+    // Корень топика показывает только заметки без папки (folder_id IS NULL) —
+    // так отдаёт бэкенд (ListNotes в postgres), поэтому заметка ушла из списка.
+    expect(notesStore.notes).toHaveLength(0);
+
+    // А в самой папке она на месте.
+    setActiveFolder(folder.id);
+    await loadNotes(topicId, folder.id);
+    expect(notesStore.notes.map((n) => n.id)).toEqual([note.id]);
   });
 
   it('moveNote убирает заметку из списка папки при переносе в корень', async () => {

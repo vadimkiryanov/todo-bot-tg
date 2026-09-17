@@ -1,14 +1,26 @@
 // Полноэкранный поиск по заметкам (как в Telegram): результаты появляются по
 // мере ввода (дебаунс 300 мс), пустой запрос — подсказка вместо списка.
-// Открывается из кнопки 🔍 внизу справа: панель раскрывается круговой
+// Открывается из кнопки «Поиск» внизу справа: панель раскрывается круговой
 // «развёрткой» (clip-path circle) от центра кнопки — см. prop origin.
 // Режим-тогл: «В топике» — по активному топику островка (topic_id в запросе);
 // «Везде» — глобально по всем топикам, результаты группируются сплиттерами
 // с именем топика. Поиск не включает выполненные и архивные (сервер).
-// Карточки/меню работают по объекту заметки (NoteCard/NoteMenu) — заметки
+// Результаты — строки-Cell в карточке-секции (как остальные списки
+// приложения); в режиме «Везде» каждый топик — своя секция с заголовком.
+// Меню/страница работают по объекту заметки (NoteCell/NoteMenu) — заметки
 // из результатов не обязаны лежать в списках активного контекста.
+// Строка набора — на компонентах библиотеки: поле Input (заливка по умолчанию
+// совпадает с фоном поиска, поэтому возвращаем фону наших полей bg-muted!),
+// «назад» и «очистить» — IconButton с библиотечными стрелкой/крестиком.
+// Тогл области («В топике/Везде») остаётся своим: у Button нет состояния
+// «выбран», а у Chip нет вида сегмент-тогла (как у табов входа).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as React from 'react';
+import { IconButton, Input, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon20QuestionMark } from '@telegram-apps/telegram-ui/dist/icons/20/question_mark';
+import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
+import { Icon24Close } from '@telegram-apps/telegram-ui/dist/icons/24/close';
 
 import { searchNotes } from '../api/notes';
 import { useNavigationStore } from '../stores/navigation';
@@ -17,7 +29,7 @@ import type { Note } from '../types/api';
 import { groupNotesByTopic } from '../utils/search';
 import { EmptyState } from './EmptyState';
 import { Loader } from './Loader';
-import { NoteCard } from './NoteCard';
+import { NoteCell } from './NoteCell';
 
 const DEBOUNCE_MS = 300;
 
@@ -34,8 +46,8 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 type SearchMode = 'topic' | 'global';
 
 interface SearchPanelProps {
-  /** Центр кнопки 🔍 (координаты вьюпорта), из которой раскрывается панель.
-      undefined — открыть без «развёртки» (прямая ссылка/восстановление). */
+  /** Центр кнопки «Поиск» (координаты вьюпорта), из которой раскрывается
+      панель. undefined — открыть без «развёртки» (прямая ссылка/восстановление). */
   origin?: { x: number; y: number } | null;
   onClose: () => void;
   onOpenNote: (note: Note) => void;
@@ -58,9 +70,9 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Раскрытие «из кнопки»: панель проявляется круговой развёрткой (clip-path
-  // circle) от центра кнопки 🔍 к краям экрана — визуально кнопка становится
-  // панелью поиска с уже сфокусированным инпутом. Одноразово при открытии;
-  // prefers-reduced-motion — без анимации.
+  // circle) от центра кнопки «Поиск» к краям экрана — визуально кнопка
+  // становится панелью поиска с уже сфокусированным инпутом. Одноразово
+  // при открытии; prefers-reduced-motion — без анимации.
   useLayoutEffect(() => {
     const el = rootRef.current;
     if (el === null || origin === null || origin === undefined) return;
@@ -122,40 +134,40 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
 
   let body: React.ReactNode;
   if (debouncedQuery === '') {
-    body = <EmptyState emoji="🔍" text="Начните вводить — заметки появятся здесь" />;
+    body = (
+      <EmptyState icon={<Icon20QuestionMark />} text="Начните вводить — заметки появятся здесь" />
+    );
   } else if (error !== null) {
-    body = <EmptyState emoji="⚠️" text={error} />;
+    body = <EmptyState icon={<Icon16Cancel />} text={error} />;
   } else if (results === null) {
     body = <Loader />;
   } else if (results.length === 0) {
     body = <EmptyState text="Ничего не найдено" />;
   } else if (mode === 'topic') {
     body = (
-      <div className="flex flex-col gap-2">
-        {results.map((note) => (
-          <NoteCard key={note.id} note={note} onOpen={onOpenNote} onMenu={onMenu} />
-        ))}
-      </div>
+      // px-0!/py-0! — отступы задаёт контейнер результатов (px-3).
+      <List className="px-0! py-0!">
+        <Section>
+          {results.map((note) => (
+            <NoteCell key={note.id} note={note} onOpen={onOpenNote} onMenu={onMenu} />
+          ))}
+        </Section>
+      </List>
     );
   } else {
     const groups = groupNotesByTopic(results, topics);
     body = (
-      <div className="flex flex-col gap-2">
+      // px-0!/py-0! — отступы задаёт контейнер результатов (px-3).
+      <List className="px-0! py-0!">
         {groups.map((group) => (
-          <div key={group.topicId} className="flex flex-col gap-2">
-            {/* Сплиттер-заголовок: имя топика перед его заметками. */}
-            <div className="mt-1 flex items-center gap-2 px-1 first:mt-0">
-              <span className="shrink-0 text-[13px] font-medium text-muted-foreground">
-                {group.name}
-              </span>
-              <div className="h-px min-w-0 flex-1 bg-border/70" />
-            </div>
+          // Заголовок секции — имя топика (как сплиттер прежней версии).
+          <Section key={group.topicId} header={group.name}>
             {group.notes.map((note) => (
-              <NoteCard key={note.id} note={note} onOpen={onOpenNote} onMenu={onMenu} />
+              <NoteCell key={note.id} note={note} onOpen={onOpenNote} onMenu={onMenu} />
             ))}
-          </div>
+          </Section>
         ))}
-      </div>
+      </List>
     );
   }
 
@@ -227,47 +239,55 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
 
   return (
     <div ref={rootRef} className="fixed inset-0 z-40 flex flex-col bg-background">
-      {/* Строка поиска сверху (как в Telegram): назад (закрыть), поле, ✕
-          очистки внутри. */}
+      {/* Строка поиска сверху (как в Telegram): назад (закрыть), поле,
+          крестик очистки внутри. */}
       <div className="shrink-0 px-3 pt-[calc(env(safe-area-inset-top)+8px)]">
         <div className="flex items-center gap-2">
-          <button
+          <IconButton
             type="button"
+            size="m"
+            mode="gray"
             aria-label="Закрыть поиск"
-            className="glass-fab flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground btn-press"
+            className="glass-fab h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! text-muted-foreground! btn-press"
             onClick={onClose}
           >
-            ←
-          </button>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') onClose();
-            }}
-            onBlur={() => {
-              // Фокус ушёл из поля, а запроса нет — закрываем поиск: режим
-              // поиска живёт, пока в нём набирают текст (или он уже набран).
-              if (query.trim() === '') onClose();
-            }}
-            placeholder={mode === 'topic' && scopeLabel !== undefined ? `В топике «${scopeLabel}»` : 'Поиск заметок'}
-            autoCapitalize="sentences"
-            autoCorrect="off"
-            className="input-press min-h-11 flex-1 rounded-2xl border border-border bg-muted px-4 py-3 text-base outline-none placeholder:text-muted-foreground focus:border-ring"
-          />
+            <Icon24ChevronLeft />
+          </IconButton>
+          {/* Обёртка нужна, чтобы поле тянулось в строке: className Input
+              попадает на внутренний label, а не на корневой div. */}
+          <div className="min-w-0 flex-1">
+            <Input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') onClose();
+              }}
+              onBlur={() => {
+                // Фокус ушёл из поля, а запроса нет — закрываем поиск: режим
+                // поиска живёт, пока в нём набирают текст (или он уже набран).
+                if (query.trim() === '') onClose();
+              }}
+              placeholder={mode === 'topic' && scopeLabel !== undefined ? `В топике «${scopeLabel}»` : 'Поиск заметок'}
+              autoCapitalize="sentences"
+              autoCorrect="off"
+              className="bg-muted!"
+            />
+          </div>
           {query !== '' && (
-            <button
+            <IconButton
               type="button"
+              size="m"
+              mode="plain"
               aria-label="Очистить"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground btn-press"
+              className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! text-muted-foreground! btn-press"
               onClick={() => {
                 setQuery('');
                 inputRef.current?.focus();
               }}
             >
-              ✕
-            </button>
+              <Icon24Close />
+            </IconButton>
           )}
         </div>
       </div>

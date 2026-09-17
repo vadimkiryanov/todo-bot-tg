@@ -8,8 +8,8 @@
 //              текст (заголовки # / ##, списки -, чеклист - [ ], жирный/
 //              курсив/код/ссылки из entities); тап по чекбоксу чеклиста
 //              переключает галочку без входа в поле; курсор встаёт в место тапа;
-//   'toggle' — превью и правка переключаются кнопкой ✏️/👁 в шапке, тап по
-//              тексту ничего не меняет (защита от случайной правки).
+//   'toggle' — превью и правка переключаются кнопкой-карандашом в шапке,
+//              тап по тексту ничего не меняет (защита от случайной правки).
 // Как выглядит сама правка, тоже настройка (stores/settings.editorView):
 //   'formatted' — текст правится прямо в вёрстке просмотра (contenteditable):
 //                 те же блоки и те же классы, символы разметки заменены
@@ -18,12 +18,21 @@
 //   'plain'     — текст с markdown-разметкой, как раньше.
 // Кнопки «Сохранить»/«Отмена» появляются только когда текст изменён; после
 // сохранения страница возвращается в просмотр (правка закрывается).
-// Панель действий (док ✅/🔄/⏰/⋯, «Отмена»/«Сохранить», панель оформления,
-// напоминание) живёт в шапке заметки: отдельной нижней полосы нет — так
-// экономится место, и «назад» уехало плавающей кнопкой вниз влево.
+// Панель действий (док: выполнить/вернуть, приоритет, напоминание, «Ещё»,
+// «Отмена»/«Сохранить», панель оформления, напоминание) живёт в шапке заметки:
+// отдельной нижней полосы нет — так экономится место, и «назад» уехало
+// плавающей кнопкой вниз влево.
+// Меню «Ещё» — плоские строки-Cell (MenuRow) на компонентах
+// @telegram-apps/telegram-ui, как в списках и шторках приложения; своим у
+// него остались «стекло», позиция и анимация.
 // Панель форматирования (кнопки оформления и подсказка) показывается только
 // когда включена настройкой (stores/settings.formatPanel) и есть повод: поле
-// в фокусе либо включён режим правки кнопкой ✏️.
+// в фокусе либо включён режим правки кнопкой-карандашом.
+// Кнопки панелей (док, оформление, плавающая панель у выделения, «назад»)
+// остаются своими: у IconButton из библиотеки своя заливка, свой padding и
+// радиус 12px — тач-цели 32–44 px и «стекло» пришлось бы возвращать
+// оверрайдами с !important без выигрыша в поведении (то же решение, что в
+// панели ввода, см. InputBar).
 // Кроме панели в шапке, в правке без разметки оформление доступно и у самого
 // выделения: выделил текст — над ним появляется своя панель (как в Telegram),
 // теми же кнопками. В узком экране кнопки не влезают — панель листается вбок
@@ -32,18 +41,28 @@
 // Enter переносит формат строки на новую строку (# / ## / 1. / - / - [ ]),
 // Shift+Enter — обычный перенос. В просмотре текст можно выделять (десктоп):
 // выделение не включает правку, иначе фокус поля сбрасывал бы его.
-// Действия (✅/🔄/⏰/⋯) зависят от состояния заметки
-// (active/done/archived). Закрытие с несохранённым текстом спрашивает:
-// «Сохранить? / Не сохранять?».
+// Действия дока (выполнить/вернуть, приоритет, напоминание, меню) зависят
+// от состояния заметки (active/done/archived). Закрытие с несохранённым
+// текстом спрашивает: «Сохранить? / Не сохранять?».
 //
 // Мутации owner-aware: если заметка лежит в одном из списков стора
 // (активный/архив/выполненные/таймеры), обновляется он; иначе (заметка
 // открыта из уведомления, списки не загружены) — прямые API-вызовы с
 // локальным состоянием. Каждая busy-кнопка показывает спиннер.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { FocusEvent, MouseEvent, PointerEvent } from 'react';
+import type { FocusEvent, MouseEvent, PointerEvent, ReactNode } from 'react';
+import { Button, IconButton, Input, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
+import { Icon24ChevronDown } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_down';
+import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
+import { Icon24ChevronRight } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_right';
+import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
+import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive';
+import { Icon28Edit } from '@telegram-apps/telegram-ui/dist/icons/28/edit';
 
 import { ConfirmModal } from './ConfirmModal';
+import { MenuRow } from './MenuRow';
 import { Modal } from './Modal';
 import { MoveModal } from './MoveModal';
 import { ReminderForm } from './ReminderForm';
@@ -77,8 +96,8 @@ import {
   markdownDraftOffsets,
   nextPriority,
   parseMarkdown,
-  priorityEmoji,
   priorityLabel,
+  priorityMark,
 } from '../utils/format';
 import { parseNoteLines, lineContinuation, renderNoteBlocksHtml } from '../utils/blocks';
 import {
@@ -103,8 +122,9 @@ import {
 
 interface NotePageProps {
   note: Note;
-  /** Открыть страницу сразу в режиме редактирования (кнопка ✏️ панели ввода
-      и «полный редактор»): поле в фокусе, панель форматирования на месте. */
+  /** Открыть страницу сразу в режиме редактирования (кнопка-карандаш панели
+      ввода и «полный редактор»): поле в фокусе, панель форматирования
+      на месте. */
   startEditing?: boolean;
   onClose: () => void;
 }
@@ -246,8 +266,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
 
   // ── Режим редактирования (локальная настройка устройства) ────────────────
   // 'tap'    — тап по тексту сразу включает поле (как раньше);
-  // 'toggle' — превью и правка переключаются кнопкой ✏️/👁 в шапке, тап по
-  //            тексту ничего не меняет.
+  // 'toggle' — превью и правка переключаются кнопкой-карандашом в шапке,
+  //            тап по тексту ничего не меняет.
   const editorMode = useSettingsStore((s) => s.editorMode);
   const toggleMode = editorMode === 'toggle';
 
@@ -265,7 +285,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
 
   /** Поле в фокусе: в режиме «тапом» по нему показываем панель форматирования. */
   const [focused, setFocused] = useState(startEditing);
-  /** Режим «кнопкой»: правка включена явно (кнопка ✏️), фокус не важен. */
+  /** Режим «кнопкой»: правка включена явно (кнопка-карандаш), фокус не важен. */
   const [manualEdit, setManualEdit] = useState(startEditing);
   const [saving, setSaving] = useState(false);
   /** Поле правки в виде 'plain' — текст с markdown-разметкой. */
@@ -329,7 +349,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const editing = toggleMode ? manualEdit || dirty : focused || dirty;
   const viewMode = !editing;
   /** Панель форматирования при отсутствии правок: пока поле в фокусе (режим
-      «тапом») либо пока включён режим правки кнопкой (✏️). */
+      «тапом») либо пока включён режим правки кнопкой-карандашом. */
   const showToolbar = toggleMode ? editing : focused;
 
   /** Узел правки: живая вёрстка ('formatted') или поле с разметкой ('plain'). */
@@ -387,7 +407,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     rebuildRich(draft);
   }, [rich, draft]);
 
-  /** Переключить превью ↔ правку (режим «кнопкой»): кнопка ✏️/👁 в шапке. */
+  /** Переключить превью ↔ правку (режим «кнопкой»): кнопка в шапке. */
   function toggleEditing(): void {
     if (editing) {
       editorEl()?.blur();
@@ -411,8 +431,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     setManualEdit(false);
   }
 
-  // Страница открыта сразу в режиме правки (кнопка ✏️ панели ввода): правку
-  // получаем в фокус, чтобы можно было продолжать набор с клавиатуры.
+  // Страница открыта сразу в режиме правки (кнопка-карандаш панели ввода):
+  // правку получаем в фокус, чтобы можно было продолжать набор с клавиатуры.
   useEffect(() => {
     if (!startEditing) return;
     const frame = requestAnimationFrame(() => focusEditor());
@@ -645,7 +665,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     }
     if (target?.closest('a[href]')) return;
     // Режим «кнопкой»: тап по тексту ничего не делает — правка включается
-    // только кнопкой ✏️ в шапке (чекбоксы и ссылки выше работают всегда).
+    // только кнопкой в шапке (чекбоксы и ссылки выше работают всегда).
     if (toggleMode) return;
     // Протяжка отличаем по смещению курсора между down и up, а не только по
     // window.getSelection(): браузер схлопывает выделение уже после обработчика
@@ -820,10 +840,15 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [showReminderForm, setShowReminderForm] = useState(false);
-  // Меню «⋯» (закрепить/переместить/архив/удалить): позиция у правого края
+  // Меню «Ещё» (закрепить/переместить/архив/удалить): позиция у правого края
   // кнопки, раскрывается вниз — кнопка стоит в панели действий под шапкой.
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ right: 12, top: 96 });
+  /** Момент открытия меню: события закрытия в первые MENU_GHOST_MS после него
+      игнорируем — синтетический клик того же тапа иначе закрывал бы меню
+      сразу, как только оно появилось. */
+  const menuOpenedAt = useRef(0);
+  const MENU_GHOST_MS = 350;
   type BusyKey = 'done' | 'priority' | 'pin' | 'reminder' | 'delete' | 'archive';
   const [busy, setBusy] = useState<BusyKey | null>(null);
 
@@ -933,19 +958,35 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     );
   }
 
-  /** Открыть ⋯-меню у кнопки: верх меню — под кнопкой, правый край — у кнопки. */
+  /** Открыть меню «Ещё» у кнопки: верх меню — под кнопкой, правый край — у
+      кнопки. */
   function openMenu(e: MouseEvent<HTMLButtonElement>): void {
     const rect = e.currentTarget.getBoundingClientRect();
     setMenuPos({
       right: Math.max(8, window.innerWidth - rect.right),
       top: Math.max(8, rect.bottom + 6),
     });
+    menuOpenedAt.current = performance.now();
     setMenuOpen(true);
     setError('');
   }
 
   function closeMenu(): void {
     setMenuOpen(false);
+  }
+
+  /** Тап мимо меню (по подложке): с задержкой-защитой от «клика-призрака». */
+  function closeMenuOutside(): void {
+    if (performance.now() - menuOpenedAt.current < MENU_GHOST_MS) return;
+    closeMenu();
+  }
+
+  function toggleMenu(e: MouseEvent<HTMLButtonElement>): void {
+    if (menuOpen) {
+      closeMenu();
+      return;
+    }
+    openMenu(e);
   }
 
   /** Выбрать пункт меню: закрыть меню и выполнить действие. */
@@ -1329,17 +1370,20 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   // выделением вёрстки, а не с панелью, поэтому панель может вызывать их
   // откуда угодно.
 
-  /** Кнопки панели: подписи короче, чем в шапке, — панель висит над текстом. */
-  const floatButtons: { label: string; title: string; run: () => void }[] = [
+  /** Кнопки панели: подписи короче, чем в шапке, — панель висит над текстом.
+      Значки markdown (#, ##, 1., ••) остаются символами: это и есть то, что
+      кнопка вставляет; ссылка подписана словом «URL», чеклист — галочкой
+      набора (политика иконок в web/AGENTS.md). */
+  const floatButtons: { label: ReactNode; title: string; run: () => void }[] = [
     { label: 'B', title: 'Жирный', run: () => formatInline('bold', '**', '**') },
     { label: 'I', title: 'Курсив', run: () => formatInline('italic', '*', '*') },
     { label: '</>', title: 'Код', run: () => formatInline('code', '`', '`', 'код') },
-    { label: '🔗', title: 'Ссылка', run: toggleLink },
+    { label: 'URL', title: 'Ссылка', run: toggleLink },
     { label: '#', title: 'Заголовок', run: () => formatLine('h1') },
     { label: '##', title: 'Подзаголовок', run: () => formatLine('h2') },
     { label: '1.', title: 'Нумерованный список', run: () => formatLine('ol') },
     { label: '••', title: 'Список', run: () => formatLine('list') },
-    { label: '☑', title: 'Чеклист', run: () => formatLine('check') },
+    { label: <Icon20Select className="h-5 w-5" />, title: 'Чеклист', run: () => formatLine('check') },
   ];
 
   /** Центр панели по X, подтянутый внутрь экрана: у выделения у самого края
@@ -1452,121 +1496,144 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const toolbar = (
     <div ref={toolbarElRef} className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1">
-        <button
+        <IconButton
           type="button"
+          size="s"
+          mode="gray"
           aria-label="Жирный (**текст**)"
           title="Жирный"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-[14px] btn-press active:bg-border/60"
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => formatInline('bold', '**', '**')}
         >
-          <span className="font-bold">B</span>
-        </button>
-        <button
+          <span className="text-[14px] font-bold leading-none">B</span>
+        </IconButton>
+        <IconButton
           type="button"
+          size="s"
+          mode="gray"
           aria-label="Курсив (*текст*)"
           title="Курсив"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-[14px] btn-press active:bg-border/60"
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => formatInline('italic', '*', '*')}
         >
-          <span className="italic">I</span>
-        </button>
-        <button
+          <span className="text-[14px] italic leading-none">I</span>
+        </IconButton>
+        <IconButton
           type="button"
+          size="s"
+          mode="gray"
           aria-label="Код (`текст`)"
           title="Код"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted font-mono text-[12px] btn-press active:bg-border/60"
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => formatInline('code', '`', '`', 'код')}
         >
-          {'</>'}
-        </button>
-        <button
+          <span className="font-mono text-[12px] leading-none">{'</>'}</span>
+        </IconButton>
+        <IconButton
           type="button"
+          size="s"
+          mode={linkOpen ? 'bezeled' : 'gray'}
           aria-label="Ссылка ([текст](url))"
           title="Ссылка"
-          className={`flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-[14px] btn-press active:bg-border/60 ${
-            linkOpen ? 'bg-border/60' : ''
-          }`}
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={toggleLink}
         >
-          🔗
-        </button>
+          <span className="text-[12px] leading-none">URL</span>
+        </IconButton>
         <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true"></span>
-        <button
+        <IconButton
           type="button"
+          size="s"
+          mode="gray"
           aria-label="Заголовок (# в начале строки)"
           title="Заголовок"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-[14px] font-bold btn-press active:bg-border/60"
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => formatLine('h1')}
         >
-          {'# '}
-        </button>
-        <button
+          <span className="text-[14px] font-bold leading-none">{'# '}</span>
+        </IconButton>
+        <IconButton
           type="button"
+          size="s"
+          mode="gray"
           aria-label="Подзаголовок (## в начале строки)"
           title="Подзаголовок"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-[14px] font-semibold btn-press active:bg-border/60"
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => formatLine('h2')}
         >
-          {'##'}
-        </button>
-        <button
+          <span className="text-[14px] font-semibold leading-none">{'##'}</span>
+        </IconButton>
+        <IconButton
           type="button"
+          size="s"
+          mode="gray"
           aria-label="Нумерованный список (1. в начале строки)"
           title="Нумерованный список"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-[14px] btn-press active:bg-border/60"
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => formatLine('ol')}
         >
-          {'1.'}
-        </button>
-        <button
+          <span className="text-[14px] leading-none">{'1.'}</span>
+        </IconButton>
+        <IconButton
           type="button"
+          size="s"
+          mode="gray"
           aria-label="Список (- в начале строки)"
           title="Список"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-[16px] btn-press active:bg-border/60"
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => formatLine('list')}
         >
-          ••
-        </button>
-        <button
+          <span className="text-[16px] leading-none">••</span>
+        </IconButton>
+        <IconButton
           type="button"
+          size="s"
+          mode="gray"
           aria-label="Чеклист (- [ ] в начале строки)"
           title="Чеклист"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-[14px] btn-press active:bg-border/60"
+          className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => formatLine('check')}
         >
-          ☑
-        </button>
+          <Icon20Select className="h-5 w-5" />
+        </IconButton>
       </div>
 
       {linkOpen && (
         <div className="flex items-center gap-2">
-          <input
-            ref={linkInputRef}
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            type="url"
-            placeholder="https://…"
-            autoFocus
-            className="input-press h-9 min-w-0 flex-1 rounded-xl border border-border bg-muted px-3 text-sm outline-none focus:border-ring"
-          />
-          <button
+          {/* Поле адреса — Input библиотеки; его заливка (--tgui--bg_color) на
+              фоне страницы не видна, поэтому возвращаем фону наших полей
+              bg-muted!. Обёртка нужна, чтобы поле тянулось в строке: className
+              Input попадает на внутренний label, а не на корневой div. */}
+          <div className="min-w-0 flex-1">
+            <Input
+              ref={linkInputRef}
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              type="url"
+              placeholder="https://…"
+              autoFocus
+              className="bg-muted!"
+            />
+          </div>
+          <Button
             type="button"
-            className="btn-press h-9 shrink-0 rounded-xl bg-primary px-4 text-sm font-medium text-white disabled:opacity-40"
+            mode="filled"
+            className="h-11!"
             disabled={linkUrl.trim() === ''}
             onMouseDown={(e) => e.preventDefault()}
             onClick={applyLink}
           >
             Вставить
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1577,6 +1644,67 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       </p>
     </div>
   );
+
+  // Пункты меню «Ещё» — одним массивом, а не условиями «{cond && <MenuRow/>}»:
+  // Section расставляет разделители по индексам детей, а ложное условие всё
+  // равно занимает слот — между строками встали бы <hr> подряд.
+  const menuRows: ReactNode[] = [
+    ...(isActive
+      ? [
+          <MenuRow
+            key="pin"
+            // Иконки закрепления в наборе библиотеки нет — короткое слово.
+            icon="Пин"
+            onSelect={() => pickMenu(doTogglePin)}
+          >
+            {pageNote.pinned ? 'Открепить' : 'Закрепить'}
+          </MenuRow>,
+          ...(canMove
+            ? [
+                <MenuRow
+                  key="move"
+                  icon={<Icon24ChevronRight />}
+                  onSelect={() =>
+                    pickMenu(() => {
+                      setShowMove(true);
+                      setError('');
+                    })
+                  }
+                >
+                  Переместить
+                </MenuRow>,
+              ]
+            : []),
+          <MenuRow key="archive" icon={<Icon28Archive />} onSelect={() => pickMenu(doArchive)}>
+            В архив
+          </MenuRow>,
+        ]
+      : []),
+    // Полное отображение заметки на карточке — доступно в любом состоянии,
+    // независимо от того, активна заметка или нет. Меню НЕ закрывается (как у
+    // «Приоритета»): сама страница заметку не показывает, поэтому
+    // единственный видимый отклик — смена подписи «Развернуть»/«Свернуть».
+    <MenuRow
+      key="expand"
+      icon={<Icon24ChevronDown />}
+      onSelect={() => toggleNoteExpanded(pageNote.id)}
+    >
+      {noteExpanded ? 'Свернуть' : 'Развернуть'}
+    </MenuRow>,
+    <MenuRow
+      key="delete"
+      icon={<Icon16Cancel className="h-5 w-5" />}
+      danger
+      onSelect={() =>
+        pickMenu(() => {
+          setConfirmDelete(true);
+          setError('');
+        })
+      }
+    >
+      Удалить
+    </MenuRow>,
+  ];
 
   return (
     <>
@@ -1593,129 +1721,171 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       aria-modal="true"
       aria-label="Заметка"
     >
-      {/* Шапка — только панель действий (док ✅/🔄/⏰/⋯, «Отмена»/«Сохранить»,
-          панель оформления, напоминание); «назад» — плавающей кнопкой внизу
-          слева (см. ниже). Отдельной полосой панель отнимала у текста строку,
-          а когда при входе в правку тапом появлялась, поле сужалось и
-          подтягивало каретку — текст прыгал. В шапке она занимает строку,
-          которая уже есть, а сдвиг слоя правки при её появлении гасит скролл
-          (см. entryScrollRef). */}
+      {/* Шапка — только панель действий (док: выполнить/вернуть, приоритет,
+          напоминание, «Ещё», «Отмена»/«Сохранить», панель оформления,
+          напоминание); «назад» — плавающей кнопкой внизу слева (см. ниже).
+          Отдельной полосой панель отнимала у текста строку, а когда при входе
+          в правку тапом появлялась, поле сужалось и подтягивало каретку — текст
+          прыгал. В шапке она занимает строку, которая уже есть, а сдвиг слоя
+          правки при её появлении гасит скролл (см. entryScrollRef). */}
       <header className="flex shrink-0 flex-col border-b border-border px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-1 pb-1.5">
           {dirty ? (
             // Текст изменён: вместо статуса и кнопок действий — «Отмена» и
             // «Сохранить» (появляются, только когда есть несохранённые правки,
-            // как в нативных заметках). Ряд действий скрыт: тап по ✅/⋯ не
-            // должен «увести» несохранённый текст.
+            // как в нативных заметках). Ряд действий скрыт: тап по галочке или
+            // «Ещё» не должен «увести» несохранённый текст.
             <div data-no-swipe className="flex flex-1 gap-2">
-              <button
+              <Button
                 type="button"
-                className="btn-press h-10 flex-1 rounded-xl border border-border text-sm"
+                mode="outline"
+                className="h-10! flex-1"
                 disabled={saving}
                 onClick={discard}
               >
                 Отмена
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="btn-press flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-white"
+                mode="filled"
+                className="h-10! flex-1"
                 disabled={saving}
+                loading={saving}
                 onClick={() => void save(false)}
               >
-                {saving ? <Spinner size="16px" /> : 'Сохранить'}
-              </button>
+                Сохранить
+              </Button>
             </div>
           ) : (
             <>
               {/* Статус показываем, только когда он что-то добавляет: у обычной
-                  заметки это была просто надпись «📝 Заметка», а место в строке
-                  нужнее кнопкам. */}
+                  заметки это была просто надпись «Заметка», а место в строке
+                  нужнее кнопкам. Метка — иконка набора: галочка у выполненной,
+                  архив у архивной. */}
               {(isDone || isArchived) && (
                 <span className="min-w-0 flex-1 truncate px-1 text-sm text-muted-foreground">
-                  {isDone ? '✅ Выполнена' : '🗄 Архив'}
+                  {isDone ? (
+                    <>
+                      <Icon20Select className="mr-1 inline h-4 w-4 align-[-2px]" />
+                      Выполнена
+                    </>
+                  ) : (
+                    <>
+                      <Icon28Archive className="mr-1 inline h-4 w-4 align-[-2px]" />
+                      Архив
+                    </>
+                  )}
                 </span>
               )}
                 {/* Режим «кнопкой»: явный переключатель превью ↔ правка. При
                     несохранённых правках его нет: сначала «Сохранить»/«Отмена»
-                    (ветка выше). */}
+                    (ветка выше). Иконки глаза в наборе библиотеки нет —
+                    карандаш стоит в обоих состояниях, а включённая правка
+                    читается по заливке кнопки (как у «Ссылки» в панели
+                    оформления) и по подписи. */}
                 {toggleMode && (
-                  <button
+                  <IconButton
                     type="button"
+                    size="m"
+                    mode={editing ? 'bezeled' : 'plain'}
                     aria-label={editing ? 'Просмотр' : 'Редактировать'}
                     title={editing ? 'Просмотр' : 'Редактировать'}
-                    className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
+                    aria-pressed={editing}
+                    className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
                     onClick={toggleEditing}
                   >
-                    {editing ? '👁' : '✏️'}
-                  </button>
+                    <Icon28Edit />
+                  </IconButton>
                 )}
-              {/* Док действий: главные кнопки всегда видны (✅/↩️ выполнить,
-                  🔄 приоритет, ⏰ напомнить); остальное (📌, 📂 Переместить,
-                  🗄 В архив, 🗑 Удалить) — в меню ⋯. data-no-swipe: свайп по
+              {/* Док действий: главные кнопки всегда видны (выполнить/вернуть,
+                  приоритет, напомнить); остальное (закрепить, переместить,
+                  в архив, удалить) — в меню «Ещё». data-no-swipe: свайп по
                   кнопкам не закрывает страницу. */}
               <div data-no-swipe className="ml-auto flex shrink-0 items-center gap-1">
                 {isActive || isDone ? (
-                  <button
+                  <IconButton
                     type="button"
+                    size="m"
+                    mode={isDone ? 'gray' : 'bezeled'}
                     aria-label={isDone ? 'Вернуть в работу' : 'Выполнить'}
-                    className={`flex h-10 w-10 items-center justify-center rounded-full text-xl btn-press ${
-                      isDone ? 'bg-border/60' : 'bg-primary/15'
-                    }`}
+                    className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
                     disabled={busy !== null}
                     onClick={isDone ? doUndone : doToggleDone}
                   >
-                    {busy === 'done' ? <Spinner /> : isDone ? '↩️' : '✅'}
-                  </button>
+                    {busy === 'done' ? (
+                      <Spinner />
+                    ) : isDone ? (
+                      // Возврат в работу — стрелка влево (иконки «отменить» в
+                      // наборе библиотеки нет); у «Выполнить» — галочка.
+                      <Icon24ChevronLeft className="h-6 w-6" />
+                    ) : (
+                      <Icon20Select className="h-6 w-6" />
+                    )}
+                  </IconButton>
                 ) : (
-                  <button
+                  <Button
                     type="button"
-                    aria-label="Вернуть из архива"
-                    className="btn-press flex h-10 items-center gap-2 rounded-full bg-primary/15 px-3 text-sm disabled:opacity-50"
+                    size="m"
+                    mode="bezeled"
+                    className="h-10! rounded-full! px-3!"
                     disabled={busy !== null}
+                    loading={busy === 'archive'}
                     onClick={doUnarchive}
                   >
-                    {busy === 'archive' ? <Spinner /> : '↩️'} Вернуть из архива
-                  </button>
+                    Вернуть из архива
+                  </Button>
                 )}
 
                 {isActive && (
                   <>
-                    <button
+                    <IconButton
                       type="button"
+                      size="m"
+                      mode="gray"
                       aria-label={`Приоритет: ${priorityLabel(pageNote.priority)}`}
                       title={`Приоритет: ${priorityLabel(pageNote.priority)}`}
-                      className="flex h-10 min-w-10 items-center justify-center gap-0.5 rounded-full bg-muted px-1.5 text-sm btn-press"
+                      className="h-10 min-w-10 items-center justify-center rounded-full! p-0! btn-press"
                       disabled={busy !== null}
                       onClick={doCyclePriority}
                     >
-                      {busy === 'priority' ? <Spinner /> : <>🔄{priorityEmoji(pageNote.priority)}</>}
-                    </button>
-                    <button
+                      {busy === 'priority' ? (
+                        <Spinner />
+                      ) : (
+                        // Приоритет — знаками markdown: !!! / !! / ! / —.
+                        <span className="text-base font-semibold leading-none">
+                          {priorityMark(pageNote.priority)}
+                        </span>
+                      )}
+                    </IconButton>
+                    <IconButton
                       type="button"
+                      size="m"
+                      mode={reminderAt !== null ? 'bezeled' : 'gray'}
                       aria-label={
                         reminderAt !== null ? 'Изменить напоминание' : 'Напомнить'
                       }
                       title={reminderAt !== null ? 'Изменить напоминание' : 'Напомнить'}
-                      className={`flex h-10 w-10 items-center justify-center rounded-full text-base btn-press ${
-                        reminderAt !== null ? 'bg-primary/15' : 'bg-muted'
-                      }`}
+                      className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
                       disabled={busy !== null}
                       onClick={toggleReminderForm}
                     >
-                      ⏰
-                    </button>
+                      <Icon24Notifications className="h-6 w-6" />
+                    </IconButton>
                   </>
                 )}
 
-                <button
+                <IconButton
                   type="button"
+                  size="m"
+                  mode="gray"
                   aria-label="Ещё действия"
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-lg btn-press"
+                  className="h-10 min-w-10 items-center justify-center rounded-full! px-3! text-sm text-muted-foreground! btn-press"
                   disabled={busy !== null}
-                  onClick={openMenu}
+                  onClick={toggleMenu}
                 >
-                  ⋯
-                </button>
+                  {/* Иконки «многоточие» в наборе библиотеки нет — слово. */}
+                  Ещё
+                </IconButton>
 
 
               </div>
@@ -1727,9 +1897,9 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
             оформления, напоминание (форма или карточка), текст ошибки. */}
         {(dirty || showToolbar) && (showFormatPanel || linkOpen) && (
           // Панель форматирования: поле в фокусе (режим «тапом») либо включён
-          // режим правки кнопкой ✏️. Форма ссылки показывается и при скрытой
-          // панели: её открывают кнопкой 🔗 всплывающей панели у выделения, а
-          // вводить адрес больше негде.
+          // режим правки кнопкой-карандашом. Форма ссылки показывается и при
+          // скрытой панели: её открывают кнопкой «URL» всплывающей панели у
+          // выделения, а вводить адрес больше негде.
           <div data-no-swipe className="pb-1.5">
             {toolbar}
           </div>
@@ -1759,28 +1929,34 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           >
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 truncate text-sm" title={reminderAt}>
-                ⏰ {formatReminderAt(reminderAt, pageNote.reminder_repeat)}
+                <Icon24Notifications className="mr-1 inline h-4 w-4 align-[-2px]" />
+                {formatReminderAt(reminderAt, pageNote.reminder_repeat)}
               </span>
-              <button
+              <Button
                 type="button"
-                className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground btn-press active:bg-border/60"
+                size="s"
+                mode="plain"
+                className="h-auto! shrink-0 px-2! py-1!"
                 disabled={busy !== null}
+                loading={busy === 'reminder'}
                 onClick={doClearReminder}
               >
-                {busy === 'reminder' ? <Spinner size="14px" /> : 'Снять'}
-              </button>
+                Снять
+              </Button>
             </div>
             <div className="flex gap-1.5">
               {[15, 30, 60].map((minutes) => (
-                <button
+                <Button
                   key={minutes}
                   type="button"
-                  className="h-8 flex-1 rounded-lg border border-border bg-muted text-xs btn-press"
+                  size="s"
+                  mode="gray"
+                  className="h-8! flex-1 rounded-lg!"
                   disabled={busy !== null}
                   onClick={() => void snooze(minutes)}
                 >
                   +{minutes === 60 ? '1ч' : `${minutes}м`}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -1884,93 +2060,38 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           действий). Видимая кнопка, а не только свайп вправо: закрыть страницу
           можно и ею. Свайп по кнопке страницу закрывает — как и было у кнопки в
           шапке. */}
-      <button
+      <IconButton
         type="button"
+        size="m"
+        mode="gray"
         aria-label="Назад"
-        className="btn-press absolute bottom-[calc(12px_+_env(safe-area-inset-bottom))] left-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-lg shadow-lg active:bg-border/50"
+        className="absolute! bottom-[calc(12px_+_env(safe-area-inset-bottom))] left-3 z-10 h-11 w-11 items-center justify-center rounded-full! border! border-border! bg-background! p-0! text-foreground! shadow-lg btn-press"
         onClick={requestClose}
       >
-        ←
-      </button>
+        <Icon24ChevronLeft />
+      </IconButton>
     </div>
 
-    {/* Меню ⋯: подложка + панель под кнопкой (кнопка — в шапке, поэтому меню
-        открывается вниз от неё). */}
+    {/* Меню «Ещё»: подложка + панель под кнопкой (кнопка — в шапке, поэтому
+        меню открывается вниз от неё). */}
     {menuOpen && (
       <>
         <div
           className="backdrop-glass backdrop-anim fixed inset-0 z-[71] bg-black/40"
-          onClick={closeMenu}
+          onPointerDown={closeMenuOutside}
+          onClick={closeMenuOutside}
           aria-hidden="true"
         ></div>
         <div
-          className="glass-menu menu-anim fixed z-[72] flex w-56 flex-col gap-1 rounded-2xl p-2 shadow-xl"
+          className="glass-menu menu-anim fixed z-[72] w-56 rounded-2xl p-2 shadow-xl"
           style={{ right: `${menuPos.right}px`, top: `${menuPos.top}px` }}
           role="menu"
         >
-          {isActive && (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-                onClick={() => pickMenu(doTogglePin)}
-              >
-                <span className="w-6 shrink-0 text-center text-base">📌</span>
-                <span className="truncate">{pageNote.pinned ? 'Открепить' : 'Закрепить'}</span>
-              </button>
-              {canMove && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-                  onClick={() =>
-                    pickMenu(() => {
-                      setShowMove(true);
-                      setError('');
-                    })
-                  }
-                >
-                  <span className="w-6 shrink-0 text-center text-base">📂</span>
-                  <span className="truncate">Переместить</span>
-                </button>
-              )}
-              <button
-                type="button"
-                role="menuitem"
-                className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-                onClick={() => pickMenu(doArchive)}
-              >
-                <span className="w-6 shrink-0 text-center text-base">🗄</span>
-                <span className="truncate">В архив</span>
-              </button>
-            </>
-          )}
-          {/* Полное отображение заметки на карточке — доступно в любом
-              состоянии, независимо от того, активна заметка или нет. */}
-          <button
-            type="button"
-            role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50"
-            onClick={() => pickMenu(() => toggleNoteExpanded(pageNote.id))}
-          >
-            <span className="w-6 shrink-0 text-center text-base">{noteExpanded ? '⤡' : '⤢'}</span>
-            <span className="truncate">{noteExpanded ? 'Свернуть' : 'Развернуть'}</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="btn-press-soft flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] text-destructive transition-colors active:bg-destructive/10"
-            onClick={() =>
-              pickMenu(() => {
-                setConfirmDelete(true);
-                setError('');
-              })
-            }
-          >
-            <span className="w-6 shrink-0 text-center text-base">🗑</span>
-            <span className="truncate">Удалить</span>
-          </button>
+          {/* px-0! py-0! — снимаем собственные отступы List (10px 18px): поля
+              меню и отступы строк задаёт карточка-секция. */}
+          <List className="px-0! py-0!">
+            <Section>{menuRows}</Section>
+          </List>
         </div>
       </>
     )}
@@ -1998,16 +2119,19 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       >
         <div className="flex w-max items-center gap-0.5">
           {floatButtons.map((b) => (
-            <button
+            <IconButton
               key={b.title}
               type="button"
+              size="s"
+              mode="gray"
               aria-label={b.title}
               title={b.title}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-[15px] btn-press active:bg-border/60"
+              className="h-9 w-9 shrink-0 items-center justify-center rounded-lg! p-0! btn-press"
               onClick={() => floatAction(b.run)}
             >
-              {b.label}
-            </button>
+              {/* Значок кнопки — знак разметки, слово «URL» или иконка набора. */}
+              <span className="text-[15px] leading-none">{b.label}</span>
+            </IconButton>
           ))}
         </div>
       </div>
@@ -2043,18 +2167,21 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
             <p className="mt-1 text-sm text-muted-foreground">Сохранить текст заметки перед закрытием?</p>
           </div>
           {error !== '' && <p className="text-sm text-destructive">{error}</p>}
-          <button
+          <Button
             type="button"
-            className="btn-press flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
+            mode="filled"
+            className="h-11!"
             disabled={saving}
+            loading={saving}
             onClick={() => void save(true)}
           >
-            {saving ? <Spinner size="16px" /> : 'Сохранить'}
-          </button>
+            Сохранить
+          </Button>
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
-              className="btn-press h-11 flex-1 rounded-xl border border-border text-sm disabled:opacity-50"
+              mode="outline"
+              className="h-11! flex-1"
               disabled={saving}
               onClick={() => {
                 setExitConfirm(false);
@@ -2062,10 +2189,11 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
               }}
             >
               Отмена
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn-press h-11 flex-1 rounded-xl border border-border text-sm text-destructive disabled:opacity-50"
+              mode="outline"
+              className="h-11! flex-1 text-destructive!"
               disabled={saving}
               onClick={() => {
                 setExitConfirm(false);
@@ -2074,7 +2202,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
               }}
             >
               Не сохранять
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>

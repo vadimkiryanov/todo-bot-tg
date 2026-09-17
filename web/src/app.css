@@ -36,7 +36,7 @@
   --color-border: #dfe3e8;
   --color-input: #dfe3e8;
   --color-ring: #3390ec;
-  /* Приоритет заметки — обводка карточки вместо эмодзи-кружка (🔴🟡🔵).
+  /* Приоритет заметки — обводка карточки вместо цветного кружка.
      Отдельные токены: destructive зарезервирован за ошибками, а чистый
      жёлтый на белой обводке почти не читается — medium тёплый янтарный. */
   --color-priority-high: #e5484d;
@@ -76,6 +76,32 @@
     --color-priority-medium: #fbbf24;
     --color-priority-low: #60a5fa;
   }
+}
+
+/* ── @telegram-apps/telegram-ui ─────────────────────────────
+   Библиотека берёт цвета из переменных Telegram (--tg-theme-*), которые
+   инжектит клиент Telegram; вне клиента их нет, и палитра библиотеки
+   становится фиксированно светлой (prefers-color-scheme она не смотрит).
+   Пробрасываем в них наши токены: значения — ссылки на var(--color-*),
+   поэтому тема библиотеки переключается вместе с приложением. Токены ниже
+   без var(--tg-theme-*) библиотека задаёт жёстко по темам (светлая #fff,
+   тёмная #242424) — перекрываем их здесь: app.css подключён после её стилей. */
+:root {
+  --tg-theme-bg-color: var(--color-background);
+  --tg-theme-secondary-bg-color: var(--color-muted);
+  --tg-theme-section-bg-color: var(--color-card);
+  --tg-theme-text-color: var(--color-foreground);
+  --tg-theme-hint-color: var(--color-muted-foreground);
+  --tg-theme-subtitle-text-color: var(--color-muted-foreground);
+  --tg-theme-section-header-text-color: var(--color-muted-foreground);
+  --tg-theme-link-color: var(--color-ring);
+  --tg-theme-accent-text-color: var(--color-ring);
+  --tg-theme-button-color: var(--color-primary);
+  --tg-theme-button-text-color: var(--color-primary-foreground);
+  --tg-theme-destructive-text-color: var(--color-destructive);
+  --tg-theme-header-bg-color: var(--color-background);
+  --tgui--card_bg_color: var(--color-card);
+  --tgui--tertiary_bg_color: var(--color-muted);
 }
 
 html {
@@ -188,23 +214,11 @@ html {
    прозрачнее всего — плавающие кнопки (один символ), плотнее всего —
    шторки (много текста и форм). */
 
-/* Карточки списка (заметки, строки папок): подложка — плоский фон чата,
-   поэтому достаточно лёгкой полупрозрачности, без backdrop-filter
-   (размывать нечего, а слой на каждой карточке стоил бы скроллу). Нажатие —
-   плотнее, как прежнее active:bg-border/50 (утилита active:bg не сработала
-   бы: unlayered-фон класса перебивает утилиты). */
-.glass-card {
-  background: color-mix(in srgb, var(--color-card) 74%, transparent);
-}
-.glass-card:active {
-  background: color-mix(in srgb, var(--color-border) 55%, transparent);
-}
-
-/* ── Обводка приоритета карточки ────────────────────────────
+/* ── Обводка приоритета строки ───────────────────────────────
    Эмодзи-кружки приоритета из карточек убраны — приоритет рисуется
-   цветным кольцом по контуру (inset-обводка box-shadow: не двигает
-   контент и не трогает стеклянный фон .glass-card). Классы unlayered —
-   перебивают box-shadow утилиты shadow-sm карточки. */
+   цветным кольцом по контуру строки (inset-обводка box-shadow: не двигает
+   контент и не трогает фон карточки-секции). Классы unlayered — перебивают
+   box-shadow утилит строки. */
 .note-priority-high,
 .note-priority-medium,
 .note-priority-low {
@@ -222,7 +236,7 @@ html {
   --priority-ring: color-mix(in srgb, var(--color-priority-low) 88%, transparent);
 }
 
-/* Плавающие круглые кнопки над панелью ввода (📁/📚). */
+/* Плавающие круглые кнопки над панелью ввода («Папки»/«Топики»). */
 .glass-fab {
   background: color-mix(in srgb, var(--color-background) 62%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(1.5);
@@ -333,6 +347,8 @@ html {
   border-color: transparent;
 }
 .note-li.checked .note-cb::after {
+  /* Галочка чекбокса чеклиста: знак рисует CSS (в content нельзя подставить
+     компонент-иконку библиотеки) — остаётся текстовым символом. */
   content: '✓';
 }
 /* Выполненная заметка целиком: приглушить и зачеркнуть все блоки
@@ -422,16 +438,16 @@ body.scroll-locked .scroll-area {
   -webkit-overflow-scrolling: auto;
 }
 
-/* Подсветка только что добавленной заметки: синяя заливка карточки,
-   плавно уходящая в тон стеклянной карточки (.glass-card: полупрозрачный
-   card над фоном чата muted) — иначе в конце вспышки был бы виден сплошной
-   непрозрачный прямоугольник. */
+/* Подсветка только что добавленной заметки: синяя заливка строки,
+   плавно уходящая в прозрачность — строка лежит в непрозрачной
+   карточке-секции, и в конце вспышки заливка должна исчезнуть целиком,
+   а не оставить поверх карточки серый прямоугольник. */
 @keyframes note-flash {
   from {
-    background-color: color-mix(in srgb, var(--color-ring) 26%, var(--color-card));
+    background-color: color-mix(in srgb, var(--color-ring) 22%, transparent);
   }
   to {
-    background-color: color-mix(in srgb, var(--color-card) 74%, var(--color-muted));
+    background-color: transparent;
   }
 }
 .note-highlight {
@@ -698,31 +714,8 @@ textarea {
 }
 
 /* FolderBar: scoped-стили из FolderBar.svelte (портированы в React) */
-.no-scrollbar {
-  scrollbar-width: none;
-}
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-/* Дерево папок (до 4 рядов видно, дальше вертикальный скролл внутри
-   секции): долгий тап по папке открывает меню — выделение текста не
-   нужно; touch-action не ограничиваем — вертикальный свайп скроллит
-   секцию. WebKit игнорирует user-select на родителе для текста внутри
-   <button>, поэтому задаём и кнопкам. */
-.tree,
-.tree button {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-}
-/* Шторка меню папки: долгий тап, открывший меню, может продолжаться уже
-   на контенте шторки — выделение текста там не нужно. */
-.sheet-menu,
-.sheet-menu button {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-}
+/* (Строки меню папки — Cell на telegram-ui; выделение текста им и всем
+   кнопкам приложения запрещает общее правило ниже.) */
 
 /* FolderStrip: scoped-стили из FolderStrip.svelte (портированы в React) */
 button {
@@ -749,17 +742,6 @@ button {
     -webkit-user-select: text;
     user-select: text;
   }
-}
-
-/* TopicTabs: scoped-стили из TopicTabs.svelte (портированы в React) */
-/* Сетка топиков: долгий тап по топику открывает меню — выделение текста
-   не нужно (WebKit игнорирует user-select на родителе для текста внутри
-   <button>, поэтому задаём и кнопкам). */
-.topic-grid,
-.topic-grid button {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
 }
 
 /* TopicIsland: scoped-стили из TopicIsland.svelte (портированы в React) */

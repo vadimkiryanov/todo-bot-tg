@@ -1,13 +1,17 @@
 // Модалка создания топика: открывается из разных мест (меню топика в шторке,
 // дропдаун долгого нажатия на строке контекста, кнопка «Создать» на пустом
 // экране) — флаг в ui-сторе, форма одна.
+// Поле и кнопки — из @telegram-apps/telegram-ui: заливка Input по умолчанию
+// (--tgui--bg_color) совпадает с фоном шторки, поэтому возвращаем фону наших
+// полей bg-muted!; высота 48 px библиотечная. Кнопкам h-11! возвращает
+// тач-цель 44 px (size m = 42 px), loading показывает спиннер сам.
 import { useEffect, useRef, useState } from 'react';
+import { Button, Input } from '@telegram-apps/telegram-ui';
 
 import { createTopic } from '../stores/topics';
 import { useUiStore } from '../stores/ui';
 
 import { Modal } from './Modal';
-import { Spinner } from './Spinner';
 
 export function CreateTopicModal() {
   const topicCreateOpen = useUiStore((s) => s.topicCreateOpen);
@@ -59,27 +63,29 @@ export function CreateTopicModal() {
         }}
       >
         <h2 className="text-lg font-semibold">Новый топик</h2>
-        <input
+        <Input
           ref={input}
           type="text"
           value={name}
           placeholder="Название"
           maxLength={64}
           onChange={(e) => setName(e.target.value)}
-          className="input-press h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
+          className="bg-muted!"
         />
         {error !== '' && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
-          <button type="button" className="btn-press h-11 flex-1 rounded-xl border border-border text-sm" onClick={close}>
+          <Button type="button" mode="outline" className="h-11! flex-1" onClick={close}>
             Отмена
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
-            className="btn-press flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
+            mode="filled"
+            className="h-11! flex-1 disabled:opacity-50"
             disabled={busy}
+            loading={busy}
           >
-            {busy ? <Spinner size="16px" /> : 'Создать'}
-          </button>
+            Создать
+          </Button>
         </div>
       </form>
     </Modal>

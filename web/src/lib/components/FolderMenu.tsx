@@ -2,10 +2,17 @@
 // дропдаун у карточки, как у заметок (NoteMenu) — тот же набор действий,
 // что в меню папки в дереве: переименовать/удалить. Переименование — форма
 // в шторке (Modal), удаление — с подтверждением (ConfirmModal).
+// Поле и кнопки формы — из @telegram-apps/telegram-ui (Input с bg-muted!:
+// библиотечная заливка совпадает с фоном шторки; h-11! у Button возвращает
+// тач-цель 44 px, size m = 42 px).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as React from 'react';
+import { Button, Input, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon28Edit } from '@telegram-apps/telegram-ui/dist/icons/28/edit';
 
 import { ConfirmModal } from './ConfirmModal';
+import { MenuRow } from './MenuRow';
 import { Modal } from './Modal';
 import { deleteFolder, renameFolder } from '../stores/folders';
 import type { Folder } from '../types/api';
@@ -132,33 +139,35 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
           }}
         >
           <h2 className="text-lg font-semibold">Переименовать</h2>
-          <input
+          <Input
             type="text"
             value={renameName}
             onChange={onRenameInput}
             maxLength={64}
-            className="input-press h-11 rounded-xl border border-border bg-muted px-4 text-base outline-none focus:border-ring"
+            className="bg-muted!"
             autoFocus
           />
           {error !== '' && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
-              className="btn-press h-11 flex-1 rounded-xl border border-border text-sm"
+              mode="outline"
+              className="h-11! flex-1"
               onClick={() => {
                 setMode('menu');
                 setError('');
               }}
             >
               Назад
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              className="btn-press h-11 flex-1 rounded-xl bg-primary text-sm font-medium text-white disabled:opacity-50"
+              mode="filled"
+              className="h-11! flex-1 disabled:opacity-50"
               disabled={busy}
             >
               Сохранить
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
@@ -176,7 +185,7 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
 
       <div
         ref={menuEl}
-        className="glass-menu menu-anim fixed z-50 flex flex-col gap-1 rounded-2xl p-2 shadow-xl"
+        className="glass-menu menu-anim fixed z-50 w-56 rounded-2xl p-2 shadow-xl"
         style={{
           left: `${pos.left}px`,
           width: `${pos.width}px`,
@@ -186,27 +195,25 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
         role="menu"
       >
         {error !== '' && <p className="px-3 py-1 text-xs text-destructive">{error}</p>}
-        <button
-          type="button"
-          role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-          onClick={openRename}
-        >
-          <span className="w-6 shrink-0 text-center text-base">✏️</span>
-          Переименовать
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left text-destructive btn-press-soft transition-colors active:bg-border/50"
-          onClick={() => {
-            setError('');
-            setConfirmDelete(true);
-          }}
-        >
-          <span className="w-6 shrink-0 text-center text-base">🗑</span>
-          Удалить
-        </button>
+        {/* px-0! py-0! — снимаем собственные отступы List (10px 18px): поля
+            меню и отступы строк задаёт карточка-секция. */}
+        <List className="px-0! py-0!">
+          <Section>
+            <MenuRow icon={<Icon28Edit />} onSelect={openRename}>
+              Переименовать
+            </MenuRow>
+            <MenuRow
+              icon={<Icon16Cancel className="h-5 w-5" />}
+              danger
+              onSelect={() => {
+                setError('');
+                setConfirmDelete(true);
+              }}
+            >
+              Удалить
+            </MenuRow>
+          </Section>
+        </List>
       </div>
     </>
   );

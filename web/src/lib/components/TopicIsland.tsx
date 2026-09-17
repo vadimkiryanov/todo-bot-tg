@@ -545,9 +545,14 @@ export function TopicIsland({
               />
             ) : (
               <>
-                {/* Закреплённый (быстрый в боте) топик — с 📌; закреплённые
-                    идут первыми по порядку стора. */}
-                {topic.pinned && <span className="shrink-0 text-xs">📌</span>}
+                {/* Закреплённый (быстрый в боте) топик — метка словом: иконки
+                    закрепления в наборе библиотеки нет. Закреплённые идут
+                    первыми по порядку стора. */}
+                {topic.pinned && (
+                  <span className="shrink-0 text-[10px] uppercase tracking-wide opacity-70">
+                    пин
+                  </span>
+                )}
                 <span className="max-w-36 truncate">{topic.name}</span>
                 {topic.note_count > 0 && (
                   <span className="shrink-0 text-xs opacity-70">{topic.note_count}</span>

@@ -1,13 +1,18 @@
 // Компактный дропдаун-меню действий: позиционируется fixed около точки
 // долгого нажатия; если снизу мало места — над ней. Закрывается по тапу
 // вне или Escape; пока меню открыто, скролл списка заморожен (уход пальца
-// или скролл-жест не закрывают меню).
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+// или скролл-жест не закрывают меню). Пункты — плоские строки-Cell на
+// компонентах @telegram-apps/telegram-ui (MenuRow): своим у меню остаётся
+// только «стекло», позиция и анимация.
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { List, Section } from '@telegram-apps/telegram-ui';
 
+import { MenuRow } from './MenuRow';
 import { lockScroll, unlockScroll } from '../utils/scroll';
 
 export interface QuickMenuItem {
-  emoji?: string;
+  /** Иконка библиотеки слева от подписи; нет — строка без метки. */
+  icon?: ReactNode;
   label: string;
   danger?: boolean;
   action: () => void;
@@ -73,7 +78,7 @@ export function QuickMenu({ x, y, items, onClose }: QuickMenuProps) {
       ></div>
       <div
         ref={menuEl}
-        className="glass-menu menu-anim pointer-events-auto fixed z-50 flex w-56 flex-col gap-1 rounded-2xl p-2 shadow-xl"
+        className="glass-menu menu-anim pointer-events-auto fixed z-50 w-56 rounded-2xl p-2 shadow-xl"
         style={{
           left: `${left}px`,
           top: openUp ? undefined : `${y + MARGIN}px`,
@@ -81,22 +86,22 @@ export function QuickMenu({ x, y, items, onClose }: QuickMenuProps) {
         }}
         role="menu"
       >
-        {items.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            role="menuitem"
-            className={`flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] btn-press-soft transition-colors active:bg-border/50 ${
-              item.danger === true ? 'text-destructive' : ''
-            }`}
-            onClick={() => pick(item)}
-          >
-            {item.emoji !== undefined && (
-              <span className="w-6 shrink-0 text-center text-base">{item.emoji}</span>
-            )}
-            <span className="truncate">{item.label}</span>
-          </button>
-        ))}
+        {/* px-0! py-0! — снимаем собственные отступы List (10px 18px): поля
+            меню и отступы строк задаёт карточка-секция. */}
+        <List className="px-0! py-0!">
+          <Section>
+            {items.map((item) => (
+              <MenuRow
+                key={item.label}
+                icon={item.icon}
+                danger={item.danger === true}
+                onSelect={() => pick(item)}
+              >
+                {item.label}
+              </MenuRow>
+            ))}
+          </Section>
+        </List>
       </div>
     </>
   );

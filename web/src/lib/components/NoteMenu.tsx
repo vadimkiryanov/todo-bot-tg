@@ -2,10 +2,22 @@
 // Позиционируется fixed под карточкой; если снизу мало места — над ней.
 // Закрывается по тапу вне или Escape; пока меню открыто, скролл списка
 // заморожен (уход пальца/скролл-жест не прячет меню и не скроллит список).
+// Пункты — плоские строки-Cell на компонентах @telegram-apps/telegram-ui
+// (MenuRow): своим у меню остаются только «стекло», позиция и анимация.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as React from 'react';
+import type { ReactNode } from 'react';
+import { List, Section } from '@telegram-apps/telegram-ui';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
+import { Icon24ChevronDown } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_down';
+import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
+import { Icon24ChevronRight } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_right';
+import { Icon28AddCircle } from '@telegram-apps/telegram-ui/dist/icons/28/add_circle';
+import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive';
 
 import { ConfirmModal } from './ConfirmModal';
+import { MenuRow } from './MenuRow';
 import {
   archiveNote,
   removeArchivedNote,
@@ -22,7 +34,7 @@ import { toggleNoteExpanded, useNoteViewStore } from '../stores/noteView';
 import { useUiStore } from '../stores/ui';
 import type { Note } from '../types/api';
 import { lockScroll, unlockScroll } from '../utils/scroll';
-import { nextPriority, priorityEmoji, priorityLabel } from '../utils/format';
+import { nextPriority, priorityLabel, priorityMark } from '../utils/format';
 
 interface NoteMenuProps {
   note: Note;
@@ -30,7 +42,7 @@ interface NoteMenuProps {
   archived?: boolean;
   done?: boolean;
   onClose: () => void;
-  /** Открыть модалку перемещения (пункт «📂 Переместить»; только активные). */
+  /** Открыть модалку перемещения (пункт «Переместить»; только активные). */
   onMove?: (note: Note) => void;
 }
 
@@ -157,6 +169,146 @@ export function NoteMenu({
       ? () => removeDoneNote(note)
       : () => removeNote(note);
 
+  // Пункты — одним массивом, а не условиями «{cond && <MenuRow/>}»: Section
+  // расставляет разделители по индексам детей, а ложное условие всё равно
+  // занимает слот — между строками встали бы <hr> подряд. В массиве остаются
+  // только реально отрисованные строки, поэтому разделители идут через одну.
+  const rows: ReactNode[] = [
+    ...(!archived && !done
+      ? [
+          <MenuRow
+            key="folder"
+            icon={<Icon28AddCircle />}
+            onSelect={() => {
+              useUiStore.setState({ folderCreateOpen: true });
+              onClose();
+            }}
+          >
+            Создать папку
+          </MenuRow>,
+        ]
+      : []),
+    ...(!done
+      ? [
+          <MenuRow
+            key="done"
+            // Галочка у «Выполнить», стрелка влево у возврата.
+            icon={note.done ? <Icon24ChevronLeft /> : <Icon20Select />}
+            disabled={busy}
+            onSelect={() => {
+              void run(() => toggleDone(note));
+            }}
+          >
+            {note.done ? 'Вернуть' : 'Выполнить'}
+          </MenuRow>,
+        ]
+      : []),
+    ...(archived
+      ? [
+          <MenuRow
+            key="unarchive"
+            icon={<Icon24ChevronLeft />}
+            disabled={busy}
+            onSelect={() => {
+              void run(() => unarchiveNote(note));
+            }}
+          >
+            Вернуть из архива
+          </MenuRow>,
+        ]
+      : []),
+    ...(done
+      ? [
+          <MenuRow
+            key="undone"
+            icon={<Icon24ChevronLeft />}
+            disabled={busy}
+            onSelect={() => {
+              void run(() => undoneNote(note));
+            }}
+          >
+            Вернуть в работу
+          </MenuRow>,
+        ]
+      : []),
+    ...(!archived && !done
+      ? [
+          <MenuRow
+            key="priority"
+            icon={priorityMark(priority)}
+            disabled={priorityBusy}
+            onSelect={() => {
+              void doCyclePriority();
+            }}
+          >
+            Приоритет: {priorityLabel(priority)}
+          </MenuRow>,
+          <MenuRow
+            key="pin"
+            // Иконки закрепления в наборе библиотеки нет — короткое слово.
+            icon="Пин"
+            disabled={busy}
+            onSelect={() => {
+              void run(() => togglePin(note));
+            }}
+          >
+            {note.pinned ? 'Открепить' : 'Закрепить'}
+          </MenuRow>,
+          ...(onMove !== undefined
+            ? [
+                <MenuRow
+                  key="move"
+                  icon={<Icon24ChevronRight />}
+                  onSelect={() => {
+                    // Сначала действие с валидной заметкой; закрытие — после.
+                    // Если закрыть меню раньше, заметка родителя к моменту
+                    // onMove уже была бы сброшена.
+                    onMove(note);
+                    onClose();
+                  }}
+                >
+                  Переместить
+                </MenuRow>,
+              ]
+            : []),
+          <MenuRow
+            key="archive"
+            icon={<Icon28Archive />}
+            disabled={busy}
+            onSelect={() => {
+              void run(() => archiveNote(note));
+            }}
+          >
+            В архив
+          </MenuRow>,
+        ]
+      : []),
+    // Полное отображение заметки на карточке — переключатель доступен в любом
+    // состоянии. После тапа меню закрываем: результат (заметка разворачивается
+    // на карточке) должен быть виден сразу.
+    <MenuRow
+      key="expand"
+      icon={<Icon24ChevronDown />}
+      onSelect={() => {
+        toggleNoteExpanded(note.id);
+        onClose();
+      }}
+    >
+      {expanded ? 'Свернуть' : 'Развернуть'}
+    </MenuRow>,
+    <MenuRow
+      key="delete"
+      icon={<Icon16Cancel className="h-5 w-5" />}
+      danger
+      onSelect={() => {
+        setConfirmDelete(true);
+        setError('');
+      }}
+    >
+      Удалить
+    </MenuRow>,
+  ];
+
   if (confirmDelete) {
     return (
       <ConfirmModal
@@ -186,7 +338,7 @@ export function NoteMenu({
 
       <div
         ref={menuEl}
-        className="glass-menu menu-anim fixed z-50 flex flex-col gap-1 overflow-y-auto rounded-2xl p-2 shadow-xl"
+        className="glass-menu menu-anim fixed z-50 overflow-y-auto rounded-2xl p-2 shadow-xl"
         style={{
           left: `${pos.left}px`,
           width: `${pos.width}px`,
@@ -198,154 +350,13 @@ export function NoteMenu({
       >
         {error !== '' && <p className="px-3 py-1 text-xs text-destructive">{error}</p>}
 
-        {!archived && !done && (
-          <button
-            type="button"
-            role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-            onClick={() => {
-              useUiStore.setState({ folderCreateOpen: true });
-              onClose();
-            }}
-          >
-            <span className="w-6 shrink-0 text-center text-base">📁</span>
-            Создать папку
-          </button>
-        )}
-
-        {!done && (
-          <button
-            type="button"
-            role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-            disabled={busy}
-            onClick={() => {
-              void run(() => toggleDone(note));
-            }}
-          >
-            <span className="w-6 shrink-0 text-center text-base">{note.done ? '↩️' : '✅'}</span>
-            {note.done ? 'Вернуть' : 'Выполнить'}
-          </button>
-        )}
-
-        {archived ? (
-          <button
-            type="button"
-            role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-            disabled={busy}
-            onClick={() => {
-              void run(() => unarchiveNote(note));
-            }}
-          >
-            <span className="w-6 shrink-0 text-center text-base">↩️</span>
-            Вернуть из архива
-          </button>
-        ) : done ? (
-          <button
-            type="button"
-            role="menuitem"
-            className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-            disabled={busy}
-            onClick={() => {
-              void run(() => undoneNote(note));
-            }}
-          >
-            <span className="w-6 shrink-0 text-center text-base">↩️</span>
-            Вернуть в работу
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-              disabled={priorityBusy}
-              onClick={() => {
-                void doCyclePriority();
-              }}
-            >
-              <span className="w-6 shrink-0 text-center text-base">
-                {priorityEmoji(priority)}
-              </span>
-              Приоритет: {priorityLabel(priority)}
-            </button>
-
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-              disabled={busy}
-              onClick={() => {
-                void run(() => togglePin(note));
-              }}
-            >
-              <span className="w-6 shrink-0 text-center text-base">📌</span>
-              {note.pinned ? 'Открепить' : 'Закрепить'}
-            </button>
-
-            {onMove !== undefined && (
-              <button
-                type="button"
-                role="menuitem"
-                className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-                onClick={() => {
-                  // Сначала действие с валидной заметкой; закрытие — после. Если
-                  // закрыть меню раньше, заметка родителя к моменту onMove уже
-                  // была бы сброшена.
-                  onMove(note);
-                  onClose();
-                }}
-              >
-                <span className="w-6 shrink-0 text-center text-base">📂</span>
-                Переместить
-              </button>
-            )}
-
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-              disabled={busy}
-              onClick={() => {
-                void run(() => archiveNote(note));
-              }}
-            >
-              <span className="w-6 shrink-0 text-center text-base">🗄</span>
-              В архив
-            </button>
-          </>
-        )}
-
-        {/* Полное отображение заметки на карточке — переключатель доступен в
-            любом состоянии. После тапа меню закрываем: результат (заметка
-            разворачивается на карточке) должен быть виден сразу. */}
-        <button
-          type="button"
-          role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left btn-press-soft transition-colors active:bg-border/50"
-          onClick={() => {
-            toggleNoteExpanded(note.id);
-            onClose();
-          }}
-        >
-          <span className="w-6 shrink-0 text-center text-base">{expanded ? '⤡' : '⤢'}</span>
-          {expanded ? 'Свернуть' : 'Развернуть'}
-        </button>
-
-        <button
-          type="button"
-          role="menuitem"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] text-left text-destructive btn-press-soft transition-colors active:bg-border/50"
-          onClick={() => {
-            setConfirmDelete(true);
-            setError('');
-          }}
-        >
-          <span className="w-6 shrink-0 text-center text-base">🗑</span>
-          Удалить
-        </button>
+        {/* px-0! py-0! — снимаем собственные отступы List (10px 18px): поля
+            меню и отступы строк задаёт карточка-секция. */}
+        <List className="px-0! py-0!">
+          <Section>{rows}</Section>
+        </List>
       </div>
     </>
   );
 }
+

@@ -1,7 +1,14 @@
-// Экран «🔔 Уведомления» (URL /notifications): журнал сработавших напоминаний
+// Экран «Уведомления» (URL /notifications): журнал сработавших напоминаний
 // (серверный). Открытие экрана помечает всё прочитанным; тап по записи —
 // открывает заметку «страницей» (если она ещё существует).
+// Список — строки-Cell на компонентах @telegram-apps/telegram-ui: так же, как
+// в шторке настроек (AppRoot поднят в App.tsx — он задаёт токены --tgui--*).
 import { useEffect, useState } from 'react';
+import { Button, Cell, IconButton, List, Section } from '@telegram-apps/telegram-ui';
+import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
+import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
+import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
+import { Icon24PersonRemove } from '@telegram-apps/telegram-ui/dist/icons/24/person_remove';
 
 import { EmptyState } from '../components/EmptyState';
 import { Loader } from '../components/Loader';
@@ -47,23 +54,27 @@ export function NotificationsView() {
     <>
       <div className="flex h-full flex-col">
         <header className="flex shrink-0 items-center justify-between border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
-          <button
+          <IconButton
             type="button"
+            size="m"
+            mode="plain"
             aria-label="Назад"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
+            className="h-10 w-10 items-center justify-center rounded-full! p-0! text-foreground! btn-press"
             onClick={() => navigate('/')}
           >
-            ←
-          </button>
-          <span className="text-xl">🔔</span>
-          <button
+            <Icon24ChevronLeft />
+          </IconButton>
+          <Icon24Notifications className="h-6 w-6" />
+          <IconButton
             type="button"
+            size="m"
+            mode="plain"
             aria-label="Выйти"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-lg btn-press active:bg-border/50"
+            className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
             onClick={() => void doLogout()}
           >
-            🚪
-          </button>
+            <Icon24PersonRemove />
+          </IconButton>
         </header>
 
         <main className="scroll-area flex-1 overflow-y-auto">
@@ -71,49 +82,61 @@ export function NotificationsView() {
             <Loader />
           ) : error && items.length === 0 ? (
             <div className="flex flex-col items-center gap-4 px-6 py-16">
-              <EmptyState emoji="⚠️" text={error} />
-              <button
+              <EmptyState icon={<Icon16Cancel />} text={error} />
+              <Button
                 type="button"
-                className="btn-press h-11 rounded-xl border border-border px-6 text-sm"
+                size="s"
+                mode="outline"
+                className="h-11!"
                 onClick={() => void loadNotifications()}
               >
                 Повторить
-              </button>
+              </Button>
             </div>
           ) : items.length === 0 ? (
-            <EmptyState emoji="🔕" text="Уведомлений нет" />
+            <EmptyState icon={<Icon24Notifications />} text="Уведомлений нет" />
           ) : (
-            <div className="flex flex-col gap-2 px-3 py-3">
-              {openError !== '' && <p className="px-2 text-sm text-destructive">{openError}</p>}
-              {items.map((item) => (
-                // Непрочитанные визуально выделены точкой у 🔔
-                <button
-                  key={item.id}
-                  type="button"
-                  className="glass-card flex w-full touch-manipulation select-none flex-col gap-1 rounded-2xl px-4 py-3 text-left shadow-sm btn-press-soft [-webkit-touch-callout:none]"
-                  onClick={() => void openByNotification(item.note_id)}
-                >
-                  <span className="flex min-w-0 items-start gap-2.5">
-                    <span className="relative w-5 shrink-0 text-center text-sm leading-6">
-                      🔔
-                      {!item.read && (
-                        <span
-                          className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-primary"
-                          aria-label="Непрочитано"
-                        ></span>
-                      )}
-                    </span>
-                    <span
-                      className={`line-clamp-3 min-w-0 flex-1 break-words text-[15px] leading-6 ${
-                        item.read ? 'text-muted-foreground' : 'text-foreground'
-                      }`}
-                      dangerouslySetInnerHTML={{ __html: firstLineHtml(item.text, []) }}
-                    />
-                  </span>
-                  <span className="pl-7 text-xs text-muted-foreground">⏰ {formatFiredAt(item.fired_at)}</span>
-                </button>
-              ))}
-            </div>
+            <>
+              {openError !== '' && (
+                <p className="px-4 pt-3 text-sm text-destructive">{openError}</p>
+              )}
+              <List>
+                <Section>
+                  {items.map((item) => (
+                    // Непрочитанные визуально выделены точкой у колокольчика
+                    // w-full обязателен: <button> не растягивается как блочный
+                    // бокс — короткое уведомление не заняло бы карточку.
+                    <Cell
+                      key={item.id}
+                      Component="button"
+                      type="button"
+                      multiline
+                      className="w-full select-none text-left touch-manipulation [-webkit-touch-callout:none]"
+                      before={
+                        <span className="relative flex h-5 w-5 items-center justify-center">
+                          <Icon24Notifications className="h-5 w-5" />
+                          {!item.read && (
+                            <span
+                              className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-primary"
+                              aria-label="Непрочитано"
+                            ></span>
+                          )}
+                        </span>
+                      }
+                      subtitle={`сработало ${formatFiredAt(item.fired_at)}`}
+                      onClick={() => void openByNotification(item.note_id)}
+                    >
+                      <span
+                        className={`line-clamp-3 min-w-0 break-words text-[15px] leading-6 ${
+                          item.read ? 'text-muted-foreground' : 'text-foreground'
+                        }`}
+                        dangerouslySetInnerHTML={{ __html: firstLineHtml(item.text, []) }}
+                      />
+                    </Cell>
+                  ))}
+                </Section>
+              </List>
+            </>
           )}
         </main>
       </div>

@@ -1,11 +1,16 @@
 // Компактная форма напоминания: datetime-local + once/daily + Отмена/Сохранить.
 // Используется в странице заметки и в панели создания заметки (InputBar).
 // Валидация как на сервере: одноразовое напоминание не может быть в прошлом.
+// Кнопки «Отмена»/«Сохранить» — Button библиотеки (loading показывает спиннер
+// сам); h-10! держит прежнюю геометрию формы. Пикер даты и переключатель
+// повторения остаются нативными: у telegram-ui нет своего пикера дат, а
+// обёртка Input над datetime-local ничего не добавляет, кроме смены заливки;
+// у Button нет состояния «выбран», которое нужно сегмент-тоглу (то же
+// решение, что у тоглов «В топике/Везде» и табов входа).
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@telegram-apps/telegram-ui';
 
 import type { ReminderRepeat } from '../types/api';
-
-import { Spinner } from './Spinner';
 
 interface ReminderFormProps {
   /** Текущее напоминание (ISO 8601 UTC) или '' — нового нет. */
@@ -148,16 +153,18 @@ export function ReminderForm({
       </div>
       {error !== '' && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
-        <button type="button" className="btn-press h-10 flex-1 rounded-lg border border-border text-sm" onClick={onCancel}>
+        <Button type="button" mode="outline" className="h-10! flex-1" onClick={onCancel}>
           Отмена
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
-          className="btn-press flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50"
+          mode="filled"
+          className="h-10! flex-1 disabled:opacity-50"
           disabled={busy || value === ''}
+          loading={busy}
         >
-          {busy ? <Spinner size="15px" /> : 'Сохранить'}
-        </button>
+          Сохранить
+        </Button>
       </div>
     </form>
   );
