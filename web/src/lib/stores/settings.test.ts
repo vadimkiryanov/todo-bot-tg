@@ -1,11 +1,19 @@
 // Тесты настроек интерфейса: режим показа папок в списке заметок, место
 // «хлебного пути» (в табе островка / отдельной строкой), способ включения
-// редактирования заметки (тапом по тексту / кнопкой ✏️) и режим перелистывания
-// топиков (сдвигом / кросс-фейдом). По умолчанию — папки «в списке» (как в боте),
-// путь «в табе», редактирование «тапом» и перелистывание «сдвигом»; переключение
-// сохраняется в localStorage и восстанавливается при старте модуля.
+// редактирования заметки (тапом по тексту / кнопкой ✏️), показ панели
+// форматирования и режим перелистывания топиков (сдвигом / кросс-фейдом).
+// По умолчанию — папки «в списке» (как в боте), путь «в табе», редактирование
+// «тапом», панель форматирования показана и перелистывание «сдвигом»;
+// переключение сохраняется в localStorage и восстанавливается при старте модуля.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setEditorMode, setFoldersMode, setPathMode, setSwipeMode, useSettingsStore } from './settings';
+import {
+  setEditorMode,
+  setFoldersMode,
+  setFormatPanel,
+  setPathMode,
+  setSwipeMode,
+  useSettingsStore,
+} from './settings';
 
 /** Чтение zustand-состояния в синтаксисе прежнего $state-объекта. */
 const settings = {
@@ -20,6 +28,9 @@ const settings = {
   },
   get swipeMode() {
     return useSettingsStore.getState().swipeMode;
+  },
+  get formatPanel() {
+    return useSettingsStore.getState().formatPanel;
   },
 };
 
@@ -110,6 +121,27 @@ describe('settings store', () => {
     vi.resetModules();
     const mod = await import('./settings');
     expect(mod.useSettingsStore.getState().editorMode).toBe('toggle');
+  });
+
+  it('по умолчанию панель форматирования показана', () => {
+    expect(settings.formatPanel).toBe('show');
+  });
+
+  it('переключение показа панели обновляет стор и localStorage', () => {
+    setFormatPanel('hide');
+    expect(settings.formatPanel).toBe('hide');
+    expect(localStorage.getItem('todo.formatPanel')).toBe('hide');
+
+    setFormatPanel('show');
+    expect(settings.formatPanel).toBe('show');
+    expect(localStorage.getItem('todo.formatPanel')).toBe('show');
+  });
+
+  it('при старте восстанавливается скрытая панель форматирования', async () => {
+    localStorage.setItem('todo.formatPanel', 'hide');
+    vi.resetModules();
+    const mod = await import('./settings');
+    expect(mod.useSettingsStore.getState().formatPanel).toBe('hide');
   });
 
   it('по умолчанию топики перелистываются сдвигом', () => {

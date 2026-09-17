@@ -18,7 +18,14 @@
 //   'plain'     — текст с markdown-разметкой, как раньше.
 // Кнопки «Сохранить»/«Отмена» появляются только когда текст изменён; после
 // сохранения страница возвращается в просмотр (правка закрывается).
-// Панель форматирования — при фокусе поля либо при включённом режиме правки.
+// Панель форматирования (кнопки оформления и подсказка) показывается только
+// когда включена настройкой (stores/settings.formatPanel) и есть повод: поле
+// в фокусе либо включён режим правки кнопкой ✏️.
+// Кроме футера, в правке без разметки оформление доступно и у самого
+// выделения: выделил текст — над ним появляется своя панель (как в Telegram),
+// теми же кнопками. В узком экране кнопки не влезают — панель листается вбок
+// пальцем. Системное меню «скопировать/вырезать» она не заменяет — на телефоне
+// оно показывается рядом, отключить его нельзя.
 // Enter переносит формат строки на новую строку (# / ## / 1. / - / - [ ]),
 // Shift+Enter — обычный перенос. В просмотре текст можно выделять (десктоп):
 // выделение не включает правку, иначе фокус поля сбрасывал бы его.
@@ -30,7 +37,7 @@
 // (активный/архив/выполненные/таймеры), обновляется он; иначе (заметка
 // открыта из уведомления, списки не загружены) — прямые API-вызовы с
 // локальным состоянием. Каждая busy-кнопка показывает спиннер.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FocusEvent, MouseEvent, PointerEvent } from 'react';
 
 import { ConfirmModal } from './ConfirmModal';
@@ -250,6 +257,11 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const editorView = useSettingsStore((s) => s.editorView);
   const rich = editorView === 'formatted';
 
+  // Панель форматирования — тоже настройка устройства (stores/settings.
+  // formatPanel): кому-то ряд кнопок и подсказка под полем только мешают.
+  const formatPanel = useSettingsStore((s) => s.formatPanel);
+  const showFormatPanel = formatPanel === 'show';
+
   /** Поле в фокусе: в режиме «тапом» по нему показываем панель форматирования. */
   const [focused, setFocused] = useState(startEditing);
   /** Режим «кнопкой»: правка включена явно (кнопка ✏️), фокус не важен. */
@@ -272,6 +284,26 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const composingRef = useRef(false);
   /** Корневой узел панели форматирования (сниппет toolbar). */
   const toolbarElRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Всплывающая панель у выделения (живая вёрстка) ──────────────────────
+  // Как в Telegram: выделил текст — над ним появился ряд оформления. Панель
+  // стоит вне слоя страницы (тот сдвигается transform'ом при свайпе), поэтому
+  // её координаты — прямо во вьюпорте. В тексте с разметкой ('plain') своей
+  // панели нет: там выделение обслуживает футер (панель форматирования).
+  /** Место панели: центр по X и край по Y (above — панель над выделением). */
+  const [floatPos, setFloatPos] = useState<{ left: number; top: number; above: boolean } | null>(null);
+  const floatPanelRef = useRef<HTMLDivElement | null>(null);
+  /** Последнее показанное место: движение каретки не должно перерисовывать
+      страницу, пока место не сдвинулось. */
+  const floatPosRef = useRef<{ left: number; top: number; above: boolean } | null>(null);
+  /** Выделение, под которое нажали кнопку панели: тап вне текста снимает
+      выделение — возвращаем его перед действием. */
+  const floatRangeRef = useRef<Range | null>(null);
+  /** Палец/мышь нажали на панель: фокус правки сейчас уйдёт (тап вне текста),
+      но это не «ушёл совсем» — панель не должна исчезнуть до click. Окно
+      короткое и само себя снимает: без него на тач-устройствах флаг мог бы
+      остаться выставленным и заглушить настоящий уход фокуса. */
+  const floatPressRef = useRef(false);
   /** Попытка закрыть страницу с несохранённым текстом: диалог «Сохранить?». */
   const [exitConfirm, setExitConfirm] = useState(false);
 
@@ -490,38 +522,38 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
    * этой проверки панель исчезала бы под пальцем ДО click («нажал на панель —
    * она пропала»), кнопки не срабатывали. Переход фокуса на кнопки тулбара
    * не даёт и onMouseDown preventDefault (см. toolbar); здесь страхуем
-   * программные переходы — инпут ссылки (autofocus), Tab-навигацию.
+   * программные переходы — инпут ссылки (autofocus), Tab-навигацию. У
+   * всплывающей панели у выделения кнопки без фокуса, а тап вне текста уводит
+   * фокус «в никуда» (relatedTarget пуст) — её прикрывает floatPressRef.
    */
   function onEditorBlur(e: FocusEvent<HTMLElement>): void {
     const next = e.relatedTarget;
     if (next instanceof Node && toolbarElRef.current?.contains(next)) return;
+    if (floatPressRef.current) return;
     setFocused(false);
   }
 
   /** Фокус вошёл в правку: если есть отложенная каретка от тапа по просмотру —
-      применить в следующем кадре (после перерисовки слоя правки), а затем
-      показать каретку над панелью и клавиатурой. */
+      применить в следующем кадре (после перерисовки слоя правки). Скролл тут
+      не трогаем: страница под пальцем не «прыгает», а каретку из-под панели
+      подтягивает следящий за высотой поля наблюдатель (см. ResizeObserver). */
   function onEditorFocus(): void {
     setFocused(true);
     const plain = pendingCaretRef.current;
     pendingCaretRef.current = null;
+    if (plain === null) return;
     requestAnimationFrame(() => {
-      if (plain !== null) {
-        if (rich) {
-          // Вёрстка построена из тех же строк, что просмотр: номер блока и
-          // место в нём совпадают, достаточно смещения в тексте заметки.
-          const el = richElRef.current;
-          if (el !== null) placeCaretAtPlainOffset(el, pageNote.text, plain);
-        } else {
-          const ta = textareaRef.current;
-          if (ta !== null) {
-            const at =
-              markdownDraftOffsets(pageNote.text, pageNote.entities)[plain] ?? ta.value.length;
-            ta.setSelectionRange(at, at);
-          }
-        }
+      if (rich) {
+        // Вёрстка построена из тех же строк, что просмотр: номер блока и
+        // место в нём совпадают, достаточно смещения в тексте заметки.
+        const el = richElRef.current;
+        if (el !== null) placeCaretAtPlainOffset(el, pageNote.text, plain);
+        return;
       }
-      revealCaret();
+      const ta = textareaRef.current;
+      if (ta === null) return;
+      const at = markdownDraftOffsets(pageNote.text, pageNote.entities)[plain] ?? ta.value.length;
+      ta.setSelectionRange(at, at);
     });
   }
 
@@ -1280,6 +1312,125 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
 
   const reminderAt = pageNote.reminder_at;
 
+  // ── Всплывающая панель у выделения (живая вёрстка) ──────────────────────
+  // Действия те же, что у футера, — те же функции: они работают с выделением
+  // вёрстки, а не с панелью, поэтому панель может вызывать их откуда угодно.
+
+  /** Кнопки панели: подписи короче футеровских — панель висит над текстом. */
+  const floatButtons: { label: string; title: string; run: () => void }[] = [
+    { label: 'B', title: 'Жирный', run: () => formatInline('bold', '**', '**') },
+    { label: 'I', title: 'Курсив', run: () => formatInline('italic', '*', '*') },
+    { label: '</>', title: 'Код', run: () => formatInline('code', '`', '`', 'код') },
+    { label: '🔗', title: 'Ссылка', run: toggleLink },
+    { label: '#', title: 'Заголовок', run: () => formatLine('h1') },
+    { label: '##', title: 'Подзаголовок', run: () => formatLine('h2') },
+    { label: '1.', title: 'Нумерованный список', run: () => formatLine('ol') },
+    { label: '••', title: 'Список', run: () => formatLine('list') },
+    { label: '☑', title: 'Чеклист', run: () => formatLine('check') },
+  ];
+
+  /** Центр панели по X, подтянутый внутрь экрана: у выделения у самого края
+      панель иначе свисала бы за границу. До первой отрисовки ширина панели
+      ещё неизвестна — уточняет эффект после показа. Когда кнопки не влезли в
+      экран, панель ограничена его шириной (max-w) и листается вбок сама —
+      тогда подтягивание ставит её ровно по краям экрана. */
+  function clampFloatLeft(center: number): number {
+    const half = (floatPanelRef.current?.offsetWidth ?? 0) / 2;
+    const edge = Math.min(half + 8, window.innerWidth / 2);
+    return Math.min(Math.max(center, edge), Math.max(window.innerWidth - edge, edge));
+  }
+
+  /** Держать панель у выделения; выделения нет — панель убрать. Место — над
+      первой строкой выделения, а если сверху для неё нет места (выделяют у
+      шапки) — под последней. */
+  function placeFloatPanel(): void {
+    const root = rich ? richElRef.current : null;
+    const range = root === null ? null : currentRange(root);
+    const rect = range === null || range.collapsed ? null : range.getBoundingClientRect();
+    if (rect === null || (rect.width === 0 && rect.height === 0)) {
+      if (floatPosRef.current === null) return;
+      floatPosRef.current = null;
+      setFloatPos(null);
+      return;
+    }
+    const PANEL_H = 56; // высота панели с отступом от строки
+    const above = rect.top > PANEL_H + 8;
+    const next = {
+      left: clampFloatLeft(rect.left + rect.width / 2),
+      top: above ? rect.top - 8 : rect.bottom + 8,
+      above,
+    };
+    const prev = floatPosRef.current;
+    if (
+      prev !== null &&
+      prev.above === next.above &&
+      Math.abs(prev.left - next.left) < 0.5 &&
+      Math.abs(prev.top - next.top) < 0.5
+    ) {
+      return;
+    }
+    floatPosRef.current = next;
+    setFloatPos(next);
+  }
+
+  /** Нажали на кнопку панели: выделение под неё запоминаем сразу — тап вне
+      текста снимает его раньше, чем случится click. */
+  function onFloatPress(): void {
+    floatPressRef.current = true;
+    window.setTimeout(() => {
+      floatPressRef.current = false;
+    }, 400);
+    const root = richElRef.current;
+    floatRangeRef.current = root === null ? null : currentRange(root);
+  }
+
+  /** Действие панели: вернуть выделение (тап его мог снять), применить
+      оформление, пересчитать место — оформление могло выделение снять, и
+      тогда панель уходит вместе с ним. */
+  function floatAction(run: () => void): void {
+    restoreRange(floatRangeRef.current);
+    floatRangeRef.current = null;
+    run();
+    requestAnimationFrame(() => placeFloatPanel());
+  }
+
+  // Панель у выделения: пересчитываем место на движение выделения и на
+  // прокрутку текста. selectionchange приходит и на каждое перемещение
+  // каретки — лишние перерисовки отсекает сравнение места (placeFloatPanel).
+  useEffect(() => {
+    if (!rich) return;
+    const onChange = (): void => placeFloatPanel();
+    document.addEventListener('selectionchange', onChange);
+    const scroller = richScrollRef.current;
+    scroller?.addEventListener('scroll', onChange);
+    return () => {
+      document.removeEventListener('selectionchange', onChange);
+      scroller?.removeEventListener('scroll', onChange);
+    };
+  }, [rich, editing]);
+
+  // Панель живёт только в правке живой вёрстки: ушли в просмотр, открыли
+  // диалог закрытия, потянули страницу вбок — убираем.
+  useEffect(() => {
+    if (rich && editing && !dragging && !closing && !exitConfirm) return;
+    floatPosRef.current = null;
+    floatRangeRef.current = null;
+    setFloatPos(null);
+  }, [rich, editing, dragging, closing, exitConfirm]);
+
+  // Панель у края экрана: после отрисовки её ширина известна — подтягиваем
+  // внутрь. Одного прохода достаточно: он же правит место в ref, поэтому
+  // следующий пересчёт уже не находит расхождения.
+  useLayoutEffect(() => {
+    const node = floatPanelRef.current;
+    if (node === null || floatPos === null) return;
+    const left = clampFloatLeft(floatPos.left);
+    if (Math.abs(left - floatPos.left) < 0.5) return;
+    const next = { ...floatPos, left };
+    floatPosRef.current = next;
+    setFloatPos(next);
+  }, [floatPos]);
+
   // ── Панель форматирования (snippet toolbar) ─────────────────────────────
   // Рендерится в двух местах футера (правки / фокус поля), одновременно —
   // только в одном, поэтому один JSX-элемент можно подставлять дважды.
@@ -1557,7 +1708,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           // нативных заметках). Ряд действий скрыт: тап по ✅/⋯ не должен
           // «увести» несохранённый текст.
           <div className="flex flex-col gap-3 pb-1">
-            {toolbar}
+            {(showFormatPanel || linkOpen) && toolbar}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -1579,9 +1730,11 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           </div>
         ) : (
           <>
-            {showToolbar && (
+            {showToolbar && (showFormatPanel || linkOpen) && (
               // Панель форматирования: поле в фокусе (режим «тапом») либо
-              // включён режим правки кнопкой ✏️.
+              // включён режим правки кнопкой ✏️. Форма ссылки показывается и
+              // при скрытой панели: её открывают кнопкой 🔗 всплывающей панели
+              // у выделения, а вводить адрес больше негде.
               <div className="flex flex-col gap-1.5 pb-1">{toolbar}</div>
             )}
 
@@ -1789,6 +1942,44 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           </button>
         </div>
       </>
+    )}
+
+    {/* Всплывающая панель оформления у выделения (живая вёрстка). Стоит рядом
+        со слоем страницы, а не внутри: тот сдвигается transform'ом (свайп,
+        въезд), и панель внутри него уезжала бы вместе с ним. onMouseDown
+        preventDefault — нажатие по кнопке не должно снимать выделение;
+        data-no-swipe — жест по панели не закрывает страницу: он остаётся
+        панели, а если кнопки не влезли в экран — листает их вбок. */}
+    {floatPos !== null && (
+      <div
+        ref={floatPanelRef}
+        data-no-swipe
+        role="toolbar"
+        aria-label="Оформление выделения"
+        className="fixed z-[75] max-w-[calc(100vw-16px)] overflow-x-auto rounded-xl border border-border bg-background p-1 shadow-xl"
+        style={{
+          left: `${floatPos.left}px`,
+          top: `${floatPos.top}px`,
+          transform: `translate(-50%, ${floatPos.above ? '-100%' : '0'})`,
+        }}
+        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={onFloatPress}
+      >
+        <div className="flex w-max items-center gap-0.5">
+          {floatButtons.map((b) => (
+            <button
+              key={b.title}
+              type="button"
+              aria-label={b.title}
+              title={b.title}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-[15px] btn-press active:bg-border/60"
+              onClick={() => floatAction(b.run)}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
     )}
 
     {confirmDelete && (

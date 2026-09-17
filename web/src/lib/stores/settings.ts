@@ -22,6 +22,10 @@
 //     'fade'  — контент не едет: заметки проявляются друг через друга
 //               (на середине свайпа оба слайда полупрозрачны); за пальцем
 //               едет только капсула островка.
+//   formatPanel — показывать ли панель форматирования в футере правки
+//                 заметки (кнопки оформления и подсказка под ними):
+//     'show' — панель на месте (как раньше);
+//     'hide' — панели нет: текст правки без ряда кнопок оформления.
 // Выбор хранится в localStorage и переживает перезагрузку страницы.
 import { create } from 'zustand';
 
@@ -30,6 +34,7 @@ export type PathMode = 'tab' | 'strip';
 export type EditorMode = 'tap' | 'toggle';
 export type EditorView = 'formatted' | 'plain';
 export type SwipeMode = 'slide' | 'fade';
+export type FormatPanel = 'show' | 'hide';
 
 const FOLDERS_MODE_KEY = 'todo.foldersMode';
 const FOLDERS_MODE_DEFAULT: FoldersMode = 'list';
@@ -41,6 +46,8 @@ const EDITOR_VIEW_KEY = 'todo.editorView';
 const EDITOR_VIEW_DEFAULT: EditorView = 'formatted';
 const SWIPE_MODE_KEY = 'todo.swipeMode';
 const SWIPE_MODE_DEFAULT: SwipeMode = 'slide';
+const FORMAT_PANEL_KEY = 'todo.formatPanel';
+const FORMAT_PANEL_DEFAULT: FormatPanel = 'show';
 
 function readFoldersMode(): FoldersMode {
   // В node (тесты) localStorage отсутствует — всегда значение по умолчанию.
@@ -93,12 +100,23 @@ function readSwipeMode(): SwipeMode {
   }
 }
 
+function readFormatPanel(): FormatPanel {
+  if (typeof localStorage === 'undefined') return FORMAT_PANEL_DEFAULT;
+  try {
+    const raw = localStorage.getItem(FORMAT_PANEL_KEY);
+    return raw === 'hide' ? 'hide' : FORMAT_PANEL_DEFAULT;
+  } catch {
+    return FORMAT_PANEL_DEFAULT;
+  }
+}
+
 interface SettingsState {
   foldersMode: FoldersMode;
   pathMode: PathMode;
   editorMode: EditorMode;
   editorView: EditorView;
   swipeMode: SwipeMode;
+  formatPanel: FormatPanel;
 }
 
 export const useSettingsStore = create<SettingsState>()(() => ({
@@ -107,6 +125,7 @@ export const useSettingsStore = create<SettingsState>()(() => ({
   editorMode: readEditorMode(),
   editorView: readEditorView(),
   swipeMode: readSwipeMode(),
+  formatPanel: readFormatPanel(),
 }));
 
 export function setFoldersMode(mode: FoldersMode): void {
@@ -154,6 +173,16 @@ export function setSwipeMode(mode: SwipeMode): void {
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(SWIPE_MODE_KEY, mode);
+  } catch {
+    // localStorage недоступен — режим живёт до перезагрузки страницы
+  }
+}
+
+export function setFormatPanel(mode: FormatPanel): void {
+  useSettingsStore.setState({ formatPanel: mode });
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(FORMAT_PANEL_KEY, mode);
   } catch {
     // localStorage недоступен — режим живёт до перезагрузки страницы
   }
