@@ -72,6 +72,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { MenuRow } from './MenuRow';
 import { Modal } from './Modal';
 import { MoveModal } from './MoveModal';
+import { PinIcon } from './PinIcon';
 import { ReminderForm } from './ReminderForm';
 import { Spinner } from './Spinner';
 import {
@@ -1397,6 +1398,17 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   // экраном; в покое (после въезда) — на месте, сдвиг — за пальцем.
   const transform = !visible || closing ? 'translate3d(100%,0,0)' : `translate3d(${drag}px,0,0)`;
 
+  // Фон приложения под страницей: пока страница открыта и стоит на месте, фон
+  // body красим в её фон — на мобилках экран кажется одним полем, без
+  // проблесков фона чата по краям (и под «резинкой» прокрутки). Как только
+  // страница поехала (свайп-закрытие) или ушла, фон возвращается: под пальцем
+  // должна открываться лента. Смена фона анимируется в app.css (body).
+  useEffect(() => {
+    const open = visible && !closing && drag === 0;
+    document.body.classList.toggle('note-open', open);
+    return () => document.body.classList.remove('note-open');
+  }, [visible, closing, drag]);
+
   // HTML просмотра (блоки строк). Считаем один раз на изменение текста/состояния:
   // renderNoteBlocksHtml каждый раз пересоздаёт строку — не хочется дергать её
   // на каждом кадре свайпа. Пустой текст — та же подсказка, что и в поле.
@@ -1741,8 +1753,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       ? [
           <MenuRow
             key="pin"
-            // Иконки закрепления в наборе библиотеки нет — короткое слово.
-            icon="Пин"
+            icon={<PinIcon className="h-5 w-5" />}
             onSelect={() => pickMenu(doTogglePin)}
           >
             {pageNote.pinned ? 'Открепить' : 'Закрепить'}
@@ -1873,12 +1884,12 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                 <span className="min-w-0 flex-1 truncate px-1 text-sm text-muted-foreground">
                   {isDone ? (
                     <>
-                      <Icon20Select className="mr-1 inline h-4 w-4 align-[-2px]" />
+                      <Icon20Select viewBox="0 0 20 20" className="mr-1 inline h-4 w-4 align-[-2px]" />
                       Выполнена
                     </>
                   ) : (
                     <>
-                      <Icon28Archive className="mr-1 inline h-4 w-4 align-[-2px]" />
+                      <Icon28Archive viewBox="0 0 28 28" className="mr-1 inline h-4 w-4 align-[-2px]" />
                       Архив
                     </>
                   )}
@@ -2016,7 +2027,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           >
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 truncate text-sm" title={reminderAt}>
-                <Icon24Notifications className="mr-1 inline h-4 w-4 align-[-2px]" />
+                <Icon24Notifications viewBox="0 0 24 24" className="mr-1 inline h-4 w-4 align-[-2px]" />
                 {formatReminderAt(reminderAt, pageNote.reminder_repeat)}
               </span>
               <Button

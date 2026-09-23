@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as React from 'react';
 
 import { CrumbPath } from './CrumbPath';
+import { PinIcon } from './PinIcon';
 import { folderChainTo, useFoldersStore } from '../stores/folders';
 import { useNavigationStore } from '../stores/navigation';
 import { useTopicsStore } from '../stores/topics';
@@ -545,13 +546,10 @@ export function TopicIsland({
               />
             ) : (
               <>
-                {/* Закреплённый (быстрый в боте) топик — метка словом: иконки
-                    закрепления в наборе библиотеки нет. Закреплённые идут
-                    первыми по порядку стора. */}
+                {/* Закреплённый (быстрый в боте) топик — иконкой пина вместо
+                    слова «пин». Закреплённые идут первыми по порядку стора. */}
                 {topic.pinned && (
-                  <span className="shrink-0 text-[10px] uppercase tracking-wide opacity-70">
-                    пин
-                  </span>
+                  <PinIcon className="h-3 w-3 shrink-0 opacity-70" />
                 )}
                 <span className="max-w-36 truncate">{topic.name}</span>
                 {topic.note_count > 0 && (

@@ -2,12 +2,11 @@
 // списки архива/выполненных, список заметок чата, результаты поиска.
 // Строка живёт внутри карточки-секции и показывает то же, что показывала
 // стеклянная карточка: превью с форматированием (обрезка по высоте, по
-// желанию — целиком), метка «пин» у закреплённой, приоритет цветной обводкой,
-// выполненная зачёркнута и приглушена. Мету (напоминание с колокольчиком и
-// дату правки), которая в карточке висела по краям, строка показывает
-// подписью — так делает Telegram. Клик — оверлей заметки, долгий тач
-// (правый клик) — меню действий.
-import type { ReactNode } from 'react';
+// желанию — целиком), приоритет цветной обводкой по контуру, выполненная
+// зачёркнута и приглушена. Закрепление — контурной иконкой пина сверху справа,
+// у первой строки текста (текстовой метки «пин» больше нет). Подпись строки,
+// как в Telegram: слева напоминание с колокольчиком, справа — дата правки.
+// Клик — оверлей заметки, долгий тач (правый клик) — меню действий.
 import { Cell } from '@telegram-apps/telegram-ui';
 import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
 
@@ -16,6 +15,9 @@ import { useNoteViewStore } from '../stores/noteView';
 import { previewBlocksHtml, renderNoteBlocksHtml } from '../utils/blocks';
 import { formatEditedAt, formatReminderAt } from '../utils/format';
 import { useLongPress } from '../utils/longPress';
+import { useRowSwing, type RowPhase } from '../utils/rowSwing';
+
+import { PinIcon } from './PinIcon';
 
 interface NoteCellProps {
   note: Note;
@@ -23,11 +25,25 @@ interface NoteCellProps {
   onMenu?: (note: Note, rect: DOMRect) => void;
   /** Только что добавленная заметка — подсветка на пару секунд. */
   highlighted?: boolean;
+  /** Строка появляется/уходит: её высота едет, соседи пододвигаются. */
+  phase?: RowPhase;
+  /** Строка доиграла появление/уход — анимация строки завершена. */
+  onSettled?: () => void;
 }
 
-export function NoteCell({ note, onOpen, onMenu, highlighted = false }: NoteCellProps) {
+export function NoteCell({
+  note,
+  onOpen,
+  onMenu,
+  highlighted = false,
+  phase = 'idle',
+  onSettled,
+}: NoteCellProps) {
   // Полное отображение этой заметки (локальная настройка устройства).
   const expanded = useNoteViewStore((s) => s.expanded.has(note.id));
+
+  // Анимация высоты строки при появлении/уходе (см. utils/rowSwing).
+  const swing = useRowSwing(phase, onSettled);
 
   const press = useLongPress(
     onMenu === undefined
@@ -50,34 +66,47 @@ export function NoteCell({ note, onOpen, onMenu, highlighted = false }: NoteCell
     note.reminder_at !== null ? formatReminderAt(note.reminder_at, note.reminder_repeat) : '';
   const editedAt = formatEditedAt(note.updated_at);
   // Подпись строки: напоминание помечаем колокольчиком из набора библиотеки
-  // (иконки часов в нём нет), дата правки — текстом; части разделяет «·».
-  const meta: ReactNode =
-    reminder === '' ? (
-      editedAt
-    ) : (
-      <>
-        <Icon24Notifications className="mr-1 inline h-4 w-4 align-middle" />
-        {`${reminder} · ${editedAt}`}
-      </>
-    );
+  // (иконки часов в нём нет) и держим слева, дата правки — справа. viewBox:
+  // у иконок набора его нет, без него уменьшение размера не масштабирует
+  // рисунок, а режет его по краю бокса (колокольчик терял низ с язычком).
+  const subtitle = (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="min-w-0 truncate">
+        {reminder !== '' && (
+          <>
+            <Icon24Notifications
+              viewBox="0 0 24 24"
+              className="mr-1 inline h-4 w-4 align-[-2px]"
+            />
+            {reminder}
+          </>
+        )}
+      </span>
+      <span className="ml-auto shrink-0">{editedAt}</span>
+    </span>
+  );
 
   // w-full обязателен: <button> в Chromium не растягивается как блочный бокс,
   // а схлопывается по содержимому — короткая строка не заняла бы карточку, и
   // обводка приоритета с областью тапа оказались бы уже карточки.
   return (
     <Cell
+      ref={swing.ref}
+      style={swing.style}
       Component="button"
       type="button"
       multiline
       className={`w-full touch-pan-y select-none text-left btn-press-soft [-webkit-touch-callout:none]${highlighted ? ' note-highlight' : ''}${prioCls !== '' ? ` ${prioCls}` : ''}`}
-      after={
+      titleBadge={
         note.pinned ? (
-          /* Иконки закрепления в наборе библиотеки нет — метка словом
-             (как «папка» у строк папок). */
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">пин</span>
+          /* ml-auto держит пин у правого края при любой длине текста,
+             self-start — у первой строки. */
+          <span className="ml-auto mt-[3px] shrink-0 self-start text-muted-foreground">
+            <PinIcon />
+          </span>
         ) : undefined
       }
-      subtitle={meta === '' ? undefined : meta}
+      subtitle={subtitle}
       onClick={() => {
         if (press.skipClick()) return;
         onOpen(note);

@@ -79,6 +79,7 @@ import { loadTopics, useTopicsStore } from '../stores/topics';
 import { useUiStore } from '../stores/ui';
 import type { Folder, Note, Topic } from '../types/api';
 import { suppressNextClick } from '../utils/click';
+import type { RowPhase } from '../utils/rowSwing';
 
 export function ChatView() {
   // ── Подписки на сторы (рендер-слайсы; в хэндлерах/эффектах — getState()) ──
@@ -117,8 +118,8 @@ export function ChatView() {
   // ВАЖНО: $state в Svelte присваивается синхронно, setState в React — нет.
   // openNote/queryForState/applyUrlIntent читают свежее значение сразу после
   // записи — держим ref-зеркало, все записи идут через setSelected().
-  // startEditing по умолчанию сбрасывается: адресные переходы и закрытие
-  // не должны оставлять страницу в режиме правки.
+  // Правка включается явно: заметку открывают сразу в режиме редактирования
+  // (см. openNoteObject), а закрытие страницы режим не оставляет.
   const selectedIdRef = useRef<number | null>(null);
   function setSelected(id: number | null, startEditing = false): void {
     selectedIdRef.current = id;
@@ -241,8 +242,10 @@ export function ChatView() {
   }
 
   /** Открыть заметку (страница). pushState: «назад» браузера вернёт к списку.
-      startEditing — открыть сразу в режиме правки (кнопка-карандаш панели ввода). */
-  function openNoteObject(note: Note, startEditing = false): void {
+      Переход в заметку — сразу в режиме правки (поле в фокусе): заметку
+      открывают, чтобы продолжить её писать. Просмотром открывают только
+      выполненные и архив (свои экраны, там startEditing не передают). */
+  function openNoteObject(note: Note, startEditing = true): void {
     noteOpenedViaPushRef.current = true;
     // Кэш страницы заполняем сразу переданным объектом: заметка может ещё не
     // попасть в списки стора (слайд-интент свайп-выхода, результаты поиска).
@@ -360,7 +363,8 @@ export function ChatView() {
         if (notesState.loading) return;
         if (notesState.notes.some((x) => x.id === n)) {
           noteOpenedViaPushRef.current = false;
-          setSelected(n);
+          // Ссылка (?note=) — тот же переход в заметку: открываем в правке.
+          setSelected(n, true);
         } else if (selectedIdRef.current !== null) {
           // Заметки нет в списке уровня (удалена/не на этом уровне) — закрыть.
           noteOpenedViaPushRef.current = false;
@@ -396,9 +400,6 @@ export function ChatView() {
     [foldersMode, folders, activeFolderID],
   );
 
-  /** Текущий список, разбитый на закреплённые/остальные (обычный режим). */
-  const normalSplit = useMemo(() => splitNotes(notes), [notes]);
-
   /** Папки активного топика готовы к показу: стор отдал папки именно этого
       топика (topicId совпал) либо загрузка папок завершилась ошибкой — тогда
       список заметок не блокируем (иначе он завис бы на «загрузке»).
@@ -420,6 +421,94 @@ export function ChatView() {
     const rest: Note[] = [];
     for (const n of list) (n.pinned ? pinned : rest).push(n);
     return { pinned, rest };
+  }
+
+  // ── Строки живого списка (анимация появления/ухода) ─────────────────────
+  // Живой список рисуется не из стора напрямую, а из собственного состояния
+  // строк: у строки есть фаза (появляется / уходит), поэтому строка, которой
+  // в сторе уже нет, ещё доигрывает складывание — соседи пододвигаются
+  // плавно, а не прыгают на освободившееся место (см. utils/rowSwing).
+  // Превью уровней и соседних топиков строки не анимируют (см. idleRows).
+  interface ListRow {
+    note: Note;
+    phase: RowPhase;
+  }
+
+  const [rows, setRows] = useState<ListRow[]>([]);
+  /** Ключ контекста (топик:папка) прошлого пересчёта: смена контекста —
+      новая лента, строки собираются заново без анимации. Иначе каскадный
+      въезд «мигал» бы строками на каждом переходе в топик/папку. */
+  const rowsCtxRef = useRef<string | null>(null);
+
+  /** Заметка — с текущего уровня (топик + папка). Стор отдаёт список нового
+      контекста на такт позже смены самого контекста, поэтому без этой проверки
+      заметки прошлого топика/папки успевали попасть в строки и уходили из них
+      фазой «уход» — на свайпе топика и на переходе между папками весь список
+      складывался «в столбик». Чужие заметки просто не становятся строками:
+      список нового уровня появляется целиком, без анимации. */
+  const noteOnLevel = (note: Note): boolean =>
+    note.topic_id === activeTopicID && (note.folder_id ?? null) === activeFolderID;
+
+  // Сверка строк со стором: порядок берём из стора (он его и задаёт), но
+  // ушедшие заметки оставляем на их прежних местах до конца анимации.
+  useEffect(() => {
+    const ctx = `${activeTopicID ?? ''}:${activeFolderID ?? ''}`;
+    const fresh = ctx !== rowsCtxRef.current || levelLoading;
+    rowsCtxRef.current = ctx;
+    setRows((prev) => {
+      const mine = notes.filter(noteOnLevel);
+      if (fresh) {
+        return mine.map((note) => ({
+          note,
+          phase: highlightedId === note.id ? 'enter' : 'idle',
+        }));
+      }
+      const prevById = new Map(prev.map((row) => [row.note.id, row] as const));
+      const next: ListRow[] = mine.map((note) => {
+        const prevRow = prevById.get(note.id);
+        if (prevRow === undefined) {
+          // Новая заметка: строка «разъезжается» от нулевой высоты.
+          return { note, phase: highlightedId === note.id ? 'enter' : 'idle' };
+        }
+        // Вернувшаяся строка (откат удаления) — уже без анимации ухода.
+        return { note, phase: prevRow.phase === 'leave' ? 'idle' : prevRow.phase };
+      });
+      const live = new Set(mine.map((n) => n.id));
+      for (let i = 0; i < prev.length; i++) {
+        const row = prev[i];
+        // Уходит только заметка этого же уровня: заметка, оставшаяся в строках
+        // от прошлого контекста, выбывает молча.
+        if (live.has(row.note.id) || !noteOnLevel(row.note)) continue;
+        next.splice(
+          Math.min(i, next.length),
+          0,
+          row.phase === 'leave' ? row : { note: row.note, phase: 'leave' },
+        );
+      }
+      return next;
+    });
+  }, [notes, activeTopicID, activeFolderID, levelLoading, highlightedId]);
+
+  /** Строка доиграла: ушедшую убираем, появившуюся переводим в покой. */
+  const settleRow = useCallback((id: number, phase: RowPhase): void => {
+    setRows((cur) =>
+      phase === 'leave'
+        ? cur.filter((row) => !(row.note.id === id && row.phase === 'leave'))
+        : cur.map((row) => (row.note.id === id && row.phase === 'enter' ? { ...row, phase: 'idle' } : row)),
+    );
+  }, []);
+
+  /** Строки живого списка, разбитые на закреплённые и остальные. */
+  const rowSplit = useMemo(() => {
+    const pinned: ListRow[] = [];
+    const rest: ListRow[] = [];
+    for (const row of rows) (row.note.pinned ? pinned : rest).push(row);
+    return { pinned, rest };
+  }, [rows]);
+
+  /** Строки статичных превью (уровни, соседние топики) — без анимации. */
+  function idleRows(list: Note[]): ListRow[] {
+    return list.map((note) => ({ note, phase: 'idle' }));
   }
 
   // Панели соседних топиков в слайдах не интерактивны (жест ведёт свайпер,
@@ -994,14 +1083,14 @@ export function ChatView() {
   // Колонка списка: закреплённые → строки папок (режим «в списке») →
   // остальные заметки. Один плоский список Telegram: строки-Cell внутри
   // карточки-секции (как на экранах архива/выполненных), разделители между
-  // строками рисует Section. Без анимации появления: при перерисовке списка
-  // (переключение топиков/папок, морфинг слайда live ⇄ превью) каскадный
-  // въезд «мигал» бы строками.
+  // строками рисует Section. Строки приходят готовыми (ListRow): у живого
+  // списка бывает фаза появления/ухода — статичные превью передают
+  // idleRows(...), у них анимации нет.
   // В Svelte это был сниппет ({@render}); вызываем КАК ФУНКЦИЮ, не
   // компонент — иначе слайды размонтировались бы при каждом вызове.
   function noteList(
-    pinned: Note[],
-    rest: Note[],
+    pinned: ListRow[],
+    rest: ListRow[],
     folderRows: Folder[],
     onOpenNote: (note: Note) => void,
     onMenuNote: (note: Note, rect: DOMRect) => void,
@@ -1011,32 +1100,28 @@ export function ChatView() {
     // Пустой уровень (превью топика без заметок) — пустой карточки не рисуем.
     if (pinned.length === 0 && rest.length === 0 && folderRows.length === 0) return null;
 
+    const noteRow = (row: ListRow) => (
+      <NoteCell
+        key={row.note.id}
+        note={row.note}
+        highlighted={highlightedId === row.note.id}
+        phase={row.phase}
+        onSettled={() => settleRow(row.note.id, row.phase)}
+        onOpen={onOpenNote}
+        onMenu={onMenuNote}
+      />
+    );
+
     return (
       // px-3!/py-3! — снимаем собственные отступы List (10px 18px на iOS):
       // отступы списка задаём сами, как прежний px-3 py-3 колонки.
       <List className="px-3! py-3!">
         <Section>
-          {pinned.map((note) => (
-            <NoteCell
-              key={note.id}
-              note={note}
-              highlighted={highlightedId === note.id}
-              onOpen={onOpenNote}
-              onMenu={onMenuNote}
-            />
-          ))}
+          {pinned.map(noteRow)}
           {folderRows.map((folder) => (
             <FolderRow key={folder.id} folder={folder} onOpen={onOpenFolder} onMenu={onMenuFolder} />
           ))}
-          {rest.map((note) => (
-            <NoteCell
-              key={note.id}
-              note={note}
-              highlighted={highlightedId === note.id}
-              onOpen={onOpenNote}
-              onMenu={onMenuNote}
-            />
-          ))}
+          {rest.map(noteRow)}
         </Section>
       </List>
     );
@@ -1115,8 +1200,8 @@ export function ChatView() {
                     </div>
                   ) : (
                     noteList(
-                      normalSplit.pinned,
-                      normalSplit.rest,
+                      rowSplit.pinned,
+                      rowSplit.rest,
                       inlineFolders,
                       (n) => openNoteObject(n),
                       openMenu,
@@ -1143,8 +1228,8 @@ export function ChatView() {
                     <Loader />
                   ) : (
                     noteList(
-                      p.pinned,
-                      p.rest,
+                      idleRows(p.pinned),
+                      idleRows(p.rest),
                       p.folders,
                       (n) => openNoteObject(n),
                       openMenu,
@@ -1167,7 +1252,15 @@ export function ChatView() {
                   <Loader />
                 ) : (
                   // Статичное превью уровня выше: без интерактива.
-                  noteList(p.pinned, p.rest, p.folders, noopOpenNote, noopMenuNote, noopOpenFolder, noopMenuFolder)
+                  noteList(
+                    idleRows(p.pinned),
+                    idleRows(p.rest),
+                    p.folders,
+                    noopOpenNote,
+                    noopMenuNote,
+                    noopOpenFolder,
+                    noopMenuFolder,
+                  )
                 )}
               </div>
             );
@@ -1190,7 +1283,15 @@ export function ChatView() {
           <Loader />
         ) : (
           // Статичное превью корня соседнего топика: без интерактива.
-          noteList(preview.pinned, preview.rest, preview.folders, noopOpenNote, noopMenuNote, noopOpenFolder, noopMenuFolder)
+          noteList(
+            idleRows(preview.pinned),
+            idleRows(preview.rest),
+            preview.folders,
+            noopOpenNote,
+            noopMenuNote,
+            noopOpenFolder,
+            noopMenuFolder,
+          )
         )}
       </div>
     );
@@ -1225,7 +1326,7 @@ export function ChatView() {
               size="s"
               mode="outline"
               className="h-11!"
-              before={<Icon28AddCircle className="h-5 w-5" />}
+              before={<Icon28AddCircle viewBox="0 0 28 28" className="h-5 w-5" />}
               onClick={() => useUiStore.setState({ topicCreateOpen: true })}
             >
               Создать
@@ -1302,9 +1403,9 @@ export function ChatView() {
               onOpenTopics={() => setTopicSheetOpen(true)}
               onOpenFolders={() => setFolderSheetOpen(true)}
               onNavigate={navigate}
-              // Кнопка-карандаш панели ввода: заметка уже создана — открываем её
-              // в полном редакторе сразу с курсором в тексте.
-              onOpenNote={(note) => openNoteObject(note, true)}
+              // Кнопка-карандаш панели ввода: заметка уже создана — открываем
+              // её в полном редакторе сразу с курсором в тексте.
+              onOpenNote={(note) => openNoteObject(note)}
             />
           </footer>
           {/* Поиск по заметкам — только когда есть топики: по пустому списку

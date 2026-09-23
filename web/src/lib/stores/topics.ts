@@ -118,6 +118,19 @@ export async function deleteTopic(id: number): Promise<void> {
   toastSuccess('Топик удалён');
 }
 
+/** Сдвинуть счётчик заметок топика: сервер отдаёт `note_count` только в
+ *  списке топиков, а создание заметки список не перечитывает (`loadTopics`
+ *  вернул бы активную папку в корень через restoreActiveTopic) — бейдж
+ *  оставался старым до следующей загрузки топиков. */
+export function bumpTopicNoteCount(topicId: number, delta: number): void {
+  const state = useTopicsStore.getState();
+  useTopicsStore.setState({
+    topics: state.topics.map((t) =>
+      t.id === topicId ? { ...t, note_count: Math.max(0, t.note_count + delta) } : t,
+    ),
+  });
+}
+
 /** Сброс стора (выход из аккаунта). */
 export function resetTopics(): void {
   useTopicsStore.setState({ topics: [], loading: false, error: null });

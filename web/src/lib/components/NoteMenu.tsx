@@ -18,6 +18,7 @@ import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive'
 
 import { ConfirmModal } from './ConfirmModal';
 import { MenuRow } from './MenuRow';
+import { PinIcon } from './PinIcon';
 import {
   archiveNote,
   removeArchivedNote,
@@ -249,8 +250,7 @@ export function NoteMenu({
           </MenuRow>,
           <MenuRow
             key="pin"
-            // Иконки закрепления в наборе библиотеки нет — короткое слово.
-            icon="Пин"
+            icon={<PinIcon className="h-5 w-5" />}
             disabled={busy}
             onSelect={() => {
               void run(() => togglePin(note));

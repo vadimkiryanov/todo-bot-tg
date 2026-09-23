@@ -5,7 +5,7 @@ import { request } from '../api/client';
 import { resetMockStore, setMockDelay } from '../api/mock';
 import type { Topic } from '../types/api';
 import { resetActiveTopic } from './navigation';
-import { loadTopics, setTopicPinned, useTopicsStore } from './topics';
+import { bumpTopicNoteCount, loadTopics, setTopicPinned, useTopicsStore } from './topics';
 
 /** Чтение zustand-состояния в синтаксисе прежнего $state-объекта. */
 const topicsStore = {
@@ -73,5 +73,25 @@ describe('topics store', () => {
     await expect(setTopicPinned(999, true)).rejects.toThrow('топик не найден');
     expect(ids()).toEqual([first.id]);
     expect(topicsStore.topics[0].pinned).toBe(false);
+  });
+
+  it('сдвигает счётчик заметок топика, не трогая остальные', async () => {
+    const first = await createTopicIn('Работа');
+    const second = await createTopicIn('Личное');
+    await loadTopics();
+    expect(topicsStore.topics).toMatchObject([
+      { id: first.id, note_count: 0 },
+      { id: second.id, note_count: 0 },
+    ]);
+
+    bumpTopicNoteCount(first.id, 1);
+    expect(topicsStore.topics).toMatchObject([
+      { id: first.id, note_count: 1 },
+      { id: second.id, note_count: 0 },
+    ]);
+
+    // Выше нуля счётчик не уходит (удаление заметки).
+    bumpTopicNoteCount(first.id, -5);
+    expect(topicsStore.topics[0].note_count).toBe(0);
   });
 });

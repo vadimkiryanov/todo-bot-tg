@@ -83,7 +83,7 @@ export function ArchivedView() {
           >
             <Icon24ChevronLeft />
           </IconButton>
-          <Icon28Archive className="h-6 w-6" />
+          <Icon28Archive viewBox="0 0 28 28" className="h-6 w-6" />
           <IconButton
             type="button"
             size="m"

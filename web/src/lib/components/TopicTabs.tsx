@@ -13,6 +13,8 @@ import { useTopicsStore } from '../stores/topics';
 import type { Topic } from '../types/api';
 import { useLongPress } from '../utils/longPress';
 
+import { PinIcon } from './PinIcon';
+
 /** Удержание — как у табов островка (не короче): тап по топику переключает,
     меню открывается сознательным удержанием. */
 const HOLD_MS = 500;
@@ -58,10 +60,9 @@ function TopicRow({ topic, active }: TopicRowProps) {
     >
       <span className="flex min-w-0 items-center gap-1.5 text-[15px] leading-6">
         {topic.pinned && (
-          /* Иконки закрепления в наборе библиотеки нет — метка словом. */
-          <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-            пин
-          </span>
+          /* Иконка закрепления вместо слова «пин» (PinIcon — своя: в наборе
+             библиотеки пина нет). */
+          <PinIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
         <span className="truncate">{topic.name}</span>
       </span>

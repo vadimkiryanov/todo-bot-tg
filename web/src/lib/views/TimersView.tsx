@@ -141,7 +141,8 @@ export function TimersView() {
         </main>
       </div>
 
-      {selectedCache !== null && <NotePage note={selectedCache} onClose={closePage} />}
+      {/* Переход в заметку — сразу в правке (как из чата). */}
+      {selectedCache !== null && <NotePage note={selectedCache} startEditing onClose={closePage} />}
     </>
   );
 }

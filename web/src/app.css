@@ -223,22 +223,21 @@ html {
    Эмодзи-кружки приоритета из карточек убраны — приоритет рисуется
    цветным кольцом по контуру строки (inset-обводка box-shadow: не двигает
    контент и не трогает фон карточки-секции). Классы unlayered — перебивают
-   box-shadow утилит строки. */
+   box-shadow утилит строки. Кольцо — тонкое и полупрозрачное, как окантовка
+   у элементов библиотеки: приоритет метит строку, но не перебивает текст. */
 .note-priority-high,
 .note-priority-medium,
 .note-priority-low {
-  box-shadow:
-    inset 0 0 0 1.5px var(--priority-ring),
-    0 1px 2px rgb(0 0 0 / 0.05);
+  box-shadow: inset 0 0 0 1px var(--priority-ring);
 }
 .note-priority-high {
-  --priority-ring: color-mix(in srgb, var(--color-priority-high) 88%, transparent);
+  --priority-ring: color-mix(in srgb, var(--color-priority-high) 60%, transparent);
 }
 .note-priority-medium {
-  --priority-ring: color-mix(in srgb, var(--color-priority-medium) 88%, transparent);
+  --priority-ring: color-mix(in srgb, var(--color-priority-medium) 60%, transparent);
 }
 .note-priority-low {
-  --priority-ring: color-mix(in srgb, var(--color-priority-low) 88%, transparent);
+  --priority-ring: color-mix(in srgb, var(--color-priority-low) 60%, transparent);
 }
 
 /* Плавающие круглые кнопки над панелью ввода («Папки»/«Топики»). */
@@ -568,6 +567,10 @@ body.scroll-locked .scroll-area {
     animation: none;
     background-color: color-mix(in srgb, var(--color-ring) 26%, var(--color-card));
   }
+  /* Смена фона экрана при входе в заметку — мгновенная. */
+  body {
+    transition: none;
+  }
 }
 
 /* React: корневой layout (App, класс h-full) живёт внутри #root. В Svelte
@@ -595,7 +598,12 @@ body {
      скроллится только список заметок. */
   height: 100dvh;
   margin: 0;
+  /* Фон меняется плавно: при входе в заметку весь экран догоняет её фон
+     (body.note-open ниже) — на мобилках «резинка» прокрутки и полосы у
+     краёв перестают проблёскивать фоном чата, а при закрытии так же плавно
+     возвращаются к нему. */
   background: var(--color-muted);
+  transition: background-color 0.26s cubic-bezier(0.32, 0.72, 0, 1);
   color: var(--color-foreground);
   font-family:
     system-ui,
@@ -614,6 +622,14 @@ body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* Пока открыта страница заметки (и стоит на месте), фон приложения — её фон:
+   экран заметки и тело страницы сливаются в одно поле. Класс ставит
+   NotePage (и снимает его на время свайп-закрытия и при уходе страницы) —
+   под пальцем тогда открывается лента, а не цвет заметки. */
+body.note-open {
+  background-color: var(--color-background);
 }
 
 /* Поля ввода остаются редактируемыми: выделение текста в них включено. */

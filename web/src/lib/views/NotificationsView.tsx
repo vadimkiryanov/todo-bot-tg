@@ -114,7 +114,10 @@ export function NotificationsView() {
                       className="w-full select-none text-left touch-manipulation [-webkit-touch-callout:none]"
                       before={
                         <span className="relative flex h-5 w-5 items-center justify-center">
-                          <Icon24Notifications className="h-5 w-5" />
+                          {/* viewBox: у иконок набора его нет, и без него
+                              уменьшение размера не масштабирует рисунок,
+                              а режет его по краю бокса. */}
+                          <Icon24Notifications viewBox="0 0 24 24" className="h-5 w-5" />
                           {!item.read && (
                             <span
                               className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-primary"
@@ -144,6 +147,8 @@ export function NotificationsView() {
       {openedNote !== null && (
         <NotePage
           note={openedNote}
+          // Переход из журнала — тот же переход в заметку: сразу в правке.
+          startEditing
           onClose={() => {
             setOpenedNote(null);
           }}
