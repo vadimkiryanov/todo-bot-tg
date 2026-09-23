@@ -9,7 +9,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export const CLOSE_ANIM_MS = 160;
 
 export interface CloseAnim {
-  /** Уход идёт: разметка рисует *-out-класс вместо *-anim. */
+  /**
+   * Уход идёт: разметка рисует *-out-класс вместо *-anim. По концу ухода
+   * сбрасывается — слой, который остался в разметке, не должен держать *-out
+   * (иначе его следующее открытие тут же гаснет).
+   */
   closing: boolean;
   /** Запросить закрытие — анимированное (по умолчанию) или мгновенное. */
   requestClose: () => void;
@@ -52,6 +56,7 @@ export function useCloseAnim(
     setClosing(true);
     timer.current = window.setTimeout(() => {
       timer.current = undefined;
+      setClosing(false); // уход доигран: слой снова «не закрывается»
       onCloseRef.current();
     }, durationMs);
   }, [durationMs]);
