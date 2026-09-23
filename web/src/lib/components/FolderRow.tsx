@@ -8,6 +8,7 @@ import { Cell } from '@telegram-apps/telegram-ui';
 
 import type { Folder } from '../types/api';
 import { useLongPress } from '../utils/longPress';
+import { FolderIcon } from './FolderIcon';
 
 interface FolderRowProps {
   folder: Folder;
@@ -47,10 +48,11 @@ export function FolderRow({ folder, onOpen, onMenu }: FolderRowProps) {
       onContextMenu={press.onContextMenu}
     >
       <span className="flex min-w-0 items-center gap-2 text-[15px] leading-6">
-        {/* Папки в наборе иконок библиотеки нет — строку помечаем словом:
-            иначе в общем списке она не отличалась бы от заметки. */}
-        <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-          папка
+        {/* Папки в наборе иконок библиотеки нет — строку помечаем своей
+            иконкой папки: иначе в общем списке она не отличалась бы от
+            заметки. */}
+        <span className="shrink-0 text-muted-foreground">
+          <FolderIcon />
         </span>
         <span className="truncate">{folder.name}</span>
       </span>

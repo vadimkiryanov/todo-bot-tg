@@ -52,6 +52,7 @@ import type { Note, Priority, ReminderRepeat } from '../types/api';
 import { useCloseAnim } from '../utils/closeAnim';
 import { nextPriority, priorityLabel, priorityMark } from '../utils/format';
 
+import { FolderIcon } from './FolderIcon';
 import { Modal } from './Modal';
 import { MenuRow } from './MenuRow';
 import { PinIcon } from './PinIcon';
@@ -427,8 +428,8 @@ export function InputBar({
            «Отдельная кнопка»: в режиме «в списке» папки видны строками прямо
            в списке заметок, отдельная кнопка не нужна (строка текущей папки
            над списком остаётся в обоих режимах). Тап не уводит фокус из ввода.
-           Иконок «папки»/«топики» в наборе библиотеки нет — кнопки-пилюли
-           подписаны словами (тач-цель та же, h-11). */}
+           Иконок «папки»/«топики» в наборе библиотеки нет — у «Папок» своя
+           иконка папки в круглой кнопке (тач-цель та же, h-11). */}
       <div className="absolute bottom-full left-3 mb-2 flex flex-col items-start gap-2">
         {foldersMode === 'button' && (
           <IconButton
@@ -438,12 +439,12 @@ export function InputBar({
             aria-label="Папки"
             aria-expanded={folderActive}
             title={folderActive ? 'Вы в папке — открыть папки' : 'Открыть папки'}
-            className={`glass-fab h-11 items-center justify-center rounded-full! px-4! text-sm btn-press ${
+            className={`glass-fab h-11 w-11 items-center justify-center rounded-full! btn-press ${
               folderActive ? 'text-primary!' : 'text-muted-foreground!'
             }`}
             onClick={() => press(() => onOpenFolders?.())}
           >
-            Папки
+            <FolderIcon className="h-6 w-6" />
           </IconButton>
         )}
         <IconButton

@@ -13,6 +13,7 @@ import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
 import { Icon28Edit } from '@telegram-apps/telegram-ui/dist/icons/28/edit';
 
 import { ConfirmModal } from './ConfirmModal';
+import { FolderIcon } from './FolderIcon';
 import { MenuRow } from './MenuRow';
 import { Modal } from './Modal';
 import {
@@ -65,6 +66,11 @@ function FolderCell({ name, depth, active, onClick, onMenu }: FolderCellProps) {
       onContextMenu={press.onContextMenu}
     >
       <span className="flex min-w-0 items-center gap-2 text-[15px] leading-6">
+        {/* Иконка папки: у строки «Корень» она отличает уровень топика от
+            самих папок ниже. */}
+        <span className="shrink-0 text-muted-foreground">
+          <FolderIcon />
+        </span>
         <span className="truncate">{name}</span>
       </span>
     </Cell>

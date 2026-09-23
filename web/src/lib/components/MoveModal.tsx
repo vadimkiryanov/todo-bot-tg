@@ -13,6 +13,7 @@
 import { Button, Cell, List, Section } from '@telegram-apps/telegram-ui';
 import { useEffect, useMemo, useState } from 'react';
 
+import { FolderIcon } from './FolderIcon';
 import { Modal } from './Modal';
 import { Spinner } from './Spinner';
 import { moveNote } from '../stores/notes';
@@ -142,8 +143,9 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
         ) : (
           // px-0! — снимаем собственные отступы List (10px 18px на iOS):
           // горизонтальные отступы задаёт шторка (как в дереве папок).
-          // Маркеров у строк нет: в списке только папки, иконки папки в наборе
-          // библиотеки нет, а «папка» перед каждым именем была бы шумом.
+          // Строки помечены иконкой папки: в списке только папки, но иконка
+          // отличает их от строк заметок в остальных шторках и метит «Корень»
+          // как уровень топика.
           <List className="px-0!">
             <Section>
               {/* Корень выбранного топика */}
@@ -166,6 +168,9 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
                 }}
               >
                 <span className="flex min-w-0 items-center gap-2 text-[15px] leading-6">
+                  <span className="shrink-0 text-muted-foreground">
+                    <FolderIcon />
+                  </span>
                   <span className="truncate">Корень</span>
                 </span>
               </Cell>
@@ -193,6 +198,9 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
                     }}
                   >
                     <span className="flex min-w-0 items-center gap-2 text-[15px] leading-6">
+                      <span className="shrink-0 text-muted-foreground">
+                        <FolderIcon />
+                      </span>
                       <span className="truncate">{folder.name}</span>
                     </span>
                   </Cell>

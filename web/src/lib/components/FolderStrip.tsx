@@ -6,6 +6,7 @@ import type * as React from 'react';
 import { Icon28AddCircle } from '@telegram-apps/telegram-ui/dist/icons/28/add_circle';
 
 import { CrumbPath } from './CrumbPath';
+import { FolderIcon } from './FolderIcon';
 import { QuickMenu } from './QuickMenu';
 import { folderChainTo, useFoldersStore } from '../stores/folders';
 import { useNavigationStore } from '../stores/navigation';
@@ -92,6 +93,9 @@ export function FolderStrip({ onOpen, displayFolderID }: FolderStripProps) {
         onPointerLeave={clearTimer}
         onClick={onTap}
       >
+        {/* Иконка папки перед путём: строка помечает уровень в папках (в
+            корне — словом «Корень»). */}
+        <FolderIcon className="h-3.5 w-3.5 shrink-0" />
         {!inFolder || chain.length === 0 ? (
           <span className="min-w-0 flex-1 truncate">Корень</span>
         ) : (

@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as React from 'react';
 
 import { CrumbPath } from './CrumbPath';
+import { FolderIcon } from './FolderIcon';
 import { PinIcon } from './PinIcon';
 import { folderChainTo, useFoldersStore } from '../stores/folders';
 import { useNavigationStore } from '../stores/navigation';
@@ -538,12 +539,17 @@ export function TopicIsland({
               /* Активный таб в папке: обычная акцентная таблетка, ширина — по
                  тексту пути. Длинный путь ужимается до влезающего: корень
                  (имя топика) и активная папка всегда видны, средние сегменты
-                 прячутся за «…»; полный путь — в title и в шторке папок. */
-              <CrumbPath
-                segments={[topic.name, ...chainNames]}
-                firstClass="font-semibold"
-                restClass="text-white/75"
-              />
+                 прячутся за «…»; полный путь — в title и в шторке папок.
+                 Иконка папки перед путём помечает, что таб развернулся внутрь
+                 папок (вне папки её нет). */
+              <>
+                <FolderIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                <CrumbPath
+                  segments={[topic.name, ...chainNames]}
+                  firstClass="font-semibold"
+                  restClass="text-white/75"
+                />
+              </>
             ) : (
               <>
                 {/* Закреплённый (быстрый в боте) топик — иконкой пина вместо
