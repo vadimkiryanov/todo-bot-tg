@@ -8,8 +8,9 @@
 //              текст (заголовки # / ##, списки -, чеклист - [ ], жирный/
 //              курсив/код/ссылки из entities); тап по чекбоксу чеклиста
 //              переключает галочку без входа в поле; курсор встаёт в место тапа;
-//   'toggle' — превью и правка переключаются кнопкой-карандашом в шапке,
-//              тап по тексту ничего не меняет (защита от случайной правки).
+//   'toggle' — превью и правка переключаются кнопкой-карандашом (плавающая
+//              кнопка внизу слева), тап по тексту ничего не меняет (защита
+//              от случайной правки).
 // Как выглядит сама правка, тоже настройка (stores/settings.editorView):
 //   'formatted' — текст правится прямо в вёрстке просмотра (contenteditable):
 //                 те же блоки и те же классы, символы разметки заменены
@@ -19,16 +20,19 @@
 // Кнопки «Сохранить»/«Отмена» появляются только когда текст изменён; после
 // сохранения страница возвращается в просмотр (правка закрывается).
 // Панель действий (док: выполнить/вернуть, приоритет, напоминание, «Ещё»,
-// «Отмена»/«Сохранить», панель оформления, напоминание) живёт в шапке заметки:
-// отдельной нижней полосы нет — так экономится место, и «назад» уехало
-// плавающей кнопкой вниз влево.
+// панель оформления, напоминание) живёт в шапке заметки: отдельной нижней
+// полосы нет — так экономится место. «Назад» — первая кнопка шапки; когда
+// текст изменён, док уступает место «Отмене»/«Сохранить» — в той же строке,
+// теми же мелкими стеклянными кнопками, что «Папки»/«Топики» у поля ввода
+// (строка не растёт и над текстом ничего не всплывает); карандаш правки —
+// плавающей кнопкой внизу слева.
 // Меню «Ещё» — плоские строки-Cell (MenuRow) на компонентах
 // @telegram-apps/telegram-ui, как в списках и шторках приложения; своим у
 // него остались «стекло», позиция и анимация.
-// Панель форматирования (кнопки оформления и подсказка) показывается только
-// когда включена настройкой (stores/settings.formatPanel) и есть повод: поле
-// в фокусе либо включён режим правки кнопкой-карандашом.
-// Кнопки панелей (док, оформление, плавающая панель у выделения, «назад»)
+// Панель форматирования (кнопки оформления) показывается только когда включена
+// настройкой (stores/settings.formatPanel) и есть повод: поле в фокусе либо
+// включён режим правки кнопкой-карандашом.
+// Кнопки панелей (док, оформление, плавающая панель у выделения, карандаш)
 // остаются своими: у IconButton из библиотеки своя заливка, свой padding и
 // радиус 12px — тач-цели 32–44 px и «стекло» пришлось бы возвращать
 // оверрайдами с !important без выигрыша в поведении (то же решение, что в
@@ -37,7 +41,10 @@
 // выделения: выделил текст — над ним появляется своя панель (как в Telegram),
 // теми же кнопками. В узком экране кнопки не влезают — панель листается вбок
 // пальцем. Системное меню «скопировать/вырезать» она не заменяет — на телефоне
-// оно показывается рядом, отключить его нельзя.
+// оно показывается рядом, отключить его нельзя. Двух панелей одновременно не
+// бывает: панель у выделения работает только когда панель оформления в шапке
+// выключена настройкой (иначе они дублировали бы одни и те же кнопки), и
+// кнопки подсвечиваются тем оформлением, которое действует под кареткой.
 // Enter переносит формат строки на новую строку (# / ## / 1. / - / - [ ]),
 // Shift+Enter — обычный перенос. В просмотре текст можно выделять (десктоп):
 // выделение не включает правку, иначе фокус поля сбрасывал бы его.
@@ -101,6 +108,7 @@ import {
 } from '../utils/format';
 import { parseNoteLines, lineContinuation, renderNoteBlocksHtml } from '../utils/blocks';
 import {
+  activeFormats,
   applyInlineFormat,
   applyTypedMarkerRule,
   backspaceAtBlockStart,
@@ -108,6 +116,7 @@ import {
   deleteAtBlockEnd,
   focusEditorEnd,
   insertPlainText,
+  NO_FORMATS,
   noteToRich,
   placeCaretAtPlainOffset,
   restoreRange,
@@ -115,10 +124,12 @@ import {
   richDraftOf,
   richEditorHtml,
   richMarkdown,
+  sameFormats,
   splitBlockOnEnter,
   toggleBlockChecked,
   toggleBlockKind,
 } from '../utils/richtext';
+import type { ActiveFormats } from '../utils/richtext';
 
 interface NotePageProps {
   note: Note;
@@ -279,7 +290,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const rich = editorView === 'formatted';
 
   // Панель форматирования — тоже настройка устройства (stores/settings.
-  // formatPanel): кому-то ряд кнопок и подсказка под полем только мешают.
+  // formatPanel): кому-то ряд кнопок под полем только мешает.
   const formatPanel = useSettingsStore((s) => s.formatPanel);
   const showFormatPanel = formatPanel === 'show';
 
@@ -325,6 +336,9 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       короткое и само себя снимает: без него на тач-устройствах флаг мог бы
       остаться выставленным и заглушить настоящий уход фокуса. */
   const floatPressRef = useRef(false);
+  /** Оформление, действующее под кареткой: по нему подсвечиваются кнопки
+      панели (и в шапке, и у выделения) — видно, что уже применено. */
+  const [fmt, setFmt] = useState<ActiveFormats>(NO_FORMATS);
   /** Попытка закрыть страницу с несохранённым текстом: диалог «Сохранить?». */
   const [exitConfirm, setExitConfirm] = useState(false);
 
@@ -345,12 +359,14 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   /** Точка нажатия мыши в просмотре: по смещению до отпускания отличаем
       протяжку (выделение текста) от одиночного клика (включить правку). */
   const viewDownRef = useRef<{ x: number; y: number } | null>(null);
-  /** Идёт редактирование: поле показано, просмотр скрыт. */
-  const editing = toggleMode ? manualEdit || dirty : focused || dirty;
+  /** Идёт редактирование: поле показано, просмотр скрыт. Карандаш включает
+      правку явно (и в режиме «тапом» он лишь дополняет тап по тексту),
+      несохранённые правки держат её сами. */
+  const editing = manualEdit || focused || dirty;
   const viewMode = !editing;
   /** Панель форматирования при отсутствии правок: пока поле в фокусе (режим
-      «тапом») либо пока включён режим правки кнопкой-карандашом. */
-  const showToolbar = toggleMode ? editing : focused;
+      «тапом») либо пока правку включили карандашом. */
+  const showToolbar = toggleMode ? editing : focused || manualEdit;
 
   /** Узел правки: живая вёрстка ('formatted') или поле с разметкой ('plain'). */
   function editorEl(): HTMLElement | null {
@@ -495,6 +511,9 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   }, []);
   const [closing, setClosing] = useState(false);
   const closeTimerRef = useRef<number | undefined>(undefined);
+  /** Сколько едет слайд закрытия — как у .notepage-settle в app.css: страница
+      должна уехать за экран до того, как мы отдадим её список. */
+  const SLIDE_MS = 260;
 
   /** Закрыть страницу. С несохранённым текстом — сначала диалог. */
   function requestClose(): void {
@@ -513,7 +532,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     if (closing) return;
     setClosing(true);
     if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = window.setTimeout(() => onClose(), 240);
+    closeTimerRef.current = window.setTimeout(() => onClose(), SLIDE_MS);
   }
 
   // Таймер закрытия не должен сработать после размонтирования страницы.
@@ -843,12 +862,26 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   // Меню «Ещё» (закрепить/переместить/архив/удалить): позиция у правого края
   // кнопки, раскрывается вниз — кнопка стоит в панели действий под шапкой.
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Меню уходит: доигрывается обратная анимация (.menu-out в app.css), и
+      только потом оно снимается с разметки. */
+  const [menuClosing, setMenuClosing] = useState(false);
+  const menuTimerRef = useRef<number | undefined>(undefined);
+  /** Сколько уходит меню — как у .menu-out в app.css. */
+  const MENU_OUT_MS = 160;
   const [menuPos, setMenuPos] = useState({ right: 12, top: 96 });
   /** Момент открытия меню: события закрытия в первые MENU_GHOST_MS после него
       игнорируем — синтетический клик того же тапа иначе закрывал бы меню
       сразу, как только оно появилось. */
   const menuOpenedAt = useRef(0);
   const MENU_GHOST_MS = 350;
+
+  // Таймер ухода меню не должен сработать после размонтирования страницы.
+  useEffect(
+    () => () => {
+      if (menuTimerRef.current !== undefined) window.clearTimeout(menuTimerRef.current);
+    },
+    [],
+  );
   type BusyKey = 'done' | 'priority' | 'pin' | 'reminder' | 'delete' | 'archive';
   const [busy, setBusy] = useState<BusyKey | null>(null);
 
@@ -971,8 +1004,17 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     setError('');
   }
 
+  /** Закрыть меню: сначала обратная анимация, потом снятие с разметки —
+      иначе плавно открывшееся меню исчезало бы рывком. */
   function closeMenu(): void {
-    setMenuOpen(false);
+    if (!menuOpen || menuClosing) return;
+    setMenuClosing(true);
+    if (menuTimerRef.current !== undefined) window.clearTimeout(menuTimerRef.current);
+    menuTimerRef.current = window.setTimeout(() => {
+      menuTimerRef.current = undefined;
+      setMenuClosing(false);
+      setMenuOpen(false);
+    }, MENU_OUT_MS);
   }
 
   /** Тап мимо меню (по подложке): с задержкой-защитой от «клика-призрака». */
@@ -989,9 +1031,9 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     openMenu(e);
   }
 
-  /** Выбрать пункт меню: закрыть меню и выполнить действие. */
+  /** Выбрать пункт меню: меню уходит обратной анимацией, действие — сразу. */
   function pickMenu(action: () => void): void {
-    setMenuOpen(false);
+    closeMenu();
     action();
   }
 
@@ -1374,16 +1416,21 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       Значки markdown (#, ##, 1., ••) остаются символами: это и есть то, что
       кнопка вставляет; ссылка подписана словом «URL», чеклист — галочкой
       набора (политика иконок в web/AGENTS.md). */
-  const floatButtons: { label: ReactNode; title: string; run: () => void }[] = [
-    { label: 'B', title: 'Жирный', run: () => formatInline('bold', '**', '**') },
-    { label: 'I', title: 'Курсив', run: () => formatInline('italic', '*', '*') },
-    { label: '</>', title: 'Код', run: () => formatInline('code', '`', '`', 'код') },
-    { label: 'URL', title: 'Ссылка', run: toggleLink },
-    { label: '#', title: 'Заголовок', run: () => formatLine('h1') },
-    { label: '##', title: 'Подзаголовок', run: () => formatLine('h2') },
-    { label: '1.', title: 'Нумерованный список', run: () => formatLine('ol') },
-    { label: '••', title: 'Список', run: () => formatLine('list') },
-    { label: <Icon20Select className="h-5 w-5" />, title: 'Чеклист', run: () => formatLine('check') },
+  const floatButtons: { key: keyof ActiveFormats; label: ReactNode; title: string; run: () => void }[] = [
+    { key: 'bold', label: 'B', title: 'Жирный', run: () => formatInline('bold', '**', '**') },
+    { key: 'italic', label: 'I', title: 'Курсив', run: () => formatInline('italic', '*', '*') },
+    { key: 'code', label: '</>', title: 'Код', run: () => formatInline('code', '`', '`', 'код') },
+    { key: 'link', label: 'URL', title: 'Ссылка', run: toggleLink },
+    { key: 'h1', label: '#', title: 'Заголовок', run: () => formatLine('h1') },
+    { key: 'h2', label: '##', title: 'Подзаголовок', run: () => formatLine('h2') },
+    { key: 'ol', label: '1.', title: 'Нумерованный список', run: () => formatLine('ol') },
+    { key: 'list', label: '••', title: 'Список', run: () => formatLine('list') },
+    {
+      key: 'check',
+      label: <Icon20Select className="h-5 w-5" />,
+      title: 'Чеклист',
+      run: () => formatLine('check'),
+    },
   ];
 
   /** Центр панели по X, подтянутый внутрь экрана: у выделения у самого края
@@ -1397,10 +1444,25 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     return Math.min(Math.max(center, edge), Math.max(window.innerWidth - edge, edge));
   }
 
+  /** Есть ли сейчас повод показывать панель у выделения: живая вёрстка, правка,
+      и ни жеста по странице, ни её закрытия, ни диалога, ни панели оформления в
+      шапке (она делает то же самое). Проверяем прямо в placeFloatPanel, а не
+      только эффектом ниже: выделение приходит туда напрямую, и эффект по своим
+      зависимостям его бы не погасил. */
+  function floatPanelAllowed(): boolean {
+    return rich && editing && !dragging && !closing && !exitConfirm && !showFormatPanel;
+  }
+
   /** Держать панель у выделения; выделения нет — панель убрать. Место — над
       первой строкой выделения, а если сверху для неё нет места (выделяют у
       шапки) — под последней. */
   function placeFloatPanel(): void {
+    if (!floatPanelAllowed()) {
+      if (floatPosRef.current === null) return;
+      floatPosRef.current = null;
+      setFloatPos(null);
+      return;
+    }
     const root = rich ? richElRef.current : null;
     const range = root === null ? null : currentRange(root);
     const rect = range === null || range.collapsed ? null : range.getBoundingClientRect();
@@ -1430,6 +1492,15 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     setFloatPos(next);
   }
 
+  /** Подсветка панели: что действует под кареткой. Сравнение с прежним
+      набором отсекает перерисовки — selectionchange приходит на каждое
+      движение каретки. */
+  function refreshFmt(): void {
+    const root = rich ? richElRef.current : null;
+    const next = root === null ? NO_FORMATS : activeFormats(root);
+    setFmt((prev) => (sameFormats(prev, next) ? prev : next));
+  }
+
   /** Нажали на кнопку панели: выделение под неё запоминаем сразу — тап вне
       текста снимает его раньше, чем случится click. */
   function onFloatPress(): void {
@@ -1453,10 +1524,14 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
 
   // Панель у выделения: пересчитываем место на движение выделения и на
   // прокрутку текста. selectionchange приходит и на каждое перемещение
-  // каретки — лишние перерисовки отсекает сравнение места (placeFloatPanel).
+  // каретки — лишние перерисовки отсекает сравнение места (placeFloatPanel),
+  // а подсветку кнопок обновляет refreshFmt.
   useEffect(() => {
     if (!rich) return;
-    const onChange = (): void => placeFloatPanel();
+    const onChange = (): void => {
+      placeFloatPanel();
+      refreshFmt();
+    };
     document.addEventListener('selectionchange', onChange);
     const scroller = richScrollRef.current;
     scroller?.addEventListener('scroll', onChange);
@@ -1466,14 +1541,22 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     };
   }, [rich, editing]);
 
-  // Панель живёт только в правке живой вёрстки: ушли в просмотр, открыли
-  // диалог закрытия, потянули страницу вбок — убираем.
+  // Панель живёт только в правке живой вёрстки и только когда панели
+  // оформления в шапке нет: включённая панель в шапке делает то же самое, и
+  // две панели с одними кнопками дублировали бы друг друга. Ушли в просмотр,
+  // открыли диалог закрытия, потянули страницу вбок — тоже убираем.
   useEffect(() => {
-    if (rich && editing && !dragging && !closing && !exitConfirm) return;
+    if (floatPanelAllowed()) return;
     floatPosRef.current = null;
     floatRangeRef.current = null;
     setFloatPos(null);
-  }, [rich, editing, dragging, closing, exitConfirm]);
+  }, [rich, editing, dragging, closing, exitConfirm, showFormatPanel]);
+
+  // Вне правки подсвечивать нечего: панель гаснет вместе с кареткой.
+  useEffect(() => {
+    if (rich && editing) return;
+    setFmt((prev) => (sameFormats(prev, NO_FORMATS) ? prev : NO_FORMATS));
+  }, [rich, editing]);
 
   // Панель у края экрана: после отрисовки её ширина известна — подтягиваем
   // внутрь. Одного прохода достаточно: он же правит место в ref, поэтому
@@ -1493,13 +1576,16 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   // только в одном, поэтому один JSX-элемент можно подставлять дважды.
   // Корневой узел: onEditorBlur по нему отличает «фокус ушёл на панель» от
   // «ушёл совсем» (панель не исчезает под пальцем).
+  // mode/aria-pressed кнопок — по подсветке (fmt): видно, что уже применено к
+  // строке с курсором или к выделению.
   const toolbar = (
     <div ref={toolbarElRef} className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1">
         <IconButton
           type="button"
           size="s"
-          mode="gray"
+          mode={fmt.bold ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.bold}
           aria-label="Жирный (**текст**)"
           title="Жирный"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1511,7 +1597,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         <IconButton
           type="button"
           size="s"
-          mode="gray"
+          mode={fmt.italic ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.italic}
           aria-label="Курсив (*текст*)"
           title="Курсив"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1523,7 +1610,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         <IconButton
           type="button"
           size="s"
-          mode="gray"
+          mode={fmt.code ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.code}
           aria-label="Код (`текст`)"
           title="Код"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1535,7 +1623,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         <IconButton
           type="button"
           size="s"
-          mode={linkOpen ? 'bezeled' : 'gray'}
+          mode={linkOpen || fmt.link ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.link}
           aria-label="Ссылка ([текст](url))"
           title="Ссылка"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1548,7 +1637,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         <IconButton
           type="button"
           size="s"
-          mode="gray"
+          mode={fmt.h1 ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.h1}
           aria-label="Заголовок (# в начале строки)"
           title="Заголовок"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1560,7 +1650,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         <IconButton
           type="button"
           size="s"
-          mode="gray"
+          mode={fmt.h2 ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.h2}
           aria-label="Подзаголовок (## в начале строки)"
           title="Подзаголовок"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1572,7 +1663,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         <IconButton
           type="button"
           size="s"
-          mode="gray"
+          mode={fmt.ol ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.ol}
           aria-label="Нумерованный список (1. в начале строки)"
           title="Нумерованный список"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1584,7 +1676,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         <IconButton
           type="button"
           size="s"
-          mode="gray"
+          mode={fmt.list ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.list}
           aria-label="Список (- в начале строки)"
           title="Список"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1596,7 +1689,8 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         <IconButton
           type="button"
           size="s"
-          mode="gray"
+          mode={fmt.check ? 'bezeled' : 'gray'}
+          aria-pressed={fmt.check}
           aria-label="Чеклист (- [ ] в начале строки)"
           title="Чеклист"
           className="h-8 w-8 items-center justify-center rounded-lg! p-0! btn-press"
@@ -1636,12 +1730,6 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           </Button>
         </div>
       )}
-
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        {rich
-          ? 'Оформление — кнопками панели: применяется к выделению или к строке с курсором. Enter переносит формат строки дальше.'
-          : '# заголовок · ## подзаголовок · 1. нумерованный список · - список · - [ ] чеклист · **жирный**, *курсив*, `код`, [ссылка](https://…)'}
-      </p>
     </div>
   );
 
@@ -1708,9 +1796,11 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
 
   return (
     <>
+    {/* .notepage-settle остаётся и при closing: страница уезжает вправо тем же
+        переходом, что и въезжала (раньше класс снимался, и закрытие прыгало). */}
     <div
       className={`notepage fixed inset-0 z-[70] flex touch-pan-y flex-col bg-background ${
-        !dragging && !closing ? 'notepage-settle' : ''
+        !dragging ? 'notepage-settle' : ''
       }`}
       style={{ transform }}
       onPointerDown={onPointerDown}
@@ -1721,40 +1811,57 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       aria-modal="true"
       aria-label="Заметка"
     >
-      {/* Шапка — только панель действий (док: выполнить/вернуть, приоритет,
-          напоминание, «Ещё», «Отмена»/«Сохранить», панель оформления,
-          напоминание); «назад» — плавающей кнопкой внизу слева (см. ниже).
-          Отдельной полосой панель отнимала у текста строку, а когда при входе
-          в правку тапом появлялась, поле сужалось и подтягивало каретку — текст
-          прыгал. В шапке она занимает строку, которая уже есть, а сдвиг слоя
-          правки при её появлении гасит скролл (см. entryScrollRef). */}
+      {/* Шапка — панель действий (док: выполнить/вернуть, приоритет,
+          напоминание, «Ещё», панель оформления, напоминание) плюс «назад»
+          слева. «Отмена»/«Сохранить» встают в ту же строку на место дока,
+          когда текст изменён (см. ниже), а карандаш правки — плавающей кнопкой
+          вниз влево. Отдельной полосой панель отнимала у текста строку, а когда
+          при входе в правку тапом появлялась, поле сужалось и подтягивало
+          каретку — текст прыгал; в шапке она занимает строку, которая уже есть,
+          а сдвиг слоя правки при её появлении гасит скролл (см. entryScrollRef). */}
       <header className="flex shrink-0 flex-col border-b border-border px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-1 pb-1.5">
+          {/* «Назад» — стрелкой в шапке слева: это первое, что ищут глазами,
+              а плавающая кнопка внизу осталась карандашу правки. */}
+          <IconButton
+            type="button"
+            size="m"
+            mode="gray"
+            aria-label="Назад"
+            title="Назад"
+            className="h-10 w-10 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
+            onClick={requestClose}
+          >
+            <Icon24ChevronLeft className="h-6 w-6" />
+          </IconButton>
+
           {dirty ? (
-            // Текст изменён: вместо статуса и кнопок действий — «Отмена» и
-            // «Сохранить» (появляются, только когда есть несохранённые правки,
-            // как в нативных заметках). Ряд действий скрыт: тап по галочке или
-            // «Ещё» не должен «увести» несохранённый текст.
-            <div data-no-swipe className="flex flex-1 gap-2">
-              <Button
+            // Текст изменён: «Отмена»/«Сохранить» встают на место дока действий
+            // — в ту же строку шапки, тем же рядом справа, только мелкими
+            // стеклянными кнопками (вид «Папки»/«Топики» у поля ввода). Строка
+            // при этом не растёт: над текстом ничего не всплывает, и текст не
+            // сдвигается при входе в правку и выходе из неё.
+            <div data-no-swipe className="ml-auto flex shrink-0 items-center gap-1">
+              <IconButton
                 type="button"
-                mode="outline"
-                className="h-10! flex-1"
+                size="m"
+                mode="gray"
+                className="glass-fab btn-press h-9! rounded-full! px-4! text-sm text-muted-foreground! disabled:opacity-50"
                 disabled={saving}
                 onClick={discard}
               >
                 Отмена
-              </Button>
-              <Button
+              </IconButton>
+              <IconButton
                 type="button"
-                mode="filled"
-                className="h-10! flex-1"
+                size="m"
+                mode="gray"
+                className="glass-fab btn-press h-9! rounded-full! px-4! text-sm text-primary! disabled:opacity-50"
                 disabled={saving}
-                loading={saving}
                 onClick={() => void save(false)}
               >
-                Сохранить
-              </Button>
+                {saving ? <Spinner size="16px" /> : 'Сохранить'}
+              </IconButton>
             </div>
           ) : (
             <>
@@ -1777,26 +1884,6 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                   )}
                 </span>
               )}
-                {/* Режим «кнопкой»: явный переключатель превью ↔ правка. При
-                    несохранённых правках его нет: сначала «Сохранить»/«Отмена»
-                    (ветка выше). Иконки глаза в наборе библиотеки нет —
-                    карандаш стоит в обоих состояниях, а включённая правка
-                    читается по заливке кнопки (как у «Ссылки» в панели
-                    оформления) и по подписи. */}
-                {toggleMode && (
-                  <IconButton
-                    type="button"
-                    size="m"
-                    mode={editing ? 'bezeled' : 'plain'}
-                    aria-label={editing ? 'Просмотр' : 'Редактировать'}
-                    title={editing ? 'Просмотр' : 'Редактировать'}
-                    aria-pressed={editing}
-                    className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
-                    onClick={toggleEditing}
-                  >
-                    <Icon28Edit />
-                  </IconButton>
-                )}
               {/* Док действий: главные кнопки всегда видны (выполнить/вернуть,
                   приоритет, напомнить); остальное (закрепить, переместить,
                   в архив, удалить) — в меню «Ещё». data-no-swipe: свайп по
@@ -2056,34 +2143,46 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           клавиатуры (а с закрытой клавиатурой — полосой внизу страницы). */}
       <div className="shrink-0" style={{ height: keyboardInset }} aria-hidden="true"></div>
 
-      {/* «Назад» — плавающей кнопкой внизу слева (место в шапке уступило панели
-          действий). Видимая кнопка, а не только свайп вправо: закрыть страницу
-          можно и ею. Свайп по кнопке страницу закрывает — как и было у кнопки в
-          шапке. */}
-      <IconButton
-        type="button"
-        size="m"
-        mode="gray"
-        aria-label="Назад"
-        className="absolute! bottom-[calc(12px_+_env(safe-area-inset-bottom))] left-3 z-10 h-11 w-11 items-center justify-center rounded-full! border! border-border! bg-background! p-0! text-foreground! shadow-lg btn-press"
-        onClick={requestClose}
-      >
-        <Icon24ChevronLeft />
-      </IconButton>
+      {/* Карандаш правки — плавающей кнопкой внизу слева (на месте, где раньше
+          был «назад», который уехал в шапку). Видимая кнопка в обоих режимах,
+          а не только в «кнопочном»: правку можно включить и выключить явным
+          тапом, не полагаясь на тап по тексту и не заходя в настройки. Когда
+          текст изменён, кнопки нет — там решают «Отмена»/«Сохранить». Включённая
+          правка видна по цвету (как у «Папок» над полем ввода). Свайп по кнопке
+          страницу закрывает: жест остаётся у страницы. */}
+      {!dirty && (
+        <IconButton
+          type="button"
+          size="m"
+          mode={editing ? 'bezeled' : 'gray'}
+          aria-label={editing ? 'Просмотр' : 'Редактировать'}
+          title={editing ? 'Просмотр' : 'Редактировать'}
+          aria-pressed={editing}
+          className={`glass-fab absolute! bottom-[calc(12px_+_env(safe-area-inset-bottom))] left-3 z-10 h-11 w-11 items-center justify-center rounded-full! p-0! btn-press ${
+            editing ? 'text-primary!' : 'text-foreground!'
+          }`}
+          onClick={toggleEditing}
+        >
+          <Icon28Edit />
+        </IconButton>
+      )}
     </div>
 
     {/* Меню «Ещё»: подложка + панель под кнопкой (кнопка — в шапке, поэтому
-        меню открывается вниз от неё). */}
-    {menuOpen && (
+        меню открывается вниз от неё). Уходит оно обратной анимацией, поэтому
+        остаётся в разметке, пока closing (см. closeMenu); при закрытии самой
+        страницы меню снимается сразу — иначе подложка перекрыла бы уезжающий
+        экран. */}
+    {menuOpen && !closing && (
       <>
         <div
-          className="backdrop-glass backdrop-anim fixed inset-0 z-[71] bg-black/40"
+          className={`backdrop-glass fixed inset-0 z-[71] bg-black/40 ${menuClosing ? 'backdrop-out' : 'backdrop-anim'}`}
           onPointerDown={closeMenuOutside}
           onClick={closeMenuOutside}
           aria-hidden="true"
         ></div>
         <div
-          className="glass-menu menu-anim fixed z-[72] w-56 rounded-2xl p-2 shadow-xl"
+          className={`glass-menu fixed z-[72] w-56 rounded-2xl p-2 shadow-xl ${menuClosing ? 'menu-out' : 'menu-anim'}`}
           style={{ right: `${menuPos.right}px`, top: `${menuPos.top}px` }}
           role="menu"
         >
@@ -2123,9 +2222,10 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
               key={b.title}
               type="button"
               size="s"
-              mode="gray"
+              mode={fmt[b.key] ? 'bezeled' : 'gray'}
               aria-label={b.title}
               title={b.title}
+              aria-pressed={fmt[b.key]}
               className="h-9 w-9 shrink-0 items-center justify-center rounded-lg! p-0! btn-press"
               onClick={() => floatAction(b.run)}
             >

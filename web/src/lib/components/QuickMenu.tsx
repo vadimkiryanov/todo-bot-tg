@@ -8,6 +8,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { List, Section } from '@telegram-apps/telegram-ui';
 
 import { MenuRow } from './MenuRow';
+import { useCloseAnim } from '../utils/closeAnim';
 import { lockScroll, unlockScroll } from '../utils/scroll';
 
 export interface QuickMenuItem {
@@ -35,10 +36,9 @@ export function QuickMenu({ x, y, items, onClose }: QuickMenuProps) {
   // Горизонталь не выходит за экран: держим отступ MARGIN от краёв.
   const left = Math.max(MARGIN, Math.min(x, window.innerWidth - WIDTH - MARGIN));
 
-  // Escape слушаем один раз на время жизни меню — onClose держим в ref,
-  // чтобы не переподписываться при каждом ре-рендере родителя.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // Уход — обратной анимацией (меню «сжимается» на месте, подложка гаснет):
+  // без неё меню исчезало рывком, хотя появлялось плавно.
+  const { closing, requestClose } = useCloseAnim(onClose);
 
   // «Открыть вверх?» — если снизу меньше места, чем высота меню. Измеряем
   // реальный offsetHeight уже вставленного в DOM элемента (useLayoutEffect —
@@ -51,34 +51,39 @@ export function QuickMenu({ x, y, items, onClose }: QuickMenuProps) {
   }, [y]);
 
   // Пока меню открыто, скролл списка заморожен (уход пальца или скролл-жест
-  // не закрывают меню). Escape — закрыть.
+  // не закрывают меню). Escape — закрыть (requestClose неизменна, поэтому
+  // подписка одна на всё время жизни меню).
   useEffect(() => {
     lockScroll();
     const onKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCloseRef.current();
+      if (e.key === 'Escape') requestClose();
     };
     window.addEventListener('keydown', onKeydown);
     return () => {
       unlockScroll();
       window.removeEventListener('keydown', onKeydown);
     };
-  }, []);
+  }, [requestClose]);
 
   function pick(item: QuickMenuItem): void {
-    onClose();
+    requestClose();
     item.action();
   }
 
   return (
     <>
       <div
-        className="backdrop-glass backdrop-anim pointer-events-auto fixed inset-0 z-40 bg-black/40"
-        onClick={onClose}
+        className={`backdrop-glass pointer-events-auto fixed inset-0 z-40 bg-black/40 ${
+          closing ? 'backdrop-out' : 'backdrop-anim'
+        }`}
+        onClick={requestClose}
         aria-hidden="true"
       ></div>
       <div
         ref={menuEl}
-        className="glass-menu menu-anim pointer-events-auto fixed z-50 w-56 rounded-2xl p-2 shadow-xl"
+        className={`glass-menu pointer-events-auto fixed z-50 w-56 rounded-2xl p-2 shadow-xl ${
+          closing ? 'menu-out' : 'menu-anim'
+        }`}
         style={{
           left: `${left}px`,
           top: openUp ? undefined : `${y + MARGIN}px`,

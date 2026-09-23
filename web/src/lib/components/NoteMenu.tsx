@@ -33,6 +33,7 @@ import {
 import { toggleNoteExpanded, useNoteViewStore } from '../stores/noteView';
 import { useUiStore } from '../stores/ui';
 import type { Note } from '../types/api';
+import { useCloseAnim } from '../utils/closeAnim';
 import { lockScroll, unlockScroll } from '../utils/scroll';
 import { nextPriority, priorityLabel, priorityMark } from '../utils/format';
 
@@ -80,6 +81,10 @@ export function NoteMenu({
   const MENU_MARGIN = 8;
   const [maxMenuHeight, setMaxMenuHeight] = useState<number | undefined>(undefined);
 
+  // Уход — обратной анимацией: меню «сжимается» на месте, подложка гаснет
+  // (раньше меню исчезало рывком, хотя появлялось плавно).
+  const { closing, requestClose } = useCloseAnim(onClose);
+
   const pos = (() => {
     const width = Math.min(Math.max(rect.width, 240), 336);
     return {
@@ -116,19 +121,18 @@ export function NoteMenu({
 
   // Пока меню открыто — скролл списка заморожен: жест скролла/уход пальца
   // не должен закрывать меню (пользователь сам выберет пункт или закроет).
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // requestClose неизменна, поэтому подписка одна на всё время жизни меню.
   useEffect(() => {
     lockScroll();
     const onKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCloseRef.current();
+      if (e.key === 'Escape') requestClose();
     };
     window.addEventListener('keydown', onKeydown);
     return () => {
       unlockScroll();
       window.removeEventListener('keydown', onKeydown);
     };
-  }, []);
+  }, [requestClose]);
 
   /** Выполнить действие, закрыть меню; при ошибке — показать в меню. */
   async function run(action: () => Promise<void>): Promise<void> {
@@ -136,7 +140,7 @@ export function NoteMenu({
     setError('');
     try {
       await action();
-      onCloseRef.current();
+      requestClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ошибка');
     } finally {
@@ -181,7 +185,7 @@ export function NoteMenu({
             icon={<Icon28AddCircle />}
             onSelect={() => {
               useUiStore.setState({ folderCreateOpen: true });
-              onClose();
+              requestClose();
             }}
           >
             Создать папку
@@ -264,7 +268,7 @@ export function NoteMenu({
                     // Если закрыть меню раньше, заметка родителя к моменту
                     // onMove уже была бы сброшена.
                     onMove(note);
-                    onClose();
+                    requestClose();
                   }}
                 >
                   Переместить
@@ -291,7 +295,7 @@ export function NoteMenu({
       icon={<Icon24ChevronDown />}
       onSelect={() => {
         toggleNoteExpanded(note.id);
-        onClose();
+        requestClose();
       }}
     >
       {expanded ? 'Свернуть' : 'Развернуть'}
@@ -331,14 +335,18 @@ export function NoteMenu({
     <>
       {/* Затемнённый фон: тап по нему — закрыть меню */}
       <div
-        className="backdrop-glass backdrop-anim fixed inset-0 z-40 bg-black/40"
-        onClick={onClose}
+        className={`backdrop-glass fixed inset-0 z-40 bg-black/40 ${
+          closing ? 'backdrop-out' : 'backdrop-anim'
+        }`}
+        onClick={requestClose}
         aria-hidden="true"
       ></div>
 
       <div
         ref={menuEl}
-        className="glass-menu menu-anim fixed z-50 overflow-y-auto rounded-2xl p-2 shadow-xl"
+        className={`glass-menu fixed z-50 overflow-y-auto rounded-2xl p-2 shadow-xl ${
+          closing ? 'menu-out' : 'menu-anim'
+        }`}
         style={{
           left: `${pos.left}px`,
           width: `${pos.width}px`,

@@ -1,6 +1,7 @@
 // Корневой компонент: офлайн-баннер, PWA, обработчик 401, восстановление
-// сессии, поллинг уведомлений (журнал сработавших напоминаний) для бейджа «Меню»,
-// микро-роутер с guard'ами сессии (паритет +page.ts: гость → /login, вход → /).
+// сессии, разовая загрузка уведомлений (журнал сработавших напоминаний) для
+// бейджа «Меню», микро-роутер с guard'ами сессии (паритет +page.ts:
+// гость → /login, вход → /).
 import { useEffect, type ReactNode } from 'react';
 import { AppRoot } from '@telegram-apps/telegram-ui';
 import { registerSW } from 'virtual:pwa-register';
@@ -19,10 +20,10 @@ import { LoginView } from './lib/views/LoginView';
 import { NotificationsView } from './lib/views/NotificationsView';
 import { TimersView } from './lib/views/TimersView';
 
-// Авторизованным — периодический опрос журнала уведомлений: счётчик в меню
-// обновляется, даже если напоминание сработало, пока вкладка была свёрнута.
-// Поллинг тихий (silent) — ошибки сети не трогают загруженный список.
-const NOTIFY_POLL_MS = 30_000;
+// Авторизованным — разовая загрузка журнала уведомлений: счётчик непрочитанных
+// на кнопке «Меню» верен сразу после входа. Фонового обновления нет —
+// перезагрузка списка происходит при заходе на экран «Уведомления»
+// (NotificationsView) или при переходе в него из бургер-меню.
 
 function OfflineBanner() {
   return (
@@ -57,23 +58,11 @@ export function App() {
     };
   }, []);
 
-  // Поллинг уведомлений для авторизованных (паритет $effect в +layout.svelte).
+  // Уведомления для авторизованных: журнал читается один раз при входе —
+  // бейдж «Меню» сразу показывает непрочитанные. Фонового обновления нет.
   useEffect(() => {
     if (session.state !== 'authed') return;
-    let stopped = false;
     void loadNotifications(true);
-    const timer = setInterval(() => {
-      if (!stopped && !document.hidden) void loadNotifications(true);
-    }, NOTIFY_POLL_MS);
-    const onVisible = (): void => {
-      if (!document.hidden) void loadNotifications(true);
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
   }, [session.state]);
 
   // Guard'ы сессии (паритет +page.ts): гостя ведём на /login, авторизованного

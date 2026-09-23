@@ -16,6 +16,7 @@ import { MenuRow } from './MenuRow';
 import { Modal } from './Modal';
 import { deleteFolder, renameFolder } from '../stores/folders';
 import type { Folder } from '../types/api';
+import { useCloseAnim } from '../utils/closeAnim';
 import { lockScroll, unlockScroll } from '../utils/scroll';
 
 interface FolderMenuProps {
@@ -55,19 +56,26 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
 
   // Пока меню открыто — скролл списка заморожен (как у меню заметки):
   // жест скролла не должен прятать меню.
+  //
+  // У меню два пути закрытия, и они разные. Дропдаун (тап по подложке,
+  // Escape) уходит обратной анимацией — для него closing/requestClose.
+  // Шторка переименования и подтверждение удаления закрываются через
+  // onCloseRef: своей анимацией ухода заведует Modal, а задержка здесь
+  // оставила бы её висеть на экране неподвижно.
+  const { closing, requestClose } = useCloseAnim(onClose);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
     lockScroll();
     const onKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCloseRef.current();
+      if (e.key === 'Escape') requestClose();
     };
     window.addEventListener('keydown', onKeydown);
     return () => {
       unlockScroll();
       window.removeEventListener('keydown', onKeydown);
     };
-  }, []);
+  }, [requestClose]);
 
   function openRename(): void {
     setRenameName(folder.name);
@@ -178,14 +186,18 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
     <>
       {/* Затемнённый фон: тап по нему — закрыть меню */}
       <div
-        className="backdrop-glass backdrop-anim fixed inset-0 z-40 bg-black/40"
-        onClick={onClose}
+        className={`backdrop-glass fixed inset-0 z-40 bg-black/40 ${
+          closing ? 'backdrop-out' : 'backdrop-anim'
+        }`}
+        onClick={requestClose}
         aria-hidden="true"
       ></div>
 
       <div
         ref={menuEl}
-        className="glass-menu menu-anim fixed z-50 w-56 rounded-2xl p-2 shadow-xl"
+        className={`glass-menu fixed z-50 w-56 rounded-2xl p-2 shadow-xl ${
+          closing ? 'menu-out' : 'menu-anim'
+        }`}
         style={{
           left: `${pos.left}px`,
           width: `${pos.width}px`,

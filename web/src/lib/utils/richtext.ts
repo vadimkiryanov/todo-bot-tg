@@ -685,7 +685,15 @@ export function splitBlockOnEnter(root: HTMLElement): boolean {
   const content = contentOf(block);
   const kind = editorBlockKindOf(block);
   if (plainTextOf(content).trim() === '') {
-    // Пустой пункт — выходим из формата (у чеклиста снимаем галочку).
+    if (kind === 'text') {
+      // Пустая строка остаётся на месте, а под ней появляется следующая:
+      // иначе Enter на пустой строке не делал ничего, и подряд можно было
+      // создать только одну строку — как в обычном многострочном вводе.
+      const blank = insertBlockAfter(block, 'text', 1);
+      setCaretOffset(contentOf(blank), 0);
+      return true;
+    }
+    // Пустой пункт списка — выходим из формата (у чеклиста снимаем галочку).
     setBlockKind(block, 'text');
     return true;
   }
@@ -901,4 +909,69 @@ export function applyInlineFormat(root: HTMLElement, type: string, url?: string)
     }
     wrapRange(sub, type, url);
   }
+}
+
+// ── Живой редактор: что действует под кареткой (подсветка панели) ───────
+
+/** Оформление, действующее под кареткой, — по нему панель подсвечивает кнопки. */
+export interface ActiveFormats {
+  bold: boolean;
+  italic: boolean;
+  code: boolean;
+  link: boolean;
+  h1: boolean;
+  h2: boolean;
+  ol: boolean;
+  list: boolean;
+  check: boolean;
+}
+
+/** Ничего не действует: начальное значение и сброс, когда правка закрыта. */
+export const NO_FORMATS: ActiveFormats = {
+  bold: false,
+  italic: false,
+  code: false,
+  link: false,
+  h1: false,
+  h2: false,
+  ol: false,
+  list: false,
+  check: false,
+};
+
+/** Один ли и тот же набор — чтобы не перерисовывать панель на каждое
+ *  движение каретки (выделение меняется постоянно). */
+export function sameFormats(a: ActiveFormats, b: ActiveFormats): boolean {
+  return (
+    a.bold === b.bold &&
+    a.italic === b.italic &&
+    a.code === b.code &&
+    a.link === b.link &&
+    a.h1 === b.h1 &&
+    a.h2 === b.h2 &&
+    a.ol === b.ol &&
+    a.list === b.list &&
+    a.check === b.check
+  );
+}
+
+/** Что действует в каретке: инлайн-оформление — по обёртке вокруг неё (как
+ *  applyInlineFormat), вид строки — по блоку (как toggleBlockKind). */
+export function activeFormats(root: HTMLElement): ActiveFormats {
+  const range = editorRange(root);
+  if (range === null) return NO_FORMATS;
+  const node = range.startContainer;
+  const block = blockOfNode(root, node);
+  const kind = block === null ? 'text' : editorBlockKindOf(block);
+  return {
+    bold: formatAncestor(node, 'bold') !== null,
+    italic: formatAncestor(node, 'italic') !== null,
+    code: formatAncestor(node, 'code') !== null,
+    link: formatAncestor(node, 'text_link') !== null,
+    h1: kind === 'h1',
+    h2: kind === 'h2',
+    ol: kind === 'ol',
+    list: kind === 'list',
+    check: kind === 'check',
+  };
 }

@@ -1,6 +1,7 @@
 // Уведомления (журнал сработавших напоминаний, серверная таблица).
-// Список опрашивается при авторизации, затем поллингом (root App);
-// счётчик непрочитанных показывает бейдж на пункте «Уведомления» бургер-меню.
+// Список читается один раз при авторизации (root App) и перечитывается при
+// заходе на экран «Уведомления»; счётчик непрочитанных показывает бейдж на
+// пункте «Уведомления» бургер-меню.
 import { create } from 'zustand';
 
 import { listNotifications, markNotificationsRead } from '../api/notifications';
@@ -25,7 +26,8 @@ export function unreadCount(): number {
     .items.reduce((acc, n) => acc + (n.read ? 0 : 1), 0);
 }
 
-/** Загрузка журнала уведомлений. silent — тихая фоновая перезагрузка. */
+/** Загрузка журнала уведомлений. silent — без индикатора загрузки (для
+    фоновых вызовов; ошибка не выводится, список не трогаем). */
 export async function loadNotifications(silent = false): Promise<void> {
   if (!silent) {
     useNotificationsStore.setState({ loading: true });
@@ -58,7 +60,7 @@ export async function markAllRead(): Promise<void> {
     await markNotificationsRead();
   } catch {
     // Ошибка сервера — список останется «прочитанным» локально,
-    // при следующем поллинге серверные флаги перезапишут его.
+    // при следующей загрузке журнала серверные флаги перезапишут его.
   }
 }
 

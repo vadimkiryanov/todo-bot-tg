@@ -26,12 +26,16 @@ import { searchNotes } from '../api/notes';
 import { useNavigationStore } from '../stores/navigation';
 import { useTopicsStore } from '../stores/topics';
 import type { Note } from '../types/api';
+import { useCloseAnim } from '../utils/closeAnim';
 import { groupNotesByTopic } from '../utils/search';
 import { EmptyState } from './EmptyState';
 import { Loader } from './Loader';
 import { NoteCell } from './NoteCell';
 
 const DEBOUNCE_MS = 300;
+/** Обратная «развёртка» при закрытии — быстрее раскрытия (380 мс): уход
+    должен быть заметно короче прихода. */
+const CLOSE_MS = 260;
 
 /** Значение, «устоявшееся» через delayMs после последнего изменения. */
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -68,6 +72,29 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  // Откуда панель «развернулась» — в тот же кружок она сворачивается при
+  // закрытии. null = открыли без origin (прямая ссылка): закрываем сразу.
+  const originBox = useRef<{ ox: number; oy: number; radius: number } | null>(null);
+
+  // Закрытие — обратной «развёрткой», а не рывком: панель сворачивается в
+  // кружок у кнопки «Поиск». Ждём ровно столько, сколько длится анимация,
+  // «меньше движения» и открытие без origin закрываются мгновенно.
+  const { closing, requestClose } = useCloseAnim(onClose, CLOSE_MS);
+
+  useEffect(() => {
+    if (!closing) return;
+    const el = rootRef.current;
+    const box = originBox.current;
+    if (el === null || box === null) return;
+    el.animate(
+      [
+        { clipPath: `circle(${box.radius}px at ${box.ox}px ${box.oy}px)` },
+        { clipPath: `circle(0px at ${box.ox}px ${box.oy}px)` },
+      ],
+      // Уход ускоряется к концу (раскрытие — наоборот, замедлялось).
+      { duration: CLOSE_MS, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' },
+    );
+  }, [closing]);
 
   // Раскрытие «из кнопки»: панель проявляется круговой развёрткой (clip-path
   // circle) от центра кнопки «Поиск» к краям экрана — визуально кнопка
@@ -81,6 +108,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
     const ox = origin.x - rect.left;
     const oy = origin.y - rect.top;
     const radius = Math.hypot(Math.max(ox, rect.width - ox), Math.max(oy, rect.height - oy));
+    originBox.current = { ox, oy, radius };
     const anim = el.animate(
       [
         { clipPath: `circle(0px at ${ox}px ${oy}px)` },
@@ -249,7 +277,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
             mode="gray"
             aria-label="Закрыть поиск"
             className="glass-fab h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! text-muted-foreground! btn-press"
-            onClick={onClose}
+            onClick={requestClose}
           >
             <Icon24ChevronLeft />
           </IconButton>
@@ -261,12 +289,19 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') onClose();
+                if (e.key === 'Escape') requestClose();
               }}
-              onBlur={() => {
-                // Фокус ушёл из поля, а запроса нет — закрываем поиск: режим
+              onBlur={(e) => {
+                // Фокус ушёл на элемент самой панели (тогл области, кнопка
+                // очистки) — это не уход из поиска, панель не закрываем: без
+                // этой проверки клик по тоглу закрывал поиск, потому что тап
+                // по кнопке снимает фокус с пустого поля.
+                if (e.relatedTarget !== null && rootRef.current?.contains(e.relatedTarget) === true) {
+                  return;
+                }
+                // Фокус ушёл из панели, а запроса нет — закрываем поиск: режим
                 // поиска живёт, пока в нём набирают текст (или он уже набран).
-                if (query.trim() === '') onClose();
+                if (query.trim() === '') requestClose();
               }}
               placeholder={mode === 'topic' && scopeLabel !== undefined ? `В топике «${scopeLabel}»` : 'Поиск заметок'}
               autoCapitalize="sentences"
@@ -293,7 +328,9 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
       </div>
 
       {/* Тогл области поиска под инпутом: «В топике» (активный топик
-          островка) / «Везде». */}
+          островка) / «Везде». onMouseDown preventDefault — нажатие по тоглу не
+          должно снимать фокус с поля: иначе поле теряет blur, а с ним (при
+          пустом запросе) закрывался и сам поиск. */}
       <div className="flex justify-center px-3 pt-2">
         <div className="flex items-center gap-1 rounded-full border border-border bg-muted p-1">
           {canScopeTopic && (
@@ -303,6 +340,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
               className={`btn-press flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
                 mode === 'topic' ? 'bg-primary text-white' : 'text-muted-foreground'
               }`}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => setMode('topic')}
             >
               В топике
@@ -314,6 +352,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
             className={`btn-press flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
               mode === 'global' ? 'bg-primary text-white' : 'text-muted-foreground'
             }`}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => setMode('global')}
           >
             Везде
@@ -341,7 +380,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
                   suppressClick.current = false;
                   return;
                 }
-                onClose();
+                requestClose();
               }
             : undefined
         }

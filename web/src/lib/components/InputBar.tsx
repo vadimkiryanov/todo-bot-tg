@@ -45,6 +45,7 @@ import { setNoteExpanded } from '../stores/noteView';
 import { logout } from '../stores/session';
 import { useSettingsStore } from '../stores/settings';
 import type { Note, Priority, ReminderRepeat } from '../types/api';
+import { useCloseAnim } from '../utils/closeAnim';
 import { nextPriority, priorityLabel, priorityMark } from '../utils/format';
 
 import { Modal } from './Modal';
@@ -104,6 +105,16 @@ export function InputBar({
   function keepInputFocus(): void {
     requestAnimationFrame(() => input.current?.focus({ preventScroll: true }));
   }
+
+  // Меню закрывается обратной анимацией (раньше исчезало рывком, хотя
+  // открывалось плавно): setMenuOpen(false) откладывается до её конца.
+  // menuRefocus — вернуть ли после этого фокус в поле ввода.
+  const menuRefocus = useRef(true);
+  const { closing: menuClosing, requestClose: requestMenuClose } = useCloseAnim(() => {
+    setMenuOpen(false);
+    if (menuRefocus.current) keepInputFocus();
+    menuRefocus.current = true;
+  });
 
   /** Тап по кнопке, не прерывающий набор: выполнить действие + вернуть фокус. */
   function press(action: () => void): void {
@@ -208,45 +219,51 @@ export function InputBar({
   }
 
   function toggleMenu(): void {
-    setMenuOpen(!menuOpen);
-    if (menuOpen) keepInputFocus();
+    if (menuOpen) {
+      closeMenu();
+      return;
+    }
+    setMenuOpen(true);
   }
 
-  function closeMenu(): void {
-    setMenuOpen(false);
-    keepInputFocus();
+  /** Закрыть бургер-меню обратной анимацией (как открывали). Фокус возвращаем
+      в поле только для «обычного» закрытия: при уходе на другой экран и при
+      открытии настроек он не нужен — клавиатура вылезла бы поверх шторки. */
+  function closeMenu(refocus = true): void {
+    menuRefocus.current = refocus;
+    requestMenuClose();
   }
 
   async function goArchived(): Promise<void> {
     // Сразу грузим архив — экран покажет данные без повторного запроса.
-    closeMenu();
+    closeMenu(false);
     await loadArchived();
     onNavigate?.('/archive');
   }
 
   async function goDone(): Promise<void> {
     // Сразу грузим выполненные — экран покажет данные без повторного запроса.
-    closeMenu();
+    closeMenu(false);
     await loadDone();
     onNavigate?.('/done');
   }
 
   async function goNotifications(): Promise<void> {
     // Сразу грузим журнал — экран покажет данные без повторного запроса.
-    closeMenu();
+    closeMenu(false);
     await loadNotifications();
     onNavigate?.('/notifications');
   }
 
   async function goTimers(): Promise<void> {
     // Сразу грузим таймеры — экран покажет данные без повторного запроса.
-    closeMenu();
+    closeMenu(false);
     await loadTimers();
     onNavigate?.('/timers');
   }
 
   async function doLogout(): Promise<void> {
-    closeMenu();
+    closeMenu(false);
     await logout();
     onNavigate?.('/login');
   }
@@ -254,17 +271,18 @@ export function InputBar({
   /** Открыть настройки: бургер закрываем без возврата фокуса в инпут
       (иначе на мобильных над шторкой вылезет клавиатура). */
   function openSettings(): void {
-    setMenuOpen(false);
+    closeMenu(false);
     setSettingsOpen(true);
   }
 
-  // Escape закрывает бургер-меню. closeMenu стабилен по поведению
-  // (setMenuOpen + возврат фокуса в поле ввода) — переподписка при каждом
-  // ре-рендере не нужна, достаточно открытия/закрытия меню.
+  // Escape закрывает бургер-меню. closeMenu держим в ref: она пересоздаётся
+  // на каждом рендере, а переподписка нужна только на открытие/закрытие меню.
+  const closeMenuRef = useRef(closeMenu);
+  closeMenuRef.current = closeMenu;
   useEffect(() => {
     if (!menuOpen) return;
     const onKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeMenu();
+      if (e.key === 'Escape') closeMenuRef.current();
     };
     window.addEventListener('keydown', onKeydown);
     return () => window.removeEventListener('keydown', onKeydown);
@@ -280,14 +298,18 @@ export function InputBar({
         <>
           {/* Затемняющая подложка: тап вне меню — закрыть */}
           <div
-            className="backdrop-glass backdrop-anim fixed inset-0 z-40 bg-black/40"
-            onClick={closeMenu}
+            className={`backdrop-glass fixed inset-0 z-40 bg-black/40 ${
+              menuClosing ? 'backdrop-out' : 'backdrop-anim'
+            }`}
+            onClick={() => closeMenu()}
             aria-hidden="true"
           ></div>
           {/* px-0! py-0! — снимаем собственные отступы List (10px 18px): поля
               меню задаёт карточка-секция, как в шторке настроек. */}
           <div
-            className="glass-menu menu-anim absolute bottom-full left-2 z-50 mb-2 w-56 rounded-2xl p-2 shadow-xl"
+            className={`glass-menu absolute bottom-full left-2 z-50 mb-2 w-56 rounded-2xl p-2 shadow-xl ${
+              menuClosing ? 'menu-out' : 'menu-anim'
+            }`}
             role="menu"
           >
             <List className="px-0! py-0!">

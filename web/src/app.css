@@ -178,6 +178,11 @@ html {
 .menu-anim {
   animation: pop-in 0.16s ease-out;
 }
+/* Уход меню — та же кривая наоборот: меню доигрывает закрытие, а не исчезает
+   рывком (ровно 160 мс — столько же ждёт useCloseAnim перед размонтированием) */
+.menu-out {
+  animation: pop-out 0.16s ease-in forwards;
+}
 
 /* ── «Островок» табов топиков ────────────────────────────────
    Плавающая стеклянная панель (как островок в Telegram): полупрозрачный
@@ -464,6 +469,16 @@ body.scroll-locked .scroll-area {
 .toast-anim {
   animation: toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* Уход подсказки: опускается и тает (тост живёт в разметке ещё 180 мс) */
+@keyframes toast-out {
+  to {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+.toast-out {
+  animation: toast-out 0.18s ease-in forwards;
+}
 
 /* Лёгкое покачивание эмодзи на пустых экранах */
 @keyframes empty-bob {
@@ -520,7 +535,9 @@ body.scroll-locked .scroll-area {
   .sheet-anim,
   .sheet-out,
   .menu-anim,
+  .menu-out,
   .toast-anim,
+  .toast-out,
   .empty-bob,
   .loader,
   .spinner {
