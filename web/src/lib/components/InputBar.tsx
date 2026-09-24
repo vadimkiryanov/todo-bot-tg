@@ -118,11 +118,18 @@ export function InputBar({
 
   // Меню закрывается обратной анимацией (раньше исчезало рывком, хотя
   // открывалось плавно): setMenuOpen(false) откладывается до её конца.
-  // menuRefocus — вернуть ли после этого фокус в поле ввода.
+  // menuRefocus — вернуть ли после этого фокус в поле ввода (уход на другой
+  // экран и открытие настроек — не возвращать). inputHadFocus — был ли курсор
+  // в поле при открытии меню: если нет, фокус в поле не возвращаем и на
+  // закрытии меню, и на закрытии шторки настроек — иначе он «приходил» туда
+  // сам (на мобильных всплывала клавиатура, а панель действий разворачивалась
+  // над пустым полем, хотя меню просто закрыли). Признак живёт до конца
+  // цепочки «меню → настройки», пересчитывается на каждом открытии меню.
   const menuRefocus = useRef(true);
+  const inputHadFocus = useRef(false);
   const { closing: menuClosing, requestClose: requestMenuClose } = useCloseAnim(() => {
     setMenuOpen(false);
-    if (menuRefocus.current) keepInputFocus();
+    if (menuRefocus.current && inputHadFocus.current) keepInputFocus();
     menuRefocus.current = true;
   });
 
@@ -236,12 +243,15 @@ export function InputBar({
       closeMenu();
       return;
     }
+    // Курсор был в поле на момент открытия меню? Тогда после закрытия вернём
+    // его туда (набор продолжится). Если его там не было — не возвращаем.
+    inputHadFocus.current = focused;
     setMenuOpen(true);
   }
 
-  /** Закрыть бургер-меню обратной анимацией (как открывали). Фокус возвращаем
-      в поле только для «обычного» закрытия: при уходе на другой экран и при
-      открытии настроек он не нужен — клавиатура вылезла бы поверх шторки. */
+  /** Закрыть бургер-меню обратной анимацией (как открывали). refocus = false —
+      закрытие без возврата фокуса в поле: уход на другой экран и открытие
+      настроек (иначе клавиатура вылезла бы поверх шторки). */
   function closeMenu(refocus = true): void {
     menuRefocus.current = refocus;
     requestMenuClose();
@@ -418,7 +428,10 @@ export function InputBar({
           open
           onClose={() => {
             setSettingsOpen(false);
-            keepInputFocus();
+            // Возвращаем курсор в поле, только если он был там, когда уходили
+            // в настройки: иначе он встал бы в пустом поле сам (та же причина,
+            // что и у закрытия меню, — см. inputHadFocus).
+            if (inputHadFocus.current) keepInputFocus();
           }}
         />
       )}

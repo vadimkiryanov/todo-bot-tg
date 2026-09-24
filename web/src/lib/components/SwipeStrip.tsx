@@ -66,6 +66,8 @@ import type * as React from 'react';
 import EmblaCarousel from 'embla-carousel';
 import type { EmblaCarouselType } from 'embla-carousel';
 
+import { startsRowSwipe } from '../utils/rowSwipe';
+
 // Программные доезды (goTo, рост цепочки) идут напрямую через ScrollBody со
 // СВОЕЙ парой (friction, duration), а не options.duration/options.friction.
 // Та же пара перехватывает доводку после отпускания свайпа (релиз
@@ -275,7 +277,9 @@ export function SwipeStrip<T>({
     const api = EmblaCarousel(viewport, {
       axis: 'x',
       startIndex: Math.max(0, index),
-      watchDrag: draggable,
+      // Жест у правого края строки заметки — свайп-действия самой строки
+      // (utils/rowSwipe), а не листание ленты: лента такой жест не начинает.
+      watchDrag: draggable ? (_api, evt) => !startsRowSwipe(evt) : false,
       // Коэффициент мягкости ScrollBody (не «время в мс»). Программные
       // доезды идут со своей парой (DRIVE_FRICTION/DRIVE_DURATION, см.
       // шапку); options.duration остаётся запасным значением для
@@ -528,8 +532,11 @@ export function SwipeStrip<T>({
         dragTrackRAF = requestAnimationFrame(frame);
       };
 
-      const onTrackTouchStart = (): void => {
+      const onTrackTouchStart = (evt: TouchEvent): void => {
         lastTouchAt = Date.now();
+        // Трекер капсулы — тот же вопрос, что watchDrag у движка: жест у
+        // правого края строки заметки ленте не принадлежит.
+        if (startsRowSwipe(evt)) return;
         startDragTrack();
       };
       const onTrackMouseDown = (e: MouseEvent): void => {
@@ -537,6 +544,7 @@ export function SwipeStrip<T>({
         // перезапускать трек: в этот момент лента в доезде, капсула
         // «прилипла» бы к нему до эмулированного mouseup.
         if (e.button !== 0 || Date.now() - lastTouchAt < 500) return;
+        if (startsRowSwipe(e)) return;
         startDragTrack();
       };
       const onTrackMove = (): void => {
