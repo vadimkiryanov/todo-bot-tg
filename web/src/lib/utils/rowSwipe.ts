@@ -151,10 +151,20 @@ export function useRowSwipe(width: number): RowSwipe {
     let decided = false;
     let last = base;
 
+    // Жест уже признан нашим — с этого места браузер не должен забрать его как
+    // вертикальную панораму списка. Строка помечена touch-pan-y, и на диагонали
+    // браузер по ходу жеста отдавал панораму себе: приходил pointercancel, и
+    // строка уезжала обратно, хотя палец вёл её вбок. Кадры до решения не
+    // трогаем — вертикальная тяга по строке по-прежнему листает список.
+    const stopPan = (ev: TouchEvent): void => {
+      if (decided && ev.cancelable) ev.preventDefault();
+    };
+
     const detach = (): void => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('touchmove', stopPan);
       detachRef.current = null;
     };
     const done = (cancelled: boolean): void => {
@@ -194,6 +204,7 @@ export function useRowSwipe(width: number): RowSwipe {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('touchmove', stopPan, { passive: false });
   }
 
   // Пока строка открыта, тап мимо неё её закрывает. Слушатель — на фазе
