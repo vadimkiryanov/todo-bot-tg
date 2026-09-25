@@ -106,7 +106,7 @@ export function ArchivedView() {
                 type="button"
                 size="s"
                 mode="outline"
-                className="h-11!"
+                className="h-11! btn-press-wide"
                 onClick={() => void loadArchived()}
               >
                 Повторить

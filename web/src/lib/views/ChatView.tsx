@@ -1173,7 +1173,7 @@ export function ChatView() {
                         type="button"
                         size="s"
                         mode="outline"
-                        className="h-11!"
+                        className="h-11! btn-press-wide"
                         onClick={() => {
                           const nav = useNavigationStore.getState();
                           const topicId = nav.activeTopicID;
@@ -1312,7 +1312,7 @@ export function ChatView() {
               type="button"
               size="s"
               mode="outline"
-              className="h-11!"
+              className="h-11! btn-press-wide"
               onClick={() => void loadTopics()}
             >
               Повторить
@@ -1325,7 +1325,7 @@ export function ChatView() {
               type="button"
               size="s"
               mode="outline"
-              className="h-11!"
+              className="h-11! btn-press-wide"
               before={<Icon28AddCircle viewBox="0 0 28 28" className="h-5 w-5" />}
               onClick={() => useUiStore.setState({ topicCreateOpen: true })}
             >
@@ -1419,7 +1419,7 @@ export function ChatView() {
               size="m"
               mode="gray"
               aria-label="Поиск по заметкам"
-              className="glass-fab absolute! bottom-full right-3 mb-2 h-11 items-center justify-center rounded-full! px-4! text-sm text-muted-foreground! btn-press"
+              className="glass-fab absolute! bottom-full right-3 mb-2 h-11 items-center justify-center rounded-full! px-4! text-sm text-muted-foreground! btn-press-wide"
               onClick={() => {
                 const rect = searchBtnRef.current?.getBoundingClientRect();
                 if (rect === undefined) return;

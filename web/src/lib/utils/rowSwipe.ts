@@ -25,6 +25,10 @@ export const ROW_SWIPE_ZONE = 44;
 const ROW_SWIPE_BUTTON = 44;
 /** Просвет между строкой и первой кнопкой и между кнопками. */
 const ROW_SWIPE_GAP = 8;
+/** Запас справа под «надувание» последней кнопки (отклик нажатия): кнопка под
+    пальцем растёт, а полоса обрезана по правому краю строки — без запаса
+    крайнюю кнопку срезало бы на ~2px. */
+const ROW_SWIPE_PRESS_ROOM = 4;
 /** Ход строки при открытии/возврате. */
 const ROW_SWIPE_MS = 200;
 const ROW_SWIPE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
@@ -37,10 +41,11 @@ const DRAG_START = 8;
     на каждом рендере, а рендера сразу после открытия не миновать. */
 let openedRow: { el: HTMLElement; owner: object; close: () => void } | null = null;
 
-/** Ширина полосы кнопок: сами кнопки с просветами (отступ от строки — первый). */
+/** Ширина полосы кнопок: сами кнопки с просветами (отступ от строки — первый)
+    плюс запас справа под надувание крайней кнопки при нажатии. */
 export function rowSwipeWidth(buttons: number): number {
   if (buttons <= 0) return 0;
-  return buttons * ROW_SWIPE_BUTTON + buttons * ROW_SWIPE_GAP;
+  return buttons * (ROW_SWIPE_BUTTON + ROW_SWIPE_GAP) + ROW_SWIPE_PRESS_ROOM;
 }
 
 /**

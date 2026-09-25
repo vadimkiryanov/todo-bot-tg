@@ -140,7 +140,7 @@ export function ReminderForm({
           <button
             key={item}
             type="button"
-            className={`btn-press h-8 flex-1 rounded-md text-xs transition-colors ${
+            className={`btn-press-wide h-8 flex-1 rounded-md text-xs transition-colors ${
               repeat === item ? 'bg-muted font-medium shadow-sm' : 'text-muted-foreground'
             }`}
             onClick={() => {
@@ -153,13 +153,13 @@ export function ReminderForm({
       </div>
       {error !== '' && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
-        <Button type="button" mode="outline" className="h-10! flex-1" onClick={onCancel}>
+        <Button type="button" mode="outline" className="h-10! flex-1 btn-press-wide" onClick={onCancel}>
           Отмена
         </Button>
         <Button
           type="submit"
           mode="filled"
-          className="h-10! flex-1 disabled:opacity-50"
+          className="h-10! flex-1 disabled:opacity-50 btn-press-wide"
           disabled={busy || value === ''}
           loading={busy}
         >

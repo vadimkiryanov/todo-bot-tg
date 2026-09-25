@@ -142,7 +142,7 @@ function OptionCell({ label, caption, selected, onSelect }: OptionCellProps) {
       // w-full обязателен: <button> не растягивается как блочный бокс —
       // короткий вариант не занял бы карточку, и галочка встала бы сразу за
       // подписью, а не у правого края.
-      className="w-full"
+      className="w-full btn-press-soft"
       subtitle={caption}
       after={selected ? <Icon20Select className="h-5 w-5 text-ring" /> : undefined}
       onClick={onSelect}

@@ -42,7 +42,7 @@ export function ConfirmModal({
           <Button
             type="button"
             mode="outline"
-            className="h-11! flex-1 disabled:opacity-50"
+            className="h-11! flex-1 disabled:opacity-50 btn-press-wide"
             disabled={busy}
             onClick={onClose}
           >
@@ -51,7 +51,7 @@ export function ConfirmModal({
           <Button
             type="button"
             mode="filled"
-            className="h-11! flex-1 bg-destructive! text-white! disabled:opacity-50"
+            className="h-11! flex-1 bg-destructive! text-white! disabled:opacity-50 btn-press-wide"
             disabled={busy}
             onClick={onConfirm}
           >

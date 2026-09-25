@@ -124,7 +124,7 @@ export function TopicMenu() {
               value={renameName}
               onChange={onRenameInput}
               maxLength={64}
-              className="bg-muted!"
+              className="bg-muted! input-press"
               autoFocus
             />
             {renameError !== '' && <p className="text-sm text-destructive">{renameError}</p>}
@@ -132,7 +132,7 @@ export function TopicMenu() {
               <Button
                 type="button"
                 mode="outline"
-                className="h-11! flex-1"
+                className="h-11! flex-1 btn-press-wide"
                 onClick={() => {
                   setRenameMode(false);
                   setRenameError('');
@@ -143,7 +143,7 @@ export function TopicMenu() {
               <Button
                 type="submit"
                 mode="filled"
-                className="h-11! flex-1 disabled:opacity-50"
+                className="h-11! flex-1 disabled:opacity-50 btn-press-wide"
                 disabled={busy}
               >
                 Сохранить
@@ -190,7 +190,7 @@ export function TopicMenu() {
                 </MenuRow>
               </Section>
             </List>
-            <Button type="button" mode="outline" className="mt-2 h-11! w-full" onClick={close}>
+            <Button type="button" mode="outline" className="mt-2 h-11! w-full btn-press-wide" onClick={close}>
               Отмена
             </Button>
           </div>

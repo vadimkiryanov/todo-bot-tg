@@ -152,7 +152,7 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
             value={renameName}
             onChange={onRenameInput}
             maxLength={64}
-            className="bg-muted!"
+            className="bg-muted! input-press"
             autoFocus
           />
           {error !== '' && <p className="text-sm text-destructive">{error}</p>}
@@ -160,7 +160,7 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
             <Button
               type="button"
               mode="outline"
-              className="h-11! flex-1"
+              className="h-11! flex-1 btn-press-wide"
               onClick={() => {
                 setMode('menu');
                 setError('');
@@ -171,7 +171,7 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
             <Button
               type="submit"
               mode="filled"
-              className="h-11! flex-1 disabled:opacity-50"
+              className="h-11! flex-1 disabled:opacity-50 btn-press-wide"
               disabled={busy}
             >
               Сохранить

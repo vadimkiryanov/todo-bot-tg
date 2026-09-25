@@ -106,7 +106,7 @@ export function DoneView() {
                 type="button"
                 size="s"
                 mode="outline"
-                className="h-11!"
+                className="h-11! btn-press-wide"
                 onClick={() => void loadDone()}
               >
                 Повторить

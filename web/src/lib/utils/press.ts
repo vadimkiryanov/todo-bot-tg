@@ -1,9 +1,9 @@
-// Отклик нажатия под пальцем: поля ввода и кнопки (см. app.css —
+// Отклик нажатия под пальцем: кнопки и поля ввода (см. app.css —
 // .input-press и .btn-press*). Класс .pressed ставится на элемент под
 // пальцем и снимается на отпускании.
 //
 // Почему не чистый CSS :active: на телефоне :active не срабатывает —
-// кнопки не продавливаются вовсе (проверено на устройстве), поэтому
+// кнопки не продавливались вовсе (проверено на устройстве), поэтому
 // состояние под пальцем ведёт класс.
 //
 // Слушателей ровно три, все на window в фазе capture (перехватываем раньше
@@ -16,9 +16,9 @@
 // событием pointercancel.
 //
 // Мышь класс не трогает: на десктопе тот же вид даёт нативный :active.
-// Выключенные элементы (disabled/aria-disabled) не продавливаются.
+// Выключенные элементы (disabled/aria-disabled) не надуваются.
 
-const PRESSABLE = '.input-press, .btn-press, .btn-press-soft, .btn-press-plain';
+const PRESSABLE = '.input-press, .btn-press, .btn-press-wide, .btn-press-soft, .btn-press-plain';
 
 let pressed: HTMLElement | null = null;
 
@@ -30,9 +30,14 @@ function release(): void {
 
 /** Ближайший элемент с классом отклика; выключенные — мимо. */
 function pressableFrom(target: EventTarget | null): HTMLElement | null {
-  if (!(target instanceof HTMLElement)) return null;
-  const el = target.closest<HTMLElement>(PRESSABLE);
-  if (el === null) return null;
+  // Идём вверх от ЛЮБОГО элемента, а не только от HTMLElement: под пальцем
+  // чаще всего оказывается иконка набора (<svg>), а SVGElement — не
+  // HTMLElement. Проверка на HTMLElement отсекала такие нажатия, и кнопка,
+  // вся площадь которой занята иконкой, не отзывалась вовсе (проба: событие
+  // pointerdown приходит, класс .pressed не ставится).
+  if (!(target instanceof Element)) return null;
+  const el = target.closest(PRESSABLE);
+  if (el === null || !(el instanceof HTMLElement)) return null;
   if (el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true') return null;
   return el;
 }

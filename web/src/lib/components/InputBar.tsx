@@ -465,7 +465,7 @@ export function InputBar({
           size="m"
           mode="gray"
           aria-label="Топики"
-          className="glass-fab h-11 items-center justify-center rounded-full! px-4! text-sm text-muted-foreground! btn-press"
+          className="glass-fab h-11 items-center justify-center rounded-full! px-4! text-sm text-muted-foreground! btn-press-wide"
           onClick={() => press(() => onOpenTopics?.())}
         >
           Топики
@@ -488,7 +488,7 @@ export function InputBar({
           inert={!showActions}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="flex items-center gap-2 px-1 pb-1.5">
+            <div className="flex items-center gap-2 px-1 py-1">
               <IconButton
                 type="button"
                 size="m"
@@ -568,7 +568,7 @@ export function InputBar({
             mode="gray"
             aria-label={badgeCount > 0 ? `Меню (${badgeCount} непрочитанных уведомлений)` : 'Меню'}
             aria-expanded={menuOpen}
-            className="relative h-11 min-w-11 shrink-0 items-center justify-center rounded-full! px-3! text-sm text-muted-foreground! btn-press"
+            className="relative h-11 min-w-11 shrink-0 items-center justify-center rounded-full! px-3! text-sm text-muted-foreground! btn-press-wide"
             onClick={toggleMenu}
           >
             Меню
@@ -583,10 +583,10 @@ export function InputBar({
               </span>
             )}
           </IconButton>
-          {/* Поле ввода: тап пальцем/стилусом «продавливает» поле (лёгкое
-              сжатие) и пружинисто отпускает — тактильный отклик касания, как
-              у кнопок Telegram. Отклик общий для всех полей приложения
-              (.input-press в app.css, состояние — нативный :active). */}
+          {/* Поле ввода: тап пальцем/стилусом «надувает» поле (лёгкий рост) и
+              пружинисто опадает при отпускании — под пальцем видно, что нажал
+              именно в поле. Отклик общий для всех полей приложения
+              (.input-press в app.css, состояние ведёт installPress). */}
           <textarea
             ref={input}
             rows={1}

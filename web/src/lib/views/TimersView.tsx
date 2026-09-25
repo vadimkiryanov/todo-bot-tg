@@ -90,7 +90,7 @@ export function TimersView() {
                 type="button"
                 size="s"
                 mode="outline"
-                className="h-11!"
+                className="h-11! btn-press-wide"
                 onClick={() => void loadTimers()}
               >
                 Повторить
@@ -110,7 +110,7 @@ export function TimersView() {
                     multiline
                     // w-full обязателен: <button> не растягивается как блочный
                     // бокс — короткая строка не заняла бы карточку.
-                    className={`w-full select-none text-left touch-manipulation [-webkit-touch-callout:none] ${
+                    className={`w-full select-none text-left touch-manipulation [-webkit-touch-callout:none] btn-press-soft ${
                       note.priority === 'high'
                         ? 'note-priority-high'
                         : note.priority === 'medium'

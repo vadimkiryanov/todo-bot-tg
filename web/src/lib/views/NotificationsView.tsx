@@ -87,7 +87,7 @@ export function NotificationsView() {
                 type="button"
                 size="s"
                 mode="outline"
-                className="h-11!"
+                className="h-11! btn-press-wide"
                 onClick={() => void loadNotifications()}
               >
                 Повторить
@@ -111,7 +111,7 @@ export function NotificationsView() {
                       Component="button"
                       type="button"
                       multiline
-                      className="w-full select-none text-left touch-manipulation [-webkit-touch-callout:none]"
+                      className="w-full select-none text-left touch-manipulation [-webkit-touch-callout:none] btn-press-soft"
                       before={
                         <span className="relative flex h-5 w-5 items-center justify-center">
                           {/* viewBox: у иконок набора его нет, и без него

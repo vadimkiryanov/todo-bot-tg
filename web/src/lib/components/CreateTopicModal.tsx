@@ -70,17 +70,17 @@ export function CreateTopicModal() {
           placeholder="Название"
           maxLength={64}
           onChange={(e) => setName(e.target.value)}
-          className="bg-muted!"
+          className="bg-muted! input-press"
         />
         {error !== '' && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
-          <Button type="button" mode="outline" className="h-11! flex-1" onClick={close}>
+          <Button type="button" mode="outline" className="h-11! flex-1 btn-press-wide" onClick={close}>
             Отмена
           </Button>
           <Button
             type="submit"
             mode="filled"
-            className="h-11! flex-1 disabled:opacity-50"
+            className="h-11! flex-1 disabled:opacity-50 btn-press-wide"
             disabled={busy}
             loading={busy}
           >

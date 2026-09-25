@@ -210,7 +210,7 @@ export function MoveModal({ note, z, onClose }: MoveModalProps) {
           </List>
         )}
 
-        <Button type="button" mode="outline" className="mt-1 h-11!" onClick={onClose}>
+        <Button type="button" mode="outline" className="mt-1 h-11! btn-press-wide" onClick={onClose}>
           Отмена
         </Button>
       </div>

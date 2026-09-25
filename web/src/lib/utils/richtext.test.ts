@@ -236,7 +236,7 @@ describe('richEditorHtml', () => {
       '<span class="note-cb note-cb-static" contenteditable="false"></span>',
     );
     expect(richEditorHtml(noteToRich('- [x] готово', []), true)).toBe(
-      '<div class="note-li checked"><button type="button" class="note-cb" contenteditable="false" aria-pressed="true" aria-label="Снять отметку"></button><span class="note-li-text note-checked-text">готово</span></div>',
+      '<div class="note-li checked"><button type="button" class="note-cb btn-press" contenteditable="false" aria-pressed="true" aria-label="Снять отметку"></button><span class="note-li-text note-checked-text">готово</span></div>',
     );
   });
 

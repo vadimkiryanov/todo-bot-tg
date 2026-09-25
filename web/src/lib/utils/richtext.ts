@@ -253,7 +253,7 @@ function chromeHtml(kind: RichBlockKind, num: number, checked: boolean, checkabl
       return `<span class="note-ol-num" contenteditable="false">${num}.</span>`;
     case 'check':
       return checkable
-        ? `<button type="button" class="note-cb" contenteditable="false" aria-pressed="${checked}" aria-label="${checked ? 'Снять отметку' : 'Отметить выполненным'}"></button>`
+        ? `<button type="button" class="note-cb btn-press" contenteditable="false" aria-pressed="${checked}" aria-label="${checked ? 'Снять отметку' : 'Отметить выполненным'}"></button>`
         : '<span class="note-cb note-cb-static" contenteditable="false"></span>';
     default:
       return '';

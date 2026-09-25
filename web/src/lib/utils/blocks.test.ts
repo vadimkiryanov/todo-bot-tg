@@ -79,7 +79,7 @@ describe('renderNoteBlocksHtml', () => {
   it('checkable: чекбокс — кнопка с data-cb на позиции маркера', () => {
     const html = renderNoteBlocksHtml('- [ ] задача', [], true);
     expect(html).toBe(
-      '<div class="note-li"><button type="button" class="note-cb" data-cb="0" aria-pressed="false" aria-label="Отметить выполненным"></button><span class="note-li-text">задача</span></div>',
+      '<div class="note-li"><button type="button" class="note-cb btn-press" data-cb="0" aria-pressed="false" aria-label="Отметить выполненным"></button><span class="note-li-text">задача</span></div>',
     );
   });
 

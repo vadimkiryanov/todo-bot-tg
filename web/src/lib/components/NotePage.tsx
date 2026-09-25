@@ -1727,13 +1727,13 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
               type="url"
               placeholder="https://…"
               autoFocus
-              className="bg-muted!"
+              className="bg-muted! input-press"
             />
           </div>
           <Button
             type="button"
             mode="filled"
-            className="h-11!"
+            className="h-11! btn-press-wide"
             disabled={linkUrl.trim() === ''}
             onMouseDown={(e) => e.preventDefault()}
             onClick={applyLink}
@@ -1857,7 +1857,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                 type="button"
                 size="m"
                 mode="gray"
-                className="glass-fab btn-press h-9! rounded-full! px-4! text-sm text-muted-foreground! disabled:opacity-50"
+                className="glass-fab btn-press-wide h-9! rounded-full! px-4! text-sm text-muted-foreground! disabled:opacity-50"
                 disabled={saving}
                 onClick={discard}
               >
@@ -1867,7 +1867,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                 type="button"
                 size="m"
                 mode="gray"
-                className="glass-fab btn-press h-9! rounded-full! px-4! text-sm text-primary! disabled:opacity-50"
+                className="glass-fab btn-press-wide h-9! rounded-full! px-4! text-sm text-primary! disabled:opacity-50"
                 disabled={saving}
                 onClick={() => void save(false)}
               >
@@ -1925,7 +1925,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                     type="button"
                     size="m"
                     mode="bezeled"
-                    className="h-10! rounded-full! px-3!"
+                    className="h-10! rounded-full! px-3! btn-press-wide"
                     disabled={busy !== null}
                     loading={busy === 'archive'}
                     onClick={doUnarchive}
@@ -1977,7 +1977,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                   size="m"
                   mode="gray"
                   aria-label="Ещё действия"
-                  className="h-10 min-w-10 items-center justify-center rounded-full! px-3! text-sm text-muted-foreground! btn-press"
+                  className="h-10 min-w-10 items-center justify-center rounded-full! px-3! text-sm text-muted-foreground! btn-press-wide"
                   disabled={busy !== null}
                   onClick={toggleMenu}
                 >
@@ -2034,7 +2034,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                 type="button"
                 size="s"
                 mode="plain"
-                className="h-auto! shrink-0 px-2! py-1!"
+                className="h-auto! shrink-0 px-2! py-1! btn-press"
                 disabled={busy !== null}
                 loading={busy === 'reminder'}
                 onClick={doClearReminder}
@@ -2049,7 +2049,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                   type="button"
                   size="s"
                   mode="gray"
-                  className="h-8! flex-1 rounded-lg!"
+                  className="h-8! flex-1 rounded-lg! btn-press-wide"
                   disabled={busy !== null}
                   onClick={() => void snooze(minutes)}
                 >
@@ -2281,7 +2281,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
           <Button
             type="button"
             mode="filled"
-            className="h-11!"
+            className="h-11! btn-press-wide"
             disabled={saving}
             loading={saving}
             onClick={() => void save(true)}
@@ -2292,7 +2292,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
             <Button
               type="button"
               mode="outline"
-              className="h-11! flex-1"
+              className="h-11! flex-1 btn-press-wide"
               disabled={saving}
               onClick={() => {
                 setExitConfirm(false);
@@ -2304,7 +2304,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
             <Button
               type="button"
               mode="outline"
-              className="h-11! flex-1 text-destructive!"
+              className="h-11! flex-1 text-destructive! btn-press-wide"
               disabled={saving}
               onClick={() => {
                 setExitConfirm(false);

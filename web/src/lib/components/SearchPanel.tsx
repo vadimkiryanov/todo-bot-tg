@@ -306,7 +306,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
               placeholder={mode === 'topic' && scopeLabel !== undefined ? `В топике «${scopeLabel}»` : 'Поиск заметок'}
               autoCapitalize="sentences"
               autoCorrect="off"
-              className="bg-muted!"
+              className="bg-muted! input-press"
             />
           </div>
           {query !== '' && (
@@ -337,7 +337,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
             <button
               type="button"
               aria-pressed={mode === 'topic'}
-              className={`btn-press flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
+              className={`btn-press-wide flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
                 mode === 'topic' ? 'bg-primary text-white' : 'text-muted-foreground'
               }`}
               onMouseDown={(e) => e.preventDefault()}
@@ -349,7 +349,7 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
           <button
             type="button"
             aria-pressed={mode === 'global'}
-            className={`btn-press flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
+            className={`btn-press-wide flex h-8 items-center rounded-full px-3 text-sm transition-colors ${
               mode === 'global' ? 'bg-primary text-white' : 'text-muted-foreground'
             }`}
             onMouseDown={(e) => e.preventDefault()}

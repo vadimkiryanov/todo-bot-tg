@@ -106,7 +106,7 @@ function renderBlockLine(
     case 'check': {
       const checked = line.checked === true;
       const box = checkable
-        ? `<button type="button" class="note-cb" data-cb="${line.start}" aria-pressed="${checked}" aria-label="${checked ? 'Снять отметку' : 'Отметить выполненным'}"></button>`
+        ? `<button type="button" class="note-cb btn-press" data-cb="${line.start}" aria-pressed="${checked}" aria-label="${checked ? 'Снять отметку' : 'Отметить выполненным'}"></button>`
         : '<span class="note-cb note-cb-static"></span>';
       return `<div class="note-li${checked ? ' checked' : ''}">${box}<span class="note-li-text${checked ? ' note-checked-text' : ''}">${inner}</span></div>`;
     }

@@ -96,7 +96,7 @@ export function LoginView() {
           type="button"
           role="tab"
           aria-selected={mode === 'login'}
-          className={`btn-press h-9 flex-1 rounded-full transition-colors ${mode === 'login' ? 'bg-background shadow' : 'text-muted-foreground'}`}
+          className={`btn-press-wide h-9 flex-1 rounded-full transition-colors ${mode === 'login' ? 'bg-background shadow' : 'text-muted-foreground'}`}
           onClick={() => switchMode('login')}
         >
           Вход
@@ -105,7 +105,7 @@ export function LoginView() {
           type="button"
           role="tab"
           aria-selected={mode === 'register'}
-          className={`btn-press h-9 flex-1 rounded-full transition-colors ${mode === 'register' ? 'bg-background shadow' : 'text-muted-foreground'}`}
+          className={`btn-press-wide h-9 flex-1 rounded-full transition-colors ${mode === 'register' ? 'bg-background shadow' : 'text-muted-foreground'}`}
           onClick={() => switchMode('register')}
         >
           Регистрация
@@ -132,14 +132,14 @@ export function LoginView() {
         }}
       >
         <Input
-          className="bg-background! border border-border!"
+          className="bg-background! border border-border! input-press"
           placeholder="Логин"
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
         <Input
-          className="bg-background! border border-border!"
+          className="bg-background! border border-border! input-press"
           placeholder="Пароль"
           type="password"
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
@@ -150,7 +150,7 @@ export function LoginView() {
         <Button
           type="submit"
           mode="filled"
-          className="h-11! disabled:opacity-50"
+          className="h-11! disabled:opacity-50 btn-press-wide"
           disabled={pending}
           loading={pending}
         >
