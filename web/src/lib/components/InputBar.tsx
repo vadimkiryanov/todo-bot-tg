@@ -633,7 +633,7 @@ export function InputBar({
             size="m"
             mode="plain"
             aria-label="Отправить"
-            className="h-11 w-11 shrink-0 items-center justify-center rounded-full! bg-primary! p-0! text-white! btn-press disabled:opacity-40"
+            className="h-11 w-11 shrink-0 items-center justify-center rounded-full! bg-primary! p-0! text-white! btn-press disabled:opacity-40 "
             disabled={sending || !hasText}
             onClick={() => {
               void send();
@@ -642,7 +642,7 @@ export function InputBar({
             {/* viewBox пишем и здесь, хотя размер родной (24): у иконок набора
                 его нет вообще, и это единственное, что удерживает рисунок в
                 боксе, если размер когда-нибудь поменяют. */}
-            {sending ? <Spinner size="20px" /> : <Icon24ChevronRight viewBox="0 0 24 24" className="h-6 w-6" />}
+            {sending ? <Spinner size="20px" /> : <Icon24ChevronRight viewBox="0 0 24 24" className="h-6 w-6 translate-x-0.5" />}
           </IconButton>
         </div>
       </div>
