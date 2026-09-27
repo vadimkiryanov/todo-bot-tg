@@ -13,6 +13,8 @@ func TestNewReminderRepeat_Valid(t *testing.T) {
 	}{
 		{"once", ReminderRepeatOnce},
 		{"daily", ReminderRepeatDaily},
+		{"weekly", ReminderRepeatWeekly},
+		{"monthly", ReminderRepeatMonthly},
 	}
 
 	for _, tt := range tests {
@@ -28,7 +30,7 @@ func TestNewReminderRepeat_Valid(t *testing.T) {
 }
 
 func TestNewReminderRepeat_Invalid(t *testing.T) {
-	for _, in := range []string{"", "weekly", "ONCE", "daily "} {
+	for _, in := range []string{"", "yearly", "ONCE", "daily "} {
 		if _, err := NewReminderRepeat(in); err != errors.ErrInvalidReminderRepeat {
 			t.Errorf("NewReminderRepeat(%q) error = %v, want %v", in, err, errors.ErrInvalidReminderRepeat)
 		}

@@ -86,7 +86,9 @@ export function LoginView() {
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 px-6">
-      <Icon28Edit className="h-16 w-16 text-muted-foreground" />
+      {/* viewBox: у иконок набора его нет, и без него смена размера не
+          масштабирует рисунок — карандаш рисовался 28px в углу бокса 64px. */}
+      <Icon28Edit viewBox="0 0 28 28" className="h-16 w-16 text-muted-foreground" />
 
       <div
         className="flex w-full max-w-xs items-center rounded-full bg-muted p-1 text-sm"

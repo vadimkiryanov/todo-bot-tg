@@ -467,11 +467,8 @@ func buildTimersMessage(notes []model.Note, timezoneOffset int) (string, tgbotap
 			prefix = emoji + " "
 		}
 
-		// Режим таймера: 🔂 — одноразовый, 🔁 — ежедневный
-		mode := "🔂"
-		if n.ReminderRepeat == model.ReminderRepeatDaily {
-			mode = "🔁"
-		}
+		// Режим таймера: 🔂 — одноразовый, 🔁 — ежедневный или по дням недели
+		mode := reminderModeEmoji(n)
 
 		preview := formatPreview(n.Text, 40, 1)
 		if preview == "" {
@@ -542,9 +539,7 @@ func buildViewNoteMessage(note model.Note, expanded bool, timezoneOffset int) (s
 	if note.ReminderAt != nil {
 		loc := userLocation(timezoneOffset)
 		reminderLine = fmt.Sprintf("\n⏰ %s", note.ReminderAt.In(loc).Format("02.01.2006 15:04"))
-		if note.ReminderRepeat == model.ReminderRepeatDaily {
-			reminderLine += " 🔁"
-		}
+		reminderLine += reminderRepeatSuffix(note)
 	}
 
 	idPart := fmt.Sprintf("*#%d*", note.ID)
@@ -612,9 +607,7 @@ func buildReminderMenu(note model.Note, timezoneOffset int) (string, tgbotapi.In
 	if note.ReminderAt != nil {
 		loc := userLocation(timezoneOffset)
 		reminderLine = fmt.Sprintf("\n⏰ %s", note.ReminderAt.In(loc).Format("02.01.2006 15:04"))
-		if note.ReminderRepeat == model.ReminderRepeatDaily {
-			reminderLine += " 🔁"
-		}
+		reminderLine += reminderRepeatSuffix(note)
 	}
 
 	text := fmt.Sprintf("⏰ Напоминание (местное)%s", reminderLine)
@@ -896,6 +889,31 @@ var now = time.Now
 // offset — смещение в часах от Москвы (0 = МСК, UTC+3).
 func userLocation(offset int) *time.Location {
 	return time.FixedZone("User", (3+offset)*3600)
+}
+
+// reminderRepeatSuffix — пометка повторения для строки напоминания:
+// « 🔁» ежедневно, « 🔁 Пн, Ср» по дням недели, « 🔁 1-го, 15-го» по числам
+// месяца, пусто для одноразового.
+func reminderRepeatSuffix(note model.Note) string {
+	switch note.ReminderRepeat {
+	case model.ReminderRepeatDaily:
+		return " 🔁"
+	case model.ReminderRepeatWeekly:
+		return " 🔁 " + note.ReminderWeekdays.Label()
+	case model.ReminderRepeatMonthly:
+		return " 🔁 " + note.ReminderMonthDays.Label()
+	default:
+		return ""
+	}
+}
+
+// reminderModeEmoji — эмодзи режима для строки таймера в списке:
+// 🔂 одноразовый, 🔁 повторяющийся (ежедневный, по дням недели или по числам месяца).
+func reminderModeEmoji(note model.Note) string {
+	if note.ReminderRepeat == model.ReminderRepeatOnce {
+		return "🔂"
+	}
+	return "🔁"
 }
 
 // buildPriorityMessage строит сообщение выбора приоритета.

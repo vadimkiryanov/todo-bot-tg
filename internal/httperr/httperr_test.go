@@ -28,6 +28,10 @@ func TestStatus(t *testing.T) {
 		{"пустое имя", errs.ErrEmptyName, http.StatusBadRequest},
 		{"некорректный приоритет", errs.ErrInvalidPriority, http.StatusBadRequest},
 		{"некорректный повтор напоминания", errs.ErrInvalidReminderRepeat, http.StatusBadRequest},
+		{"некорректные дни недели напоминания", errs.ErrInvalidReminderWeekdays, http.StatusBadRequest},
+		{"нет дней недели для недельного напоминания", errs.ErrEmptyReminderWeekdays, http.StatusBadRequest},
+		{"некорректные числа месяца напоминания", errs.ErrInvalidReminderMonthDays, http.StatusBadRequest},
+		{"нет чисел месяца для ежемесячного напоминания", errs.ErrEmptyReminderMonthDays, http.StatusBadRequest},
 		{"неизвестная ошибка", errors.New("boom"), http.StatusInternalServerError},
 	}
 	for _, tc := range cases {

@@ -83,7 +83,8 @@ export function DoneView() {
           >
             <Icon24ChevronLeft />
           </IconButton>
-          <Icon20Select className="h-6 w-6" />
+          {/* viewBox: без него смена размера не масштабирует рисунок. */}
+          <Icon20Select viewBox="0 0 20 20" className="h-6 w-6" />
           <IconButton
             type="button"
             size="m"

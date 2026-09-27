@@ -544,7 +544,7 @@ func TestService_SetReminder(t *testing.T) {
 	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
 
 	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
-	err := svc.SetReminder(1, note.ID, at, model.ReminderRepeatOnce)
+	err := svc.SetReminder(1, note.ID, at, model.ReminderRepeatOnce, model.WeekdaySet{}, model.MonthDays{})
 	if err != nil {
 		t.Fatalf("SetReminder() error: %v", err)
 	}
@@ -555,10 +555,35 @@ func TestService_SetReminder(t *testing.T) {
 	}
 }
 
+func TestService_SetReminder_Weekly(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
+
+	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+	weekdays, _ := model.NewWeekdaySet([]model.Weekday{model.WeekdayMonday, model.WeekdayFriday})
+	if err := svc.SetReminder(1, note.ID, at, model.ReminderRepeatWeekly, weekdays, model.MonthDays{}); err != nil {
+		t.Fatalf("SetReminder() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if got.ReminderRepeat != model.ReminderRepeatWeekly {
+		t.Errorf("ReminderRepeat = %q, want %q", got.ReminderRepeat, model.ReminderRepeatWeekly)
+	}
+	if got.ReminderWeekdays.String() != "1,5" {
+		t.Errorf("ReminderWeekdays = %q, want %q", got.ReminderWeekdays, "1,5")
+	}
+
+	// Недельный повтор без выбранных дней — доменная ошибка агрегата
+	err := svc.SetReminder(1, note.ID, at, model.ReminderRepeatWeekly, model.WeekdaySet{}, model.MonthDays{})
+	if err != errors.ErrEmptyReminderWeekdays {
+		t.Errorf("SetReminder() error = %v, want %v", err, errors.ErrEmptyReminderWeekdays)
+	}
+}
+
 func TestService_ClearReminder(t *testing.T) {
 	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
-	_ = svc.SetReminder(1, note.ID, time.Now(), model.ReminderRepeatOnce)
+	_ = svc.SetReminder(1, note.ID, time.Now(), model.ReminderRepeatOnce, model.WeekdaySet{}, model.MonthDays{})
 
 	err := svc.ClearReminder(1, note.ID)
 	if err != nil {
@@ -574,7 +599,7 @@ func TestService_ClearReminder(t *testing.T) {
 func TestService_SnoozeReminder(t *testing.T) {
 	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
-	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatOnce)
+	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatOnce, model.WeekdaySet{}, model.MonthDays{})
 
 	err := svc.SnoozeReminder(1, note.ID, 15)
 	if err != nil {
@@ -594,7 +619,7 @@ func TestService_SnoozeReminder(t *testing.T) {
 func TestService_SnoozeReminder_KeepsRepeat(t *testing.T) {
 	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
-	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatDaily)
+	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatDaily, model.WeekdaySet{}, model.MonthDays{})
 
 	err := svc.SnoozeReminder(1, note.ID, 30)
 	if err != nil {
@@ -620,7 +645,7 @@ func TestService_SnoozeReminder_NoReminder(t *testing.T) {
 func TestService_MarkDone_ClearsReminder(t *testing.T) {
 	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
-	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatDaily)
+	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatDaily, model.WeekdaySet{}, model.MonthDays{})
 
 	if err := svc.MarkDone(1, note.ID); err != nil {
 		t.Fatalf("MarkDone() error: %v", err)
@@ -640,7 +665,7 @@ func TestService_ProcessPendingReminders(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour)
 	_, _ = svc.AddNote(1, 0, nil, "Past", nil, 0)
 	note2, _ := svc.AddNote(1, 1, nil, "Past 2", nil, 0)
-	_ = svc.SetReminder(1, note2.ID, past, model.ReminderRepeatOnce)
+	_ = svc.SetReminder(1, note2.ID, past, model.ReminderRepeatOnce, model.WeekdaySet{}, model.MonthDays{})
 
 	notes, err := svc.ProcessPendingReminders()
 	if err != nil {
@@ -657,12 +682,84 @@ func TestService_ProcessPendingReminders(t *testing.T) {
 	}
 }
 
+func TestService_ProcessPendingReminders_Weekly(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Weekly", nil, 0)
+
+	// Анкер — четверг 15:00 UTC в прошлом; ближайший выбранный день (пятница)
+	// должен получить то же время суток.
+	anchor := time.Date(2020, 1, 2, 15, 0, 0, 0, time.UTC)
+	weekdays, _ := model.NewWeekdaySet([]model.Weekday{model.WeekdayMonday, model.WeekdayFriday})
+	if err := svc.SetReminder(1, note.ID, anchor, model.ReminderRepeatWeekly, weekdays, model.MonthDays{}); err != nil {
+		t.Fatalf("SetReminder() error: %v", err)
+	}
+
+	notes, err := svc.ProcessPendingReminders()
+	if err != nil {
+		t.Fatalf("ProcessPendingReminders() error: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("len = %d, want 1", len(notes))
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if got.ReminderAt == nil {
+		t.Fatal("ReminderAt cleared, want перенос на следующий день")
+	}
+	want := time.Date(2020, 1, 3, 15, 0, 0, 0, time.UTC) // пятница
+	if !got.ReminderAt.Equal(want) {
+		t.Errorf("ReminderAt = %v, want %v", got.ReminderAt, want)
+	}
+	if got.ReminderRepeat != model.ReminderRepeatWeekly {
+		t.Errorf("ReminderRepeat = %q, want %q", got.ReminderRepeat, model.ReminderRepeatWeekly)
+	}
+	if got.ReminderWeekdays.String() != "1,5" {
+		t.Errorf("ReminderWeekdays = %q, want %q", got.ReminderWeekdays, "1,5")
+	}
+}
+
+func TestService_ProcessPendingReminders_Monthly(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Monthly", nil, 0)
+
+	// Анкер — 31 января 15:00 UTC в прошлом; в феврале 31-го нет, поэтому
+	// следующее срабатывание — 31 марта, время суток сохраняется.
+	anchor := time.Date(2020, 1, 31, 15, 0, 0, 0, time.UTC)
+	monthDays, _ := model.NewMonthDays([]int{31})
+	if err := svc.SetReminder(1, note.ID, anchor, model.ReminderRepeatMonthly, model.WeekdaySet{}, monthDays); err != nil {
+		t.Fatalf("SetReminder() error: %v", err)
+	}
+
+	notes, err := svc.ProcessPendingReminders()
+	if err != nil {
+		t.Fatalf("ProcessPendingReminders() error: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("len = %d, want 1", len(notes))
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	if got.ReminderAt == nil {
+		t.Fatal("ReminderAt cleared, want перенос на следующее число")
+	}
+	want := time.Date(2020, 3, 31, 15, 0, 0, 0, time.UTC) // февраль пропущен
+	if !got.ReminderAt.Equal(want) {
+		t.Errorf("ReminderAt = %v, want %v", got.ReminderAt, want)
+	}
+	if got.ReminderRepeat != model.ReminderRepeatMonthly {
+		t.Errorf("ReminderRepeat = %q, want %q", got.ReminderRepeat, model.ReminderRepeatMonthly)
+	}
+	if got.ReminderMonthDays.String() != "31" {
+		t.Errorf("ReminderMonthDays = %q, want %q", got.ReminderMonthDays, "31")
+	}
+}
+
 func TestService_NotificationsJournal(t *testing.T) {
 	svc := newTestService(t)
 
 	past := time.Now().Add(-time.Hour).UTC()
 	note, _ := svc.AddNote(1, 1, nil, "Напомни", nil, 0)
-	if err := svc.SetReminder(1, note.ID, past, model.ReminderRepeatOnce); err != nil {
+	if err := svc.SetReminder(1, note.ID, past, model.ReminderRepeatOnce, model.WeekdaySet{}, model.MonthDays{}); err != nil {
 		t.Fatalf("SetReminder() error: %v", err)
 	}
 
@@ -708,7 +805,7 @@ func TestService_Notifications_OtherUser(t *testing.T) {
 
 	past := time.Now().Add(-time.Hour).UTC()
 	note, _ := svc.AddNote(2, 1, nil, "Чужое", nil, 0)
-	_ = svc.SetReminder(2, note.ID, past, model.ReminderRepeatOnce)
+	_ = svc.SetReminder(2, note.ID, past, model.ReminderRepeatOnce, model.WeekdaySet{}, model.MonthDays{})
 	_, _ = svc.ProcessPendingReminders()
 
 	items, err := svc.ListNotifications(1)
@@ -730,10 +827,10 @@ func TestService_ListTimers(t *testing.T) {
 
 	early := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
 	late := time.Date(2026, 8, 6, 18, 0, 0, 0, time.UTC)
-	if err := svc.SetReminder(1, n1.ID, early, model.ReminderRepeatOnce); err != nil {
+	if err := svc.SetReminder(1, n1.ID, early, model.ReminderRepeatOnce, model.WeekdaySet{}, model.MonthDays{}); err != nil {
 		t.Fatalf("SetReminder() error: %v", err)
 	}
-	if err := svc.SetReminder(1, n2.ID, late, model.ReminderRepeatDaily); err != nil {
+	if err := svc.SetReminder(1, n2.ID, late, model.ReminderRepeatDaily, model.WeekdaySet{}, model.MonthDays{}); err != nil {
 		t.Fatalf("SetReminder() error: %v", err)
 	}
 
@@ -757,7 +854,7 @@ func TestService_ListTimers_OtherUser(t *testing.T) {
 	svc := newTestService(t)
 
 	note, _ := svc.AddNote(2, 1, nil, "Чужой таймер", nil, 0)
-	_ = svc.SetReminder(2, note.ID, time.Now(), model.ReminderRepeatOnce)
+	_ = svc.SetReminder(2, note.ID, time.Now(), model.ReminderRepeatOnce, model.WeekdaySet{}, model.MonthDays{})
 
 	notes, err := svc.ListTimers(1)
 	if err != nil {

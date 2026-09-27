@@ -169,12 +169,12 @@ internal/
 ### Notes
 | Метод | Путь | Описание | Тело → Ответ |
 |---|---|---|---|
-| GET | `/api/v1/notes?topic_id=N` | Список заметок топика (сортировка как у бота: pinned → priority → done в конце) | → `[{id, text, priority, done, pinned, created_at, updated_at, reminder_at, reminder_repeat}]` |
-| POST | `/api/v1/notes` | Создать | `{topic_id, text}` → 201 Note |
+| GET | `/api/v1/notes?topic_id=N` | Список заметок топика (сортировка как у бота: pinned → priority → done в конце) | → `[{id, text, priority, done, pinned, created_at, updated_at, reminder_at, reminder_repeat, reminder_weekdays, reminder_month_days}]` |
+| POST | `/api/v1/notes` | Создать | `{topic_id, text, reminder_at?, reminder_repeat?, reminder_weekdays?, reminder_month_days?}` → 201 Note |
 | PATCH | `/api/v1/notes/{id}` | Частичное обновление | `{text?, done?, priority?, pinned?, archived?}` → 200 Note |
 | DELETE | `/api/v1/notes/{id}` | Удалить | — → 204 |
 | POST | `/api/v1/notes/{id}/move` | Переместить в топик/папку | `{topic_id, folder_id?}` → 200 Note |
-| PUT | `/api/v1/notes/{id}/reminder` | Установить/перенести напоминание | `{at, repeat}` → 200 Note |
+| PUT | `/api/v1/notes/{id}/reminder` | Установить/перенести напоминание | `{at, repeat, weekdays?, month_days?}` → 200 Note |
 | DELETE | `/api/v1/notes/{id}/reminder` | Снять напоминание | — → 200 Note |
 
 - `priority`: строка `"none" | "low" | "medium" | "high"` (конвертер в `model.Priority`).
@@ -182,7 +182,18 @@ internal/
 - `text` при PATCH: редактирование; `entities` не передаются (MVP) — форматирование сбрасывается
   (см. ограничение в §8).
 - `reminder_at`: ISO 8601 (RFC3339, UTC), `null` — напоминания нет. `reminder_repeat`:
-  `"once" | "daily"` (Value Object `model.ReminderRepeat`).
+  `"once" | "daily" | "weekly" | "monthly"` (Value Object `model.ReminderRepeat`).
+- `reminder_weekdays`: массив номеров дней недели `1..7` (`1` = понедельник … `7` = воскресенье,
+  ISO 8601). Заполнен только для `repeat: "weekly"`; для остальных — пустой массив `[]`.
+  Дни сверяются в UTC-времени `reminder_at` (веб сам приводит местные дни недели к UTC).
+  Для `weekly` нужен хотя бы один день — иначе 400 (`ErrEmptyReminderWeekdays`); номер вне `1..7` —
+  400 (`ErrInvalidReminderWeekdays`).
+- `reminder_month_days`: массив чисел месяца `1..31`. Заполнен только для `repeat: "monthly"`;
+  для остальных — пустой массив `[]`. Числа сверяются в UTC-времени `reminder_at`.
+  Месяц, в котором выбранного числа нет (31 февраля), пропускается — напоминание в нём не
+  срабатывает (следующее срабатывание — 31 марта). Для `monthly` нужно хотя бы одно число — иначе
+  400 (`ErrEmptyReminderMonthDays`); число вне `1..31` — 400 (`ErrInvalidReminderMonthDays`).
+
 - `updated_at`: ISO 8601 (RFC3339) — время последнего редактирования **текста** заметки.
   Проставляется только в `NewNote` и `EditText`; действия над статусом (приоритет, выполнение,
   закрепление, архив, перемещение) его не меняют. Добавлено 2026-09-10 (веб показывает

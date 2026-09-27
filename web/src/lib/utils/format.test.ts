@@ -11,6 +11,12 @@ import {
   priorityMark,
   renderNoteHtml,
 } from './format';
+import {
+  WEEKDAY_LABELS,
+  localWeekday,
+  shiftWeekdays,
+  weekdayShift,
+} from './weekdays';
 
 describe('parseMarkdown', () => {
   it('разбирает **bold**, *italic*, `code` и [ссылка](url)', () => {
@@ -131,6 +137,31 @@ describe('formatReminderAt', () => {
     const text = formatReminderAt(at, 'daily');
     // Время — локальное, поэтому сверяем только префикс и наличие часов.
     expect(text.startsWith('ежедневно в ')).toBe(true);
+  });
+
+  it('недельное напоминание — выбранные дни недели', () => {
+    // Дни выбираются в локальном кадре, а хранятся в UTC: проверяем, что
+    // показ возвращает пользователю тот же день, что он выбрал.
+    const at = new Date(2026, 8, 5, 14, 5).toISOString();
+    const picked = localWeekday(new Date(at));
+    const utcDays = shiftWeekdays([picked], weekdayShift(new Date(at)));
+    const text = formatReminderAt(at, 'weekly', utcDays);
+    expect(text.startsWith(`по ${WEEKDAY_LABELS[picked - 1]} в `)).toBe(true);
+  });
+
+  it('недельное напоминание без дней — «по неделям в HH:MM»', () => {
+    const text = formatReminderAt('2026-09-05T14:05:00Z', 'weekly', []);
+    expect(text.startsWith('по неделям в ')).toBe(true);
+  });
+
+  it('месячное напоминание — выбранные числа месяца', () => {
+    const text = formatReminderAt('2026-09-15T14:05:00Z', 'monthly', [], [1, 15]);
+    expect(text.startsWith('по 1, 15 числам в ')).toBe(true);
+  });
+
+  it('месячное напоминание без чисел — «по месяцам в HH:MM»', () => {
+    const text = formatReminderAt('2026-09-15T14:05:00Z', 'monthly', []);
+    expect(text.startsWith('по месяцам в ')).toBe(true);
   });
 
   it('одноразовое сегодня — «в HH:MM»', () => {

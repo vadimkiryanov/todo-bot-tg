@@ -176,6 +176,16 @@ func (h *todoHandler) createNote(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+			weekdays, weekdaysErr := dto.ParseWeekdays(input.ReminderWeekdays)
+			if weekdaysErr != nil {
+				httperr.Write(w, weekdaysErr)
+				return
+			}
+			monthDays, monthDaysErr := dto.ParseMonthDays(input.ReminderMonthDays)
+			if monthDaysErr != nil {
+				httperr.Write(w, monthDaysErr)
+				return
+			}
 			// Одноразовое напоминание не может быть в прошлом (как в боте).
 			if repeat == model.ReminderRepeatOnce && !at.After(time.Now().UTC()) {
 				httperr.Write(w, errs.ErrReminderInPast)
@@ -183,6 +193,8 @@ func (h *todoHandler) createNote(w http.ResponseWriter, r *http.Request) {
 			}
 			opt.ReminderAt = &at
 			opt.ReminderRepeat = repeat
+			opt.ReminderWeekdays = weekdays
+			opt.ReminderMonthDays = monthDays
 		}
 		opts = []todo.AddNoteOptions{opt}
 	}
@@ -353,6 +365,16 @@ func (h *todoHandler) setReminder(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, err)
 		return
 	}
+	weekdays, err := dto.ParseWeekdays(input.Weekdays)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
+	monthDays, err := dto.ParseMonthDays(input.MonthDays)
+	if err != nil {
+		httperr.Write(w, err)
+		return
+	}
 	// Одноразовое напоминание не может быть в прошлом (как в боте).
 	if repeat == model.ReminderRepeatOnce && !at.After(time.Now().UTC()) {
 		httperr.Write(w, errs.ErrReminderInPast)
@@ -360,7 +382,7 @@ func (h *todoHandler) setReminder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := middleware.UserID(r.Context())
-	if err := h.svc.SetReminder(userID, noteID, at, repeat); err != nil {
+	if err := h.svc.SetReminder(userID, noteID, at, repeat, weekdays, monthDays); err != nil {
 		httperr.Write(w, err)
 		return
 	}

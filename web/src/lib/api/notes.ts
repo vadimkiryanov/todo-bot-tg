@@ -47,6 +47,8 @@ export interface CreateNoteOptions {
   priority?: Priority;
   reminder_at?: string; // ISO 8601 (UTC)
   reminder_repeat?: ReminderRepeat;
+  reminder_weekdays?: number[]; // 1 = Пн … 7 = Вс (для 'weekly')
+  reminder_month_days?: number[]; // 1..31 (для 'monthly')
 }
 
 /** Создание заметки. folderId null — в корне топика. */
@@ -65,6 +67,8 @@ export function createNote(
   if (opts.priority !== undefined) body.priority = opts.priority;
   if (opts.reminder_at !== undefined) body.reminder_at = opts.reminder_at;
   if (opts.reminder_repeat !== undefined) body.reminder_repeat = opts.reminder_repeat;
+  if (opts.reminder_weekdays !== undefined) body.reminder_weekdays = opts.reminder_weekdays;
+  if (opts.reminder_month_days !== undefined) body.reminder_month_days = opts.reminder_month_days;
   return request<Note>('POST', '/api/v1/notes', body);
 }
 
@@ -92,9 +96,20 @@ export function deleteNote(id: number): Promise<void> {
   return request<void>('DELETE', `/api/v1/notes/${id}`);
 }
 
-/** Установка/перенос напоминания. at — ISO 8601 (UTC). */
-export function setReminder(id: number, at: string, repeat: ReminderRepeat): Promise<Note> {
-  return request<Note>('PUT', `/api/v1/notes/${id}/reminder`, { at, repeat });
+/** Установка/перенос напоминания. at — ISO 8601 (UTC).
+ *  weekdays (1 = Пн … 7 = Вс) — только для repeat: 'weekly'.
+ *  monthDays (1..31) — только для repeat: 'monthly'. */
+export function setReminder(
+  id: number,
+  at: string,
+  repeat: ReminderRepeat,
+  weekdays: number[] = [],
+  monthDays: number[] = [],
+): Promise<Note> {
+  const body: Record<string, unknown> = { at, repeat };
+  if (repeat === 'weekly') body.weekdays = weekdays;
+  if (repeat === 'monthly') body.month_days = monthDays;
+  return request<Note>('PUT', `/api/v1/notes/${id}/reminder`, body);
 }
 
 /** Снятие напоминания. */

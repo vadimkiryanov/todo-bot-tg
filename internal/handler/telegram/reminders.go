@@ -95,7 +95,9 @@ func (h *Handler) callbackReminderRepeat(chatID int64, msgID int, userID int64, 
 		return
 	}
 
-	if err := h.noteService.SetReminder(userID, noteID, at, remRepeat); err != nil {
+	// Недельный и ежемесячный повторы настраиваются только в вебе — из бота
+	// создаём обычный повтор.
+	if err := h.noteService.SetReminder(userID, noteID, at, remRepeat, model.WeekdaySet{}, model.MonthDays{}); err != nil {
 		h.callbackAnswer(chatID, msgID, fmt.Sprintf("❌ %v", err))
 		return
 	}

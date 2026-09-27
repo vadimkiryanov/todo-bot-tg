@@ -3,6 +3,8 @@
 // поэтому String.slice (тоже UTF-16) совпадает по позициям.
 
 import type { NoteEntity, Priority, ReminderRepeat } from '../types/api';
+import { formatUtcWeekdaysAt } from './weekdays';
+import { formatMonthDays } from './monthdays';
 
 // --- Markdown → entities (зеркало parseMarkdownEntities в Go) ---
 
@@ -241,8 +243,14 @@ export function firstLineHtml(text: string, entities: NoteEntity[]): string {
 // --- Напоминания ---
 
 /** Человекочитаемое время напоминания (локальное): «в 14:05», «завтра, в 9:00»,
- * «5 сент. в 14:05», «ежедневно в 14:05». */
-export function formatReminderAt(reminderAt: string, repeat: ReminderRepeat): string {
+ * «5 сент. в 14:05», «ежедневно в 14:05», «по Пн, Ср в 14:05»,
+ * «по 1, 15 числам в 14:05». */
+export function formatReminderAt(
+  reminderAt: string,
+  repeat: ReminderRepeat,
+  weekdays: number[] = [],
+  monthDays: number[] = [],
+): string {
   const date = new Date(reminderAt);
   const time = date.toLocaleTimeString([], {
     hour: '2-digit',
@@ -251,6 +259,14 @@ export function formatReminderAt(reminderAt: string, repeat: ReminderRepeat): st
   });
   if (repeat === 'daily') {
     return `ежедневно в ${time}`;
+  }
+  if (repeat === 'weekly') {
+    const days = formatUtcWeekdaysAt(weekdays, reminderAt);
+    return days === '' ? `по неделям в ${time}` : `по ${days} в ${time}`;
+  }
+  if (repeat === 'monthly') {
+    const days = formatMonthDays(monthDays);
+    return days === '' ? `по месяцам в ${time}` : `по ${days} числам в ${time}`;
   }
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();

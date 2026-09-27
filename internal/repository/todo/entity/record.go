@@ -14,12 +14,18 @@ type NoteRecord struct {
 	Priority       int        `db:"priority"`
 	ReminderAt     *time.Time `db:"reminder_at"`
 	ReminderRepeat string     `db:"reminder_repeat"`
-	CreatedAt      time.Time  `db:"created_at"`
-	UpdatedAt      time.Time  `db:"updated_at"`
-	Archived       bool       `db:"archived"`
-	Done           bool       `db:"done"`
-	Pinned         bool       `db:"pinned"`
-	PinnedUntil    *time.Time `db:"pinned_until"`
+	// ReminderWeekdays — дни недели недельного повтора в каноническом виде «1,3,5»;
+	// пустая строка — не недельный повтор.
+	ReminderWeekdays string `db:"reminder_weekdays"`
+	// ReminderMonthDays — числа месяца ежемесячного повтора в каноническом виде «1,15»;
+	// пустая строка — не ежемесячный повтор.
+	ReminderMonthDays string     `db:"reminder_month_days"`
+	CreatedAt         time.Time  `db:"created_at"`
+	UpdatedAt         time.Time  `db:"updated_at"`
+	Archived          bool       `db:"archived"`
+	Done              bool       `db:"done"`
+	Pinned            bool       `db:"pinned"`
+	PinnedUntil       *time.Time `db:"pinned_until"`
 }
 
 // TopicRecord — persistence-модель для топика.

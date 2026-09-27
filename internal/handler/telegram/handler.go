@@ -27,7 +27,7 @@ type NoteService interface {
 	PinNoteUntil(userID, noteID int64, at time.Time) error
 	UnpinNote(userID, noteID int64) error
 	SetPriority(userID, noteID int64, priority model.Priority) error
-	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error
+	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat, weekdays model.WeekdaySet, monthDays model.MonthDays) error
 	ClearReminder(userID, noteID int64) error
 	SnoozeReminder(userID, noteID int64, minutes int) error
 	ProcessPendingReminders() ([]model.Note, error)

@@ -27,13 +27,17 @@ type Note struct {
 	Entities       []NoteEntity   // форматирование текста (nil — без форматирования)
 	Priority       Priority       // PriorityNone / Low / Medium / High
 	ReminderAt     *time.Time     // nil — без напоминания
-	ReminderRepeat ReminderRepeat // once / daily
-	CreatedAt      time.Time
-	UpdatedAt      time.Time // время последнего редактирования текста
-	Archived       bool
-	Done           bool       // заметка выполнена (галочка)
-	Pinned         bool       // заметка закреплена (всегда вверху списка)
-	PinnedUntil    *time.Time // nil — закреплена постоянно; иначе — время окончания закрепления
+	ReminderRepeat ReminderRepeat // once / daily / weekly / monthly
+	// ReminderWeekdays — дни недели для недельного повтора (для остальных — пустой набор).
+	ReminderWeekdays WeekdaySet
+	// ReminderMonthDays — числа месяца для ежемесячного повтора (для остальных — пустой набор).
+	ReminderMonthDays MonthDays
+	CreatedAt         time.Time
+	UpdatedAt         time.Time // время последнего редактирования текста
+	Archived          bool
+	Done              bool       // заметка выполнена (галочка)
+	Pinned            bool       // заметка закреплена (всегда вверху списка)
+	PinnedUntil       *time.Time // nil — закреплена постоянно; иначе — время окончания закрепления
 }
 
 // NewNote создаёт новую заметку с валидацией (по умолчанию без приоритета).
@@ -64,12 +68,33 @@ func (n *Note) SetPriority(p Priority) error {
 }
 
 // SetReminder устанавливает напоминание с валидацией типа повторения.
-func (n *Note) SetReminder(at time.Time, repeat ReminderRepeat) error {
+// Для недельного повтора (weekly) набор дней недели обязателен, для
+// ежемесячного (monthly) — набор чисел месяца; незначимые для выбранного типа
+// наборы нормализуются в пустые, чтобы в агрегате не оставалось
+// противоречивого состояния.
+func (n *Note) SetReminder(at time.Time, repeat ReminderRepeat, weekdays WeekdaySet, monthDays MonthDays) error {
 	if !repeat.valid() {
 		return errors.ErrInvalidReminderRepeat
 	}
+	switch repeat {
+	case ReminderRepeatWeekly:
+		if weekdays.IsEmpty() {
+			return errors.ErrEmptyReminderWeekdays
+		}
+		monthDays = MonthDays{}
+	case ReminderRepeatMonthly:
+		if monthDays.IsEmpty() {
+			return errors.ErrEmptyReminderMonthDays
+		}
+		weekdays = WeekdaySet{}
+	default:
+		weekdays = WeekdaySet{}
+		monthDays = MonthDays{}
+	}
 	n.ReminderAt = &at
 	n.ReminderRepeat = repeat
+	n.ReminderWeekdays = weekdays
+	n.ReminderMonthDays = monthDays
 	return nil
 }
 
@@ -77,6 +102,8 @@ func (n *Note) SetReminder(at time.Time, repeat ReminderRepeat) error {
 func (n *Note) ClearReminder() {
 	n.ReminderAt = nil
 	n.ReminderRepeat = ReminderRepeatOnce
+	n.ReminderWeekdays = WeekdaySet{}
+	n.ReminderMonthDays = MonthDays{}
 }
 
 // Archive помечает заметку как архивную.

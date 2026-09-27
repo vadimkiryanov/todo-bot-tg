@@ -45,20 +45,60 @@ func ToNoteResponse(n model.Note) NoteResponse {
 		reminderAt = &s
 	}
 	return NoteResponse{
-		ID:             n.ID,
-		Text:           n.Text,
-		Entities:       entities,
-		Priority:       PriorityString(n.Priority),
-		Done:           n.Done,
-		Pinned:         n.IsPinned(),
-		Archived:       n.Archived,
-		CreatedAt:      n.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:      n.UpdatedAt.Format(time.RFC3339),
-		TopicID:        n.TopicID,
-		FolderID:       n.FolderID,
-		ReminderAt:     reminderAt,
-		ReminderRepeat: string(n.ReminderRepeat),
+		ID:                n.ID,
+		Text:              n.Text,
+		Entities:          entities,
+		Priority:          PriorityString(n.Priority),
+		Done:              n.Done,
+		Pinned:            n.IsPinned(),
+		Archived:          n.Archived,
+		CreatedAt:         n.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:         n.UpdatedAt.Format(time.RFC3339),
+		TopicID:           n.TopicID,
+		FolderID:          n.FolderID,
+		ReminderAt:        reminderAt,
+		ReminderRepeat:    string(n.ReminderRepeat),
+		ReminderWeekdays:  WeekdaysToInts(n.ReminderWeekdays),
+		ReminderMonthDays: MonthDaysToInts(n.ReminderMonthDays),
 	}
+}
+
+// WeekdaysToInts сериализует набор дней недели в контракт API (1 = Пн … 7 = Вс).
+// Для пустого набора возвращается пустой массив, а не nil — фронт всегда видит список.
+func WeekdaysToInts(s model.WeekdaySet) []int {
+	days := s.Days()
+	out := make([]int, 0, len(days))
+	for _, d := range days {
+		out = append(out, int(d))
+	}
+	return out
+}
+
+// ParseWeekdays переводит дни недели из контракта API в доменный набор
+// (день вне диапазона 1..7 — ошибка контракта).
+func ParseWeekdays(days []int) (model.WeekdaySet, error) {
+	list := make([]model.Weekday, 0, len(days))
+	for _, d := range days {
+		list = append(list, model.Weekday(d))
+	}
+	return model.NewWeekdaySet(list)
+}
+
+// MonthDaysToInts сериализует набор чисел месяца в контракт API (1..31).
+// Для пустого набора возвращается пустой массив, а не nil — фронт всегда видит список.
+func MonthDaysToInts(s model.MonthDays) []int {
+	days := s.Days()
+	out := make([]int, 0, len(days))
+	for _, d := range days {
+		out = append(out, d)
+	}
+	return out
+}
+
+// ParseMonthDays переводит числа месяца из контракта API в доменный набор
+// (число вне диапазона 1..31 — ошибка контракта).
+func ParseMonthDays(days []int) (model.MonthDays, error) {
+	return model.NewMonthDays(days)
 }
 
 // ToFolderResponse конвертирует папку в DTO.

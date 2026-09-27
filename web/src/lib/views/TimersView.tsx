@@ -122,8 +122,19 @@ export function TimersView() {
                     before={
                       note.done ? <Icon20Select className="h-5 w-5" /> : undefined
                     }
-                    subtitle={`${formatReminderAt(note.reminder_at!, note.reminder_repeat)}${
-                      note.reminder_repeat === 'daily' ? ' · ежедневно' : ' · один раз'
+                    subtitle={`${formatReminderAt(
+                      note.reminder_at!,
+                      note.reminder_repeat,
+                      note.reminder_weekdays,
+                      note.reminder_month_days,
+                    )}${
+                      note.reminder_repeat === 'daily'
+                        ? ' · ежедневно'
+                        : note.reminder_repeat === 'weekly'
+                          ? ' · по дням недели'
+                          : note.reminder_repeat === 'monthly'
+                            ? ' · по числам месяца'
+                            : ' · один раз'
                     }`}
                     onClick={() => setSelectedId(note.id)}
                   >

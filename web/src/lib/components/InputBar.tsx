@@ -33,7 +33,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { IconButton, List, Section } from '@telegram-apps/telegram-ui';
 import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
-import { Icon24ChevronDown } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_down';
 import { Icon24ChevronRight } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_right';
 import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
 import { Icon24PersonRemove } from '@telegram-apps/telegram-ui/dist/icons/24/person_remove';
@@ -52,6 +51,7 @@ import type { Note, Priority, ReminderRepeat } from '../types/api';
 import { useCloseAnim } from '../utils/closeAnim';
 import { nextPriority, priorityLabel, priorityMark } from '../utils/format';
 
+import { ExpandIcon } from './ExpandIcon';
 import { FolderIcon } from './FolderIcon';
 import { Modal } from './Modal';
 import { MenuRow } from './MenuRow';
@@ -94,6 +94,10 @@ export function InputBar({
   const [expanded, setExpanded] = useState(false);
   const [reminderAt, setReminderAt] = useState<string | null>(null); // ISO 8601 UTC
   const [reminderRepeat, setReminderRepeat] = useState<ReminderRepeat>('once');
+  // Дни недели недельного повтора в UTC-кадре (1 = Пн … 7 = Вс), как в API.
+  const [reminderWeekdays, setReminderWeekdays] = useState<number[]>([]);
+  // Числа месяца месячного повтора (1..31), как в API.
+  const [reminderMonthDays, setReminderMonthDays] = useState<number[]>([]);
   const [showReminderForm, setShowReminderForm] = useState(false);
 
   // Бургер-меню: выполненные, архив, настройки и выход.
@@ -145,12 +149,18 @@ export function InputBar({
     pinned: boolean;
     reminder_at?: string;
     reminder_repeat?: ReminderRepeat;
+    reminder_weekdays?: number[];
+    reminder_month_days?: number[];
   } {
     return {
       priority,
       pinned,
       reminder_at: reminderAt ?? undefined,
       reminder_repeat: reminderAt !== null ? reminderRepeat : undefined,
+      reminder_weekdays:
+        reminderAt !== null && reminderRepeat === 'weekly' ? reminderWeekdays : undefined,
+      reminder_month_days:
+        reminderAt !== null && reminderRepeat === 'monthly' ? reminderMonthDays : undefined,
     };
   }
 
@@ -163,6 +173,8 @@ export function InputBar({
     setExpanded(false);
     setReminderAt(null);
     setReminderRepeat('once');
+    setReminderWeekdays([]);
+    setReminderMonthDays([]);
     setShowReminderForm(false);
   }
 
@@ -405,10 +417,14 @@ export function InputBar({
             <ReminderForm
               initial={reminderAt ?? ''}
               initialRepeat={reminderRepeat}
+              initialWeekdays={reminderWeekdays}
+              initialMonthDays={reminderMonthDays}
               busy={sending}
-              onSubmit={async (iso, repeat) => {
+              onSubmit={async (iso, repeat, weekdays, monthDays) => {
                 setReminderAt(iso);
                 setReminderRepeat(repeat);
+                setReminderWeekdays(weekdays);
+                setReminderMonthDays(monthDays);
               }}
               onSaved={() => {
                 setShowReminderForm(false);
@@ -527,8 +543,11 @@ export function InputBar({
                     в наборе библиотеки пина нет). */}
                 <PinIcon className="h-6 w-6" />
               </IconButton>
-              {/* Шеврон вниз — созданная заметка будет развёрнута: карточка
-                  покажет текст целиком (то же, что «Развернуть» в меню заметки). */}
+              {/* Иконка объёма — созданная заметка будет развёрнута: карточка
+                  покажет текст целиком (то же, что «Развернуть» в меню
+                  заметки). Иконка сама говорит, в каком режиме функция:
+                  сокращённо — обрезанная карточка с шевроном, целиком —
+                  карточка со всеми строками. */}
               <IconButton
                 type="button"
                 size="m"
@@ -539,7 +558,7 @@ export function InputBar({
                 className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
                 onClick={() => press(() => setExpanded(!expanded))}
               >
-                <Icon24ChevronDown className="h-6 w-6" />
+                <ExpandIcon expanded={expanded} className="h-6 w-6" />
               </IconButton>
               {/* Карандаш прижат вправо: создать заметку и сразу открыть её
                   в полном редакторе (форматирование, заголовки, списки). */}
@@ -620,7 +639,10 @@ export function InputBar({
               void send();
             }}
           >
-            {sending ? <Spinner size="20px" /> : <Icon24ChevronRight className="h-6 w-6" />}
+            {/* viewBox пишем и здесь, хотя размер родной (24): у иконок набора
+                его нет вообще, и это единственное, что удерживает рисунок в
+                боксе, если размер когда-нибудь поменяют. */}
+            {sending ? <Spinner size="20px" /> : <Icon24ChevronRight viewBox="0 0 24 24" className="h-6 w-6" />}
           </IconButton>
         </div>
       </div>

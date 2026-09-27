@@ -6,8 +6,10 @@ import "todo-bot-tg/internal/errors"
 type ReminderRepeat string
 
 const (
-	ReminderRepeatOnce  ReminderRepeat = "once"
-	ReminderRepeatDaily ReminderRepeat = "daily"
+	ReminderRepeatOnce    ReminderRepeat = "once"
+	ReminderRepeatDaily   ReminderRepeat = "daily"
+	ReminderRepeatWeekly  ReminderRepeat = "weekly"
+	ReminderRepeatMonthly ReminderRepeat = "monthly"
 )
 
 // NewReminderRepeat создаёт ReminderRepeat с валидацией значения.
@@ -22,7 +24,7 @@ func NewReminderRepeat(s string) (ReminderRepeat, error) {
 // valid проверяет, что значение повторения допустимо.
 func (r ReminderRepeat) valid() bool {
 	switch r {
-	case ReminderRepeatOnce, ReminderRepeatDaily:
+	case ReminderRepeatOnce, ReminderRepeatDaily, ReminderRepeatWeekly, ReminderRepeatMonthly:
 		return true
 	default:
 		return false

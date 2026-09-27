@@ -25,8 +25,12 @@ var (
 
 // Value Object
 var (
-	ErrInvalidPriority       = errors.New("некорректный приоритет заметки")
-	ErrInvalidReminderRepeat = errors.New("некорректный тип повторения напоминания")
+	ErrInvalidPriority          = errors.New("некорректный приоритет заметки")
+	ErrInvalidReminderRepeat    = errors.New("некорректный тип повторения напоминания")
+	ErrInvalidReminderWeekdays  = errors.New("некорректные дни недели напоминания")
+	ErrEmptyReminderWeekdays    = errors.New("для недельного напоминания выбери хотя бы один день недели")
+	ErrInvalidReminderMonthDays = errors.New("некорректные числа месяца напоминания")
+	ErrEmptyReminderMonthDays   = errors.New("для ежемесячного напоминания выбери хотя бы одно число месяца")
 )
 
 // Folder

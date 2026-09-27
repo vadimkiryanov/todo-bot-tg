@@ -304,6 +304,8 @@ export interface CreateNoteOptions {
   priority?: Priority;
   reminder_at?: string; // ISO 8601 (UTC)
   reminder_repeat?: ReminderRepeat;
+  reminder_weekdays?: number[]; // 1 = Пн … 7 = Вс (для 'weekly')
+  reminder_month_days?: number[]; // 1..31 (для 'monthly')
 }
 
 /** Ошибка мутации заметки: показать тост и вернуть ошибку для проброса.
@@ -534,14 +536,29 @@ export async function removeDoneNote(note: Note): Promise<void> {
   toastSuccess('Заметка удалена');
 }
 
-/** Установить/перенести напоминание: оптимистично, откат при ошибке. */
-export async function setReminder(note: Note, at: string, repeat: ReminderRepeat): Promise<void> {
+/** Установить/перенести напоминание: оптимистично, откат при ошибке.
+    weekdays (1 = Пн … 7 = Вс) — только для repeat: 'weekly'.
+    monthDays (1..31) — только для repeat: 'monthly'. */
+export async function setReminder(
+  note: Note,
+  at: string,
+  repeat: ReminderRepeat,
+  weekdays: number[] = [],
+  monthDays: number[] = [],
+): Promise<void> {
+  const days = repeat === 'weekly' ? weekdays : [];
+  const month = repeat === 'monthly' ? monthDays : [];
   try {
     if (
       await mutateReminder(
         note,
-        { reminder_at: at, reminder_repeat: repeat },
-        () => apiSetReminder(note.id, at, repeat),
+        {
+          reminder_at: at,
+          reminder_repeat: repeat,
+          reminder_weekdays: days,
+          reminder_month_days: month,
+        },
+        () => apiSetReminder(note.id, at, repeat, days, month),
       )
     ) {
       toastSuccess('Напоминание установлено');
@@ -557,7 +574,12 @@ export async function clearReminder(note: Note): Promise<void> {
     if (
       await mutateReminder(
         note,
-        { reminder_at: null, reminder_repeat: 'once' },
+        {
+          reminder_at: null,
+          reminder_repeat: 'once',
+          reminder_weekdays: [],
+          reminder_month_days: [],
+        },
         () => apiClearReminder(note.id),
       )
     ) {
@@ -735,7 +757,9 @@ async function mutateNote(note: Note, patch: NotePatch): Promise<boolean> {
  */
 async function mutateReminder(
   note: Note,
-  patch: Partial<Pick<Note, 'reminder_at' | 'reminder_repeat'>>,
+  patch: Partial<
+    Pick<Note, 'reminder_at' | 'reminder_repeat' | 'reminder_weekdays' | 'reminder_month_days'>
+  >,
   apply: () => Promise<Note>,
 ): Promise<boolean> {
   const owner = noteOwner(note.id);

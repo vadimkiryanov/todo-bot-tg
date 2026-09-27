@@ -215,7 +215,7 @@ export function FolderMenu({ folder, rect, onClose }: FolderMenuProps) {
               Переименовать
             </MenuRow>
             <MenuRow
-              icon={<Icon16Cancel className="h-5 w-5" />}
+              icon={<Icon16Cancel viewBox="0 0 16 16" className="h-5 w-5" />}
               danger
               onSelect={() => {
                 setError('');

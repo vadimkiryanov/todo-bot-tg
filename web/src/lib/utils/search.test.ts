@@ -17,6 +17,8 @@ function note(id: number, topicId: number, text: string): Note {
     folder_id: null,
     reminder_at: null,
     reminder_repeat: 'once',
+    reminder_weekdays: [],
+    reminder_month_days: [],
   };
 }
 

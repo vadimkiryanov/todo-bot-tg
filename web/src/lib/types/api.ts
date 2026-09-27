@@ -41,10 +41,17 @@ export interface Note {
   topic_id: number;
   folder_id: number | null; // null — в корне топика
   reminder_at: string | null; // ISO 8601 (UTC); null — без напоминания
-  reminder_repeat: ReminderRepeat; // 'once' | 'daily'
+  reminder_repeat: ReminderRepeat; // 'once' | 'daily' | 'weekly' | 'monthly'
+  /** Дни недели недельного повтора: 1 = Пн … 7 = Вс (номера ISO 8601, в UTC
+   *  отсчёте `reminder_at`). Пустой массив для остальных типов. */
+  reminder_weekdays: number[];
+  /** Числа месяца месячного повтора: 1..31 (в UTC-отсчёте `reminder_at`).
+   *  Месяц, в котором выбранного числа нет (31 февраля), пропускается.
+   *  Пустой массив для остальных типов. */
+  reminder_month_days: number[];
 }
 
-export type ReminderRepeat = 'once' | 'daily';
+export type ReminderRepeat = 'once' | 'daily' | 'weekly' | 'monthly';
 
 export interface Folder {
   id: number;

@@ -236,10 +236,12 @@ func (s *Service) DeleteTopic(userID, topicID int64) error {
 
 // AddNoteOptions — опциональные атрибуты новой заметки (REST: done/pinned/reminder).
 type AddNoteOptions struct {
-	Done           bool
-	Pinned         bool
-	ReminderAt     *time.Time
-	ReminderRepeat model.ReminderRepeat
+	Done              bool
+	Pinned            bool
+	ReminderAt        *time.Time
+	ReminderRepeat    model.ReminderRepeat
+	ReminderWeekdays  model.WeekdaySet
+	ReminderMonthDays model.MonthDays
 }
 
 // AddNote добавляет новую заметку с указанным приоритетом и форматированием.
@@ -268,7 +270,7 @@ func (s *Service) AddNote(userID, topicID int64, folderID *int64, text string, e
 			if repeat == "" {
 				repeat = model.ReminderRepeatOnce
 			}
-			if err := note.SetReminder(*opt.ReminderAt, repeat); err != nil {
+			if err := note.SetReminder(*opt.ReminderAt, repeat, opt.ReminderWeekdays, opt.ReminderMonthDays); err != nil {
 				return model.Note{}, err
 			}
 		}
@@ -522,7 +524,9 @@ func (s *Service) SetPriority(userID, noteID int64, priority model.Priority) err
 }
 
 // SetReminder устанавливает напоминание на заметку.
-func (s *Service) SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error {
+// weekdays — дни недели для недельного повтора, monthDays — числа месяца для
+// ежемесячного (для остальных типов не значимы).
+func (s *Service) SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat, weekdays model.WeekdaySet, monthDays model.MonthDays) error {
 	unlock := s.locks.Lock(userID)
 	defer unlock()
 
@@ -531,7 +535,7 @@ func (s *Service) SetReminder(userID, noteID int64, at time.Time, repeat model.R
 		return err
 	}
 
-	if err := note.SetReminder(at, repeat); err != nil {
+	if err := note.SetReminder(at, repeat, weekdays, monthDays); err != nil {
 		return err
 	}
 	return s.noteRepo.UpdateNote(note)
@@ -552,7 +556,7 @@ func (s *Service) ClearReminder(userID, noteID int64) error {
 }
 
 // SnoozeReminder откладывает напоминание на указанное число минут,
-// сохраняя тип повторения (одноразовое / ежедневное).
+// сохраняя тип повторения (одноразовое / ежедневное / по дням недели / по числам месяца).
 func (s *Service) SnoozeReminder(userID, noteID int64, minutes int) error {
 	unlock := s.locks.Lock(userID)
 	defer unlock()
@@ -566,7 +570,7 @@ func (s *Service) SnoozeReminder(userID, noteID int64, minutes int) error {
 	}
 
 	at := time.Now().UTC().Add(time.Duration(minutes) * time.Minute)
-	if err := note.SetReminder(at, note.ReminderRepeat); err != nil {
+	if err := note.SetReminder(at, note.ReminderRepeat, note.ReminderWeekdays, note.ReminderMonthDays); err != nil {
 		return err
 	}
 	return s.noteRepo.UpdateNote(note)
@@ -574,6 +578,9 @@ func (s *Service) SnoozeReminder(userID, noteID int64, minutes int) error {
 
 // ProcessPendingReminders возвращает заметки с просроченными напоминаниями.
 // Для одноразовых — сбрасывает ReminderAt. Для ежедневных — сдвигает на 24 часа.
+// Для недельных — переносит на ближайший выбранный день недели, сохраняя время суток.
+// Для ежемесячных — на ближайшее выбранное число месяца (месяцы, где такого
+// числа нет, пропускаются — 31 февраля не срабатывает).
 // Каждая заметка повторно читается под локом пользователя, чтобы обновление
 // не затирало правки, сделанные между выборкой и записью.
 func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
@@ -597,13 +604,41 @@ func (s *Service) ProcessPendingReminders() ([]model.Note, error) {
 			continue // уже обработано или изменено пользователем
 		}
 
-		if current.ReminderRepeat == model.ReminderRepeatDaily {
+		switch current.ReminderRepeat {
+		case model.ReminderRepeatDaily:
 			next := current.ReminderAt.Add(24 * time.Hour)
-			if err := current.SetReminder(next, model.ReminderRepeatDaily); err != nil {
+			if err := current.SetReminder(next, model.ReminderRepeatDaily, model.WeekdaySet{}, model.MonthDays{}); err != nil {
 				unlock()
 				return nil, err
 			}
-		} else {
+		case model.ReminderRepeatWeekly:
+			// Следующее срабатывание — ближайший выбранный день недели строго
+			// после текущего; время суток сохраняется (AddDate, а не +24 часа).
+			next, ok := current.ReminderWeekdays.NextAfter(*current.ReminderAt)
+			if !ok {
+				// Дней недели не осталось — напоминание снимаем, а не роняем обработку.
+				current.ClearReminder()
+				break
+			}
+			if err := current.SetReminder(next, model.ReminderRepeatWeekly, current.ReminderWeekdays, model.MonthDays{}); err != nil {
+				unlock()
+				return nil, err
+			}
+		case model.ReminderRepeatMonthly:
+			// Следующее срабатывание — ближайшее выбранное число месяца строго
+			// после текущего; месяцы, где такого числа нет (31 февраля),
+			// пропускаются, время суток сохраняется (AddDate).
+			next, ok := current.ReminderMonthDays.NextAfter(*current.ReminderAt)
+			if !ok {
+				// Чисел не осталось — напоминание снимаем, а не роняем обработку.
+				current.ClearReminder()
+				break
+			}
+			if err := current.SetReminder(next, model.ReminderRepeatMonthly, model.WeekdaySet{}, current.ReminderMonthDays); err != nil {
+				unlock()
+				return nil, err
+			}
+		default:
 			current.ClearReminder()
 		}
 

@@ -91,6 +91,8 @@ interface NoteRecord {
   updated_at: string;
   reminder_at: string | null;
   reminder_repeat: ReminderRepeat;
+  reminder_weekdays: number[];
+  reminder_month_days: number[];
 }
 
 interface FolderRecord {
@@ -225,6 +227,10 @@ function toNote(rec: NoteRecord): Note {
     folder_id: rec.folder_id,
     reminder_at: rec.reminder_at,
     reminder_repeat: rec.reminder_repeat,
+    // Записи из localStorage до появления поля — пустой список дней недели.
+    reminder_weekdays: rec.reminder_weekdays ?? [],
+    // Записи из localStorage до появления поля — пустой список чисел месяца.
+    reminder_month_days: rec.reminder_month_days ?? [],
   };
 }
 
@@ -597,10 +603,74 @@ function mockGetNote(noteId: number): Note {
   return toNote(note);
 }
 
+/** Нормализует дни недели из тела запроса: целые 1..7, по возрастанию, без
+ *  повторов. Не-массив и мусор внутри дают ошибку 400 (как валидация сервера). */
+function parseWeekdays(value: unknown): number[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ApiError(400, 'weekdays должен быть массивом');
+  }
+  const days = new Set<number>();
+  for (const d of value) {
+    if (typeof d !== 'number' || !Number.isInteger(d) || d < 1 || d > 7) {
+      throw new ApiError(400, 'некорректные дни недели');
+    }
+    days.add(d);
+  }
+  return [...days].sort((a, b) => a - b);
+}
+
+/** Нормализует числа месяца из тела запроса: целые 1..31, по возрастанию, без
+ *  повторов. Не-массив и мусор внутри дают ошибку 400 (как валидация сервера). */
+function parseMonthDays(value: unknown): number[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ApiError(400, 'month_days должен быть массивом');
+  }
+  const days = new Set<number>();
+  for (const d of value) {
+    if (typeof d !== 'number' || !Number.isInteger(d) || d < 1 || d > 31) {
+      throw new ApiError(400, 'некорректные числа месяца');
+    }
+    days.add(d);
+  }
+  return [...days].sort((a, b) => a - b);
+}
+
+/** Номер дня недели (1 = Пн … 7 = Вс) момента в UTC-отсчёте. */
+function utcWeekday(date: Date): number {
+  const d = date.getUTCDay();
+  return d === 0 ? 7 : d;
+}
+
+/** Ближайший момент со временем суток как у from, день которого есть в наборе
+ *  и который строго позже from (в UTC-отсчёте, как сервер). Месяц, в котором
+ *  выбранного числа нет (31 февраля), пропускается. */
+function nextMonthlyAfter(from: Date, days: number[]): Date | null {
+  for (let i = 1; i <= 366; i++) {
+    const next = new Date(from.getTime());
+    next.setUTCDate(next.getUTCDate() + i);
+    if (days.includes(next.getUTCDate())) return next;
+  }
+  return null;
+}
+
+/** Ближайший момент со временем суток как у from, день недели которого есть в
+ *  наборе и который строго позже from (в UTC-отсчёте, как сервер). */
+function nextWeeklyAfter(from: Date, weekdays: number[]): Date | null {
+  for (let i = 1; i <= 7; i++) {
+    const next = new Date(from.getTime());
+    next.setUTCDate(next.getUTCDate() + i);
+    if (weekdays.includes(utcWeekday(next))) return next;
+  }
+  return null;
+}
+
 /**
  * Симуляция reminder-воркера для разработки: при запросе журнала «прозванивает»
  * просроченные напоминания локальных заметок — одноразовые снимает, ежедневные
- * переносит на 24 часа, каждое срабатывание пишет в журнал.
+ * переносит на 24 часа, недельные — на ближайший выбранный день недели,
+ * каждое срабатывание пишет в журнал.
  */
 function mockFireReminders(userId: number): void {
   const all = notesOf(userId);
@@ -618,9 +688,29 @@ function mockFireReminders(userId: number): void {
     });
     if (n.reminder_repeat === 'daily') {
       n.reminder_at = new Date(new Date(n.reminder_at).getTime() + 24 * 3600_000).toISOString();
+    } else if (n.reminder_repeat === 'weekly') {
+      const next = nextWeeklyAfter(new Date(n.reminder_at), n.reminder_weekdays ?? []);
+      if (next === null) {
+        n.reminder_at = null;
+        n.reminder_repeat = 'once';
+        n.reminder_weekdays = [];
+      } else {
+        n.reminder_at = next.toISOString();
+      }
+    } else if (n.reminder_repeat === 'monthly') {
+      const next = nextMonthlyAfter(new Date(n.reminder_at), n.reminder_month_days ?? []);
+      if (next === null) {
+        n.reminder_at = null;
+        n.reminder_repeat = 'once';
+        n.reminder_month_days = [];
+      } else {
+        n.reminder_at = next.toISOString();
+      }
     } else {
       n.reminder_at = null;
       n.reminder_repeat = 'once';
+      n.reminder_weekdays = [];
+      n.reminder_month_days = [];
     }
   }
   if (fired.length > 0) {
@@ -647,6 +737,8 @@ function mockCreateNote(body: unknown): Note {
   const user = requireUser();
   const { topic_id, folder_id, text, done, pinned, priority, reminder_at, reminder_repeat } =
     asObject(body);
+  const weekdaysInput = asObject(body).reminder_weekdays;
+  const monthDaysInput = asObject(body).reminder_month_days;
   if (typeof topic_id !== 'number' || !Number.isInteger(topic_id)) {
     throw new ApiError(400, 'topic_id обязателен');
   }
@@ -668,18 +760,33 @@ function mockCreateNote(body: unknown): Note {
 
   let reminderAt: string | null = null;
   let reminderRepeat: ReminderRepeat = 'once';
+  let reminderWeekdays: number[] = [];
+  let reminderMonthDays: number[] = [];
   if (typeof reminder_at === 'string') {
     const at = new Date(reminder_at);
     if (Number.isNaN(at.getTime())) {
       throw new ApiError(400, 'reminder_at некорректен');
     }
-    const repeat = reminder_repeat === 'daily' ? 'daily' : 'once';
+    const repeat: ReminderRepeat =
+      reminder_repeat === 'daily' || reminder_repeat === 'weekly' || reminder_repeat === 'monthly'
+        ? reminder_repeat
+        : 'once';
+    const days = repeat === 'weekly' ? parseWeekdays(weekdaysInput) : [];
+    if (repeat === 'weekly' && days.length === 0) {
+      throw new ApiError(400, 'для недельного напоминания нужен хотя бы один день');
+    }
+    const monthDays = repeat === 'monthly' ? parseMonthDays(monthDaysInput) : [];
+    if (repeat === 'monthly' && monthDays.length === 0) {
+      throw new ApiError(400, 'для ежемесячного напоминания нужно хотя бы одно число');
+    }
     // Одноразовое напоминание не может быть в прошлом (как на сервере).
     if (repeat === 'once' && at.getTime() <= Date.now()) {
       throw new ApiError(400, 'время напоминания уже прошло');
     }
     reminderAt = at.toISOString();
     reminderRepeat = repeat;
+    reminderWeekdays = days;
+    reminderMonthDays = monthDays;
   }
 
   const isDone = done === true;
@@ -701,6 +808,8 @@ function mockCreateNote(body: unknown): Note {
     // Выполненная заметка не напоминает (правило toggleDone).
     reminder_at: isDone ? null : reminderAt,
     reminder_repeat: isDone ? 'once' : reminderRepeat,
+    reminder_weekdays: isDone ? [] : reminderWeekdays,
+    reminder_month_days: isDone ? [] : reminderMonthDays,
   };
   const all = notesOf(user.id);
   all.push(note);
@@ -764,6 +873,8 @@ function mockUpdateNote(noteId: number, body: unknown): Note {
     if (patch.done) {
       note.reminder_at = null;
       note.reminder_repeat = 'once';
+      note.reminder_weekdays = [];
+      note.reminder_month_days = [];
     }
   }
   if ('priority' in patch) {
@@ -800,12 +911,20 @@ function mockDeleteNote(noteId: number): void {
 
 function mockSetReminder(noteId: number, body: unknown): Note {
   const user = requireUser();
-  const { at, repeat } = asObject(body);
+  const { at, repeat, weekdays, month_days } = asObject(body);
   if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) {
     throw new ApiError(400, 'at: ISO 8601 (RFC3339)');
   }
-  if (repeat !== 'once' && repeat !== 'daily') {
+  if (repeat !== 'once' && repeat !== 'daily' && repeat !== 'weekly' && repeat !== 'monthly') {
     throw new ApiError(400, 'некорректный repeat');
+  }
+  const days = repeat === 'weekly' ? parseWeekdays(weekdays) : [];
+  if (repeat === 'weekly' && days.length === 0) {
+    throw new ApiError(400, 'для недельного напоминания нужен хотя бы один день');
+  }
+  const monthDays = repeat === 'monthly' ? parseMonthDays(month_days) : [];
+  if (repeat === 'monthly' && monthDays.length === 0) {
+    throw new ApiError(400, 'для ежемесячного напоминания нужно хотя бы одно число');
   }
   // Одноразовое напоминание не может быть в прошлом (как в бэкенде).
   if (repeat === 'once' && new Date(at).getTime() <= Date.now()) {
@@ -818,6 +937,8 @@ function mockSetReminder(noteId: number, body: unknown): Note {
   }
   note.reminder_at = new Date(at).toISOString();
   note.reminder_repeat = repeat as ReminderRepeat;
+  note.reminder_weekdays = days;
+  note.reminder_month_days = monthDays;
   writeJSON(K_NOTES(user.id), all);
   return toNote(note);
 }
@@ -831,6 +952,8 @@ function mockClearReminder(noteId: number): Note {
   }
   note.reminder_at = null;
   note.reminder_repeat = 'once';
+  note.reminder_weekdays = [];
+  note.reminder_month_days = [];
   writeJSON(K_NOTES(user.id), all);
   return toNote(note);
 }

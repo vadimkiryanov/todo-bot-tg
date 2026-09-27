@@ -64,7 +64,9 @@ export function SearchPanel({ origin, onClose, onOpenNote, onMenu }: SearchPanel
 
   // Без активного топика (нет островка/выбора) локальный режим невозможен.
   const canScopeTopic = activeTopicID !== null;
-  const [mode, setMode] = useState<SearchMode>(() => (canScopeTopic ? 'topic' : 'global'));
+  // Открываем поиск сразу в режиме «Везде»: узкая область — осознанный выбор
+  // пользователя, а не то, что поиск навязал по активному топику.
+  const [mode, setMode] = useState<SearchMode>('global');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Note[] | null>(null);
   const [loading, setLoading] = useState(false);

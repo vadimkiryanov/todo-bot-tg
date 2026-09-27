@@ -127,10 +127,12 @@ func TestReminders_IsolationBetweenUsers(t *testing.T) {
 }
 
 // SetReminder/ClearReminder для stubTodoService — юнит-тест reminder-хендлеров.
-func (s *stubTodoService) SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error {
+func (s *stubTodoService) SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat, weekdays model.WeekdaySet, monthDays model.MonthDays) error {
 	s.calls = append(s.calls, "setreminder:"+string(repeat))
 	s.note.ReminderAt = &at
 	s.note.ReminderRepeat = repeat
+	s.note.ReminderWeekdays = weekdays
+	s.note.ReminderMonthDays = monthDays
 	return nil
 }
 
@@ -170,7 +172,37 @@ func TestReminders_Handler(t *testing.T) {
 	// Кривой repeat → 400, сервис не вызывается
 	stub.calls = nil
 	rec = doJSON(t, router, http.MethodPut, "/api/v1/notes/7/reminder",
-		fmt.Sprintf(`{"at":%q,"repeat":"weekly"}`, future), cookie)
+		fmt.Sprintf(`{"at":%q,"repeat":"yearly"}`, future), cookie)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Empty(t, stub.calls)
+
+	// Недельный repeat с днями недели → 200, дни уходят в сервис
+	stub.calls = nil
+	rec = doJSON(t, router, http.MethodPut, "/api/v1/notes/7/reminder",
+		fmt.Sprintf(`{"at":%q,"repeat":"weekly","weekdays":[1,3,5]}`, future), cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	require.Equal(t, []string{"setreminder:weekly"}, stub.calls)
+	require.Equal(t, []int{1, 3, 5}, dto.WeekdaysToInts(stub.note.ReminderWeekdays))
+
+	// Недельный repeat с днём недели вне 1..7 → 400 (структурная валидация хендлера)
+	stub.calls = nil
+	rec = doJSON(t, router, http.MethodPut, "/api/v1/notes/7/reminder",
+		fmt.Sprintf(`{"at":%q,"repeat":"weekly","weekdays":[9]}`, future), cookie)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Empty(t, stub.calls)
+
+	// Ежемесячный repeat с числами месяца → 200, числа уходят в сервис
+	stub.calls = nil
+	rec = doJSON(t, router, http.MethodPut, "/api/v1/notes/7/reminder",
+		fmt.Sprintf(`{"at":%q,"repeat":"monthly","month_days":[1,15]}`, future), cookie)
+	require.Equal(t, http.StatusOK, rec.Code, "тело: %s", rec.Body.String())
+	require.Equal(t, []string{"setreminder:monthly"}, stub.calls)
+	require.Equal(t, []int{1, 15}, dto.MonthDaysToInts(stub.note.ReminderMonthDays))
+
+	// Ежемесячный repeat с числом вне 1..31 → 400 (структурная валидация хендлера)
+	stub.calls = nil
+	rec = doJSON(t, router, http.MethodPut, "/api/v1/notes/7/reminder",
+		fmt.Sprintf(`{"at":%q,"repeat":"monthly","month_days":[32]}`, future), cookie)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Empty(t, stub.calls)
 

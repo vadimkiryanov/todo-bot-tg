@@ -11,21 +11,23 @@ import (
 // Сущности форматирования сериализуются в JSON (пустой список — пустая строка).
 func NoteToRecord(n model.Note) NoteRecord {
 	return NoteRecord{
-		ID:             n.ID,
-		UserID:         n.UserID,
-		TopicID:        n.TopicID,
-		FolderID:       n.FolderID,
-		Text:           n.Text,
-		Entities:       marshalNoteEntities(n.Entities),
-		Priority:       int(n.Priority),
-		ReminderAt:     n.ReminderAt,
-		ReminderRepeat: string(n.ReminderRepeat),
-		CreatedAt:      n.CreatedAt,
-		UpdatedAt:      n.UpdatedAt,
-		Archived:       n.Archived,
-		Done:           n.Done,
-		Pinned:         n.Pinned,
-		PinnedUntil:    n.PinnedUntil,
+		ID:                n.ID,
+		UserID:            n.UserID,
+		TopicID:           n.TopicID,
+		FolderID:          n.FolderID,
+		Text:              n.Text,
+		Entities:          marshalNoteEntities(n.Entities),
+		Priority:          int(n.Priority),
+		ReminderAt:        n.ReminderAt,
+		ReminderRepeat:    string(n.ReminderRepeat),
+		ReminderWeekdays:  n.ReminderWeekdays.String(),
+		ReminderMonthDays: n.ReminderMonthDays.String(),
+		CreatedAt:         n.CreatedAt,
+		UpdatedAt:         n.UpdatedAt,
+		Archived:          n.Archived,
+		Done:              n.Done,
+		Pinned:            n.Pinned,
+		PinnedUntil:       n.PinnedUntil,
 	}
 }
 
@@ -43,30 +45,58 @@ func marshalNoteEntities(entities []model.NoteEntity) string {
 }
 
 // NoteFromRecord конвертирует persistence-record в доменную модель.
-// Невалидное значение ReminderRepeat из хранилища заменяется дефолтом
-// (ReminderRepeatOnce), а не проглатывается молча.
+// Невалидные значения ReminderRepeat/ReminderWeekdays/ReminderMonthDays из
+// хранилища заменяются безопасным дефолтом (ReminderRepeatOnce и пустые
+// наборы), а не проглатываются молча: недельный повтор без дней недели и
+// ежемесячный без чисел месяца не собрать. Наборы, не относящиеся к типу
+// повтора, обнуляются — инвариант агрегата сохраняется.
 // Битый JSON сущностей игнорируется (заметка остаётся без форматирования).
 func NoteFromRecord(r NoteRecord) model.Note {
 	repeat := model.ReminderRepeatOnce
 	if parsed, err := model.NewReminderRepeat(r.ReminderRepeat); err == nil {
 		repeat = parsed
 	}
+	weekdays, err := model.ParseWeekdaySet(r.ReminderWeekdays)
+	if err != nil {
+		weekdays = model.WeekdaySet{}
+	}
+	monthDays, err := model.ParseMonthDays(r.ReminderMonthDays)
+	if err != nil {
+		monthDays = model.MonthDays{}
+	}
+	switch repeat {
+	case model.ReminderRepeatWeekly:
+		if weekdays.IsEmpty() {
+			repeat = model.ReminderRepeatOnce
+		}
+		monthDays = model.MonthDays{}
+	case model.ReminderRepeatMonthly:
+		if monthDays.IsEmpty() {
+			repeat = model.ReminderRepeatOnce
+		}
+		weekdays = model.WeekdaySet{}
+	default:
+		weekdays = model.WeekdaySet{}
+		monthDays = model.MonthDays{}
+	}
 	return model.Note{
-		ID:             r.ID,
-		UserID:         r.UserID,
-		TopicID:        r.TopicID,
-		FolderID:       r.FolderID,
-		Text:           r.Text,
-		Entities:       unmarshalNoteEntities(r.Entities),
-		Priority:       model.Priority(r.Priority),
-		ReminderAt:     r.ReminderAt,
-		ReminderRepeat: repeat,
-		CreatedAt:      r.CreatedAt,
-		UpdatedAt:      r.UpdatedAt,
-		Archived:       r.Archived,
-		Done:           r.Done,
-		Pinned:         r.Pinned,
-		PinnedUntil:    r.PinnedUntil,
+		ID:                r.ID,
+		UserID:            r.UserID,
+		TopicID:           r.TopicID,
+		FolderID:          r.FolderID,
+		Text:              r.Text,
+		Entities:          unmarshalNoteEntities(r.Entities),
+		Priority:          model.Priority(r.Priority),
+		ReminderAt:        r.ReminderAt,
+		ReminderRepeat:    repeat,
+		ReminderWeekdays:  weekdays,
+		ReminderMonthDays: monthDays,
+		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
+		Archived:          r.Archived,
+		Done:              r.Done,
+		Pinned:            r.Pinned,
+		PinnedUntil:       r.PinnedUntil,
 	}
 }
 

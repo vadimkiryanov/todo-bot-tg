@@ -40,12 +40,18 @@ type NoteResponse struct {
 	Archived  bool                 `json:"archived"`
 	CreatedAt string               `json:"created_at"`
 	// UpdatedAt — время последнего редактирования текста, ISO 8601 (RFC3339).
-	UpdatedAt string  `json:"updated_at"`
-	TopicID   int64   `json:"topic_id"`
-	FolderID  *int64  `json:"folder_id"` // nil — в корне топика
+	UpdatedAt string `json:"updated_at"`
+	TopicID   int64  `json:"topic_id"`
+	FolderID  *int64 `json:"folder_id"` // nil — в корне топика
 	// ReminderAt — ISO 8601 (RFC3339, UTC); nil — без напоминания.
 	ReminderAt     *string `json:"reminder_at"`
-	ReminderRepeat string  `json:"reminder_repeat"` // "once" | "daily"
+	ReminderRepeat string  `json:"reminder_repeat"` // "once" | "daily" | "weekly" | "monthly"
+	// ReminderWeekdays — дни недели недельного повтора (1 = Пн … 7 = Вс);
+	// пустой массив для остальных типов.
+	ReminderWeekdays []int `json:"reminder_weekdays"`
+	// ReminderMonthDays — числа месяца ежемесячного повтора (1..31);
+	// пустой массив для остальных типов.
+	ReminderMonthDays []int `json:"reminder_month_days"`
 }
 
 // FolderResponse — публичное представление папки (контракт фронта).
@@ -59,8 +65,8 @@ type FolderResponse struct {
 // NotificationResponse — запись журнала «пришедших уведомлений» (контракт фронта).
 type NotificationResponse struct {
 	ID      int64  `json:"id"`
-	NoteID  int64  `json:"note_id"` // заметка, на которую сработало напоминание
-	Text    string `json:"text"`    // снапшот текста заметки на момент срабатывания
+	NoteID  int64  `json:"note_id"`  // заметка, на которую сработало напоминание
+	Text    string `json:"text"`     // снапшот текста заметки на момент срабатывания
 	FiredAt string `json:"fired_at"` // ISO 8601 (RFC3339, UTC)
 	Read    bool   `json:"read"`
 }

@@ -32,7 +32,13 @@ type NoteCreateRequest struct {
 	Pinned         *bool   `json:"pinned"`
 	Priority       *string `json:"priority"`        // "none" | "low" | "medium" | "high"
 	ReminderAt     *string `json:"reminder_at"`     // ISO 8601 (RFC3339, UTC)
-	ReminderRepeat *string `json:"reminder_repeat"` // "once" | "daily"
+	ReminderRepeat *string `json:"reminder_repeat"` // "once" | "daily" | "weekly" | "monthly"
+	// ReminderWeekdays — дни недели недельного повтора (1 = Пн … 7 = Вс);
+	// обязательны при reminder_repeat = "weekly".
+	ReminderWeekdays []int `json:"reminder_weekdays"`
+	// ReminderMonthDays — числа месяца ежемесячного повтора (1..31);
+	// обязательны при reminder_repeat = "monthly".
+	ReminderMonthDays []int `json:"reminder_month_days"`
 }
 
 // NotePatchRequest — тело PATCH /api/v1/notes/{id}.
@@ -54,9 +60,13 @@ type NoteMoveRequest struct {
 
 // ReminderRequest — тело PUT /api/v1/notes/{id}/reminder.
 // At — ISO 8601 (RFC3339); одноразовое напоминание должно быть в будущем.
+// Weekdays (1 = Пн … 7 = Вс) значимы только при repeat = "weekly" и обязательны для него.
+// MonthDays (1..31) значимы только при repeat = "monthly" и обязательны для него.
 type ReminderRequest struct {
-	At     string `json:"at"`
-	Repeat string `json:"repeat"` // "once" | "daily"
+	At        string `json:"at"`
+	Repeat    string `json:"repeat"` // "once" | "daily" | "weekly" | "monthly"
+	Weekdays  []int  `json:"weekdays"`
+	MonthDays []int  `json:"month_days"`
 }
 
 // FolderRequest — тело POST/PATCH /api/v1/folders.

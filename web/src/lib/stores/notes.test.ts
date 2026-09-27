@@ -386,6 +386,64 @@ describe('notes store', () => {
     expect(note.reminder_repeat).toBe('once');
   });
 
+  it('setReminder ставит недельное напоминание с днями недели', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить по дням');
+
+    const at = new Date(Date.now() + 3600_000).toISOString();
+    await setReminder(notesStore.notes[0], at, 'weekly', [1, 3, 5]);
+
+    expect(notesStore.notes[0].reminder_repeat).toBe('weekly');
+    expect(notesStore.notes[0].reminder_weekdays).toEqual([1, 3, 5]);
+    expect(notesStore.notes[0].reminder_month_days).toEqual([]);
+
+    await clearReminder(notesStore.notes[0]);
+    expect(notesStore.notes[0].reminder_weekdays).toEqual([]);
+  });
+
+  it('setReminder ставит месячное напоминание с числами месяца', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить по числам');
+
+    const at = new Date(Date.now() + 3600_000).toISOString();
+    await setReminder(notesStore.notes[0], at, 'monthly', [], [31, 1, 15]);
+
+    expect(notesStore.notes[0].reminder_repeat).toBe('monthly');
+    // Мок (как бэкенд) отдаёт числа по возрастанию без повторов.
+    expect(notesStore.notes[0].reminder_month_days).toEqual([1, 15, 31]);
+    expect(notesStore.notes[0].reminder_weekdays).toEqual([]);
+
+    await clearReminder(notesStore.notes[0]);
+    expect(notesStore.notes[0].reminder_month_days).toEqual([]);
+  });
+
+  it('setReminder с месячным повтором без чисел откатывается (400)', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить по числам');
+
+    const at = new Date(Date.now() + 3600_000).toISOString();
+    await expect(setReminder(notesStore.notes[0], at, 'monthly', [], [])).rejects.toThrow();
+
+    expect(notesStore.notes[0].reminder_repeat).toBe('once');
+    expect(notesStore.notes[0].reminder_month_days).toEqual([]);
+  });
+
+  it('setReminder с ежедневным повтором дни недели не сохраняет', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить ежедневно');
+
+    const at = new Date(Date.now() + 3600_000).toISOString();
+    await setReminder(notesStore.notes[0], at, 'daily', [1, 3]);
+
+    expect(notesStore.notes[0].reminder_repeat).toBe('daily');
+    expect(notesStore.notes[0].reminder_weekdays).toEqual([]);
+    expect(notesStore.notes[0].reminder_month_days).toEqual([]);
+  });
+
   it('setReminder откатывается при ошибке (once в прошлом)', async () => {
     const topicId = await setupTopic();
     await loadNotes(topicId);

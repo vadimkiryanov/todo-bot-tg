@@ -10,13 +10,13 @@ import type { ReactNode } from 'react';
 import { List, Section } from '@telegram-apps/telegram-ui';
 import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
 import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
-import { Icon24ChevronDown } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_down';
 import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
 import { Icon24ChevronRight } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_right';
 import { Icon28AddCircle } from '@telegram-apps/telegram-ui/dist/icons/28/add_circle';
 import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive';
 
 import { ConfirmModal } from './ConfirmModal';
+import { ExpandIcon } from './ExpandIcon';
 import { MenuRow } from './MenuRow';
 import { PinIcon } from './PinIcon';
 import {
@@ -292,7 +292,7 @@ export function NoteMenu({
     // на карточке) должен быть виден сразу.
     <MenuRow
       key="expand"
-      icon={<Icon24ChevronDown />}
+      icon={<ExpandIcon expanded={expanded} className="h-5 w-5" />}
       onSelect={() => {
         toggleNoteExpanded(note.id);
         requestClose();
@@ -302,7 +302,7 @@ export function NoteMenu({
     </MenuRow>,
     <MenuRow
       key="delete"
-      icon={<Icon16Cancel className="h-5 w-5" />}
+      icon={<Icon16Cancel viewBox="0 0 16 16" className="h-5 w-5" />}
       danger
       onSelect={() => {
         setConfirmDelete(true);

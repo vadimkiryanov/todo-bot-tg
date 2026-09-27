@@ -7,15 +7,17 @@
 // у первой строки текста (текстовой метки «пин» больше нет). Подпись строки,
 // как в Telegram: слева напоминание с колокольчиком, справа — дата правки.
 // Клик — оверлей заметки, долгий тач (правый клик) — меню действий, свайп от
-// правого края — полоса кнопок «выполнить»/«закрепить» (utils/rowSwipe).
+// правого края — полоса кнопок «выполнить»/«закрепить»/«в архив»
+// (utils/rowSwipe).
 import type { ReactNode } from 'react';
 import { Cell, IconButton } from '@telegram-apps/telegram-ui';
 import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
 import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
 import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
+import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive';
 
 import type { Note } from '../types/api';
-import { toggleDone, togglePin, undoneNote } from '../stores/notes';
+import { archiveNote, toggleDone, togglePin, unarchiveNote, undoneNote } from '../stores/notes';
 import { useNoteViewStore } from '../stores/noteView';
 import { previewBlocksHtml, renderNoteBlocksHtml } from '../utils/blocks';
 import { formatEditedAt, formatReminderAt } from '../utils/format';
@@ -69,7 +71,14 @@ export function NoteCell({
           : '';
 
   const reminder =
-    note.reminder_at !== null ? formatReminderAt(note.reminder_at, note.reminder_repeat) : '';
+    note.reminder_at !== null
+      ? formatReminderAt(
+          note.reminder_at,
+          note.reminder_repeat,
+          note.reminder_weekdays,
+          note.reminder_month_days,
+        )
+      : '';
   const editedAt = formatEditedAt(note.updated_at);
   // Подпись строки: напоминание помечаем колокольчиком из набора библиотеки
   // (иконки часов в нём нет) и держим слева, дата правки — справа. viewBox:
@@ -93,9 +102,13 @@ export function NoteCell({
   );
 
   // Кнопки полосы, выезжающей из-под правого края строки: те же действия, что
-  // в меню (NoteMenu), — «выполнить»/«вернуть» и «закрепить». Выполненная и
-  // архивная заметка не закрепляется: mutateNote спрятал бы её из списка,
-  // поэтому у такой заметки кнопки пина нет.
+  // в меню (NoteMenu), — «выполнить»/«вернуть», «закрепить», «в архив»/
+  // «вернуть из архива». Заливка у всех нейтральная (mode="gray"): акцентная
+  // подсветка кнопки выполнения читалась как «уже выполнено», хотя заметка
+  // ещё нет. Выполненная и архивная заметка не закрепляется: mutateNote
+  // спрятал бы её из списка, поэтому у такой заметки кнопки пина нет.
+  // Условия показа архива те же, что у пунктов меню: «В архив» — пока заметка
+  // не в архиве и не выполнена, «Вернуть из архива» — пока она в архиве.
   const actions: ReactNode[] = [
     ...(note.done
       ? [
@@ -103,7 +116,7 @@ export function NoteCell({
             key="undone"
             type="button"
             size="m"
-            mode="bezeled"
+            mode="gray"
             aria-label="Вернуть в работу"
             title="Вернуть в работу"
             className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
@@ -117,7 +130,7 @@ export function NoteCell({
             key="done"
             type="button"
             size="m"
-            mode="bezeled"
+            mode="gray"
             aria-label="Выполнить"
             title="Выполнить"
             className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
@@ -143,6 +156,39 @@ export function NoteCell({
             <PinIcon className="h-6 w-6" />
           </IconButton>,
         ]),
+    ...(note.archived
+      ? [
+          // Возврат из архива — стрелка влево, как у одноимённого пункта меню
+          // (иконки «вернуть из архива» в наборе библиотеки нет).
+          <IconButton
+            key="unarchive"
+            type="button"
+            size="m"
+            mode="gray"
+            aria-label="Вернуть из архива"
+            title="Вернуть из архива"
+            className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
+            onClick={() => act(() => unarchiveNote(note))}
+          >
+            <Icon24ChevronLeft viewBox="0 0 24 24" className="h-6 w-6" />
+          </IconButton>,
+        ]
+      : note.done
+        ? []
+        : [
+            <IconButton
+              key="archive"
+              type="button"
+              size="m"
+              mode="gray"
+              aria-label="В архив"
+              title="В архив"
+              className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
+              onClick={() => act(() => archiveNote(note))}
+            >
+              <Icon28Archive viewBox="0 0 28 28" className="h-6 w-6" />
+            </IconButton>,
+          ]),
   ];
 
   // Жест «отодвинуть строку»: зона захвата — правый край строки, лента топиков

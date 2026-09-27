@@ -61,7 +61,6 @@ import type { FocusEvent, MouseEvent, PointerEvent, ReactNode } from 'react';
 import { Button, IconButton, Input, List, Section } from '@telegram-apps/telegram-ui';
 import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
 import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
-import { Icon24ChevronDown } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_down';
 import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
 import { Icon24ChevronRight } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_right';
 import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
@@ -69,6 +68,7 @@ import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive'
 import { Icon28Edit } from '@telegram-apps/telegram-ui/dist/icons/28/edit';
 
 import { ConfirmModal } from './ConfirmModal';
+import { ExpandIcon } from './ExpandIcon';
 import { MenuRow } from './MenuRow';
 import { Modal } from './Modal';
 import { MoveModal } from './MoveModal';
@@ -859,6 +859,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   const [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showMove, setShowMove] = useState(false);
+  /** Показан пикер напоминания (шторка-модалка — как в панели ввода). */
   const [showReminderForm, setShowReminderForm] = useState(false);
   // Меню «Ещё» (закрепить/переместить/архив/удалить): позиция у правого края
   // кнопки, раскрывается вниз — кнопка стоит в панели действий под шапкой.
@@ -1038,12 +1039,18 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     action();
   }
 
-  /** Сохранить напоминание (из ReminderForm). */
-  async function onReminderSubmit(iso: string, repeat: ReminderRepeat): Promise<void> {
+  /** Сохранить напоминание (из ReminderForm). weekdays — только для 'weekly',
+   *  monthDays — только для 'monthly'. */
+  async function onReminderSubmit(
+    iso: string,
+    repeat: ReminderRepeat,
+    weekdays: number[] = [],
+    monthDays: number[] = [],
+  ): Promise<void> {
     await act(
       'reminder',
-      () => setReminder(pageNote, iso, repeat),
-      () => apiSetReminder(pageNote.id, iso, repeat),
+      () => setReminder(pageNote, iso, repeat, weekdays, monthDays),
+      () => apiSetReminder(pageNote.id, iso, repeat, weekdays, monthDays),
       false,
     );
   }
@@ -1057,15 +1064,26 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     );
   }
 
-  /** Отложить на N минут, сохраняя тип повторения. */
+  /** Отложить на N минут, сохраняя тип повторения (дни недели/числа месяца). */
   async function snooze(minutes: number): Promise<void> {
     const at = new Date(Date.now() + minutes * 60_000).toISOString();
-    await onReminderSubmit(at, pageNote.reminder_repeat);
+    await onReminderSubmit(
+      at,
+      pageNote.reminder_repeat,
+      pageNote.reminder_weekdays,
+      pageNote.reminder_month_days,
+    );
   }
 
-  function toggleReminderForm(): void {
-    setShowReminderForm((v) => !v);
+  /** Пикер напоминания — шторка-модалка: открывает её кнопка дока, а закрывают
+      подложка, кнопки формы и Escape (все — через closeReminderForm). */
+  function openReminderForm(): void {
     setError('');
+    setShowReminderForm(true);
+  }
+
+  function closeReminderForm(): void {
+    setShowReminderForm(false);
   }
 
   // ── Форматирование (панель) ─────────────────────────────────────────────
@@ -1368,8 +1386,16 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     showReminderForm,
     requestClose,
     closeMenu,
+    closeReminderForm,
   });
-  keydownStateRef.current = { exitConfirm, menuOpen, showReminderForm, requestClose, closeMenu };
+  keydownStateRef.current = {
+    exitConfirm,
+    menuOpen,
+    showReminderForm,
+    requestClose,
+    closeMenu,
+    closeReminderForm,
+  };
 
   useEffect(() => {
     const onKeydown = (e: KeyboardEvent) => {
@@ -1385,7 +1411,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         return;
       }
       if (s.showReminderForm) {
-        setShowReminderForm(false);
+        s.closeReminderForm();
         return;
       }
       s.requestClose();
@@ -1782,17 +1808,18 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     // Полное отображение заметки на карточке — доступно в любом состоянии,
     // независимо от того, активна заметка или нет. Меню НЕ закрывается (как у
     // «Приоритета»): сама страница заметку не показывает, поэтому
-    // единственный видимый отклик — смена подписи «Развернуть»/«Свернуть».
+    // единственный видимый отклик — смена подписи «Развернуть»/«Свернуть» и
+    // иконки объёма (ExpandIcon).
     <MenuRow
       key="expand"
-      icon={<Icon24ChevronDown />}
+      icon={<ExpandIcon expanded={noteExpanded} className="h-5 w-5" />}
       onSelect={() => toggleNoteExpanded(pageNote.id)}
     >
       {noteExpanded ? 'Свернуть' : 'Развернуть'}
     </MenuRow>,
     <MenuRow
       key="delete"
-      icon={<Icon16Cancel className="h-5 w-5" />}
+      icon={<Icon16Cancel viewBox="0 0 16 16" className="h-5 w-5" />}
       danger
       onSelect={() =>
         pickMenu(() => {
@@ -1904,7 +1931,9 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                   <IconButton
                     type="button"
                     size="m"
-                    mode={isDone ? 'gray' : 'bezeled'}
+                    // Заливка нейтральная в обоих состояниях: акцентная
+                    // подсветка «Выполнить» читалась как «уже выполнено».
+                    mode="gray"
                     aria-label={isDone ? 'Вернуть в работу' : 'Выполнить'}
                     className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
                     disabled={busy !== null}
@@ -1917,7 +1946,11 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                       // наборе библиотеки нет); у «Выполнить» — галочка.
                       <Icon24ChevronLeft className="h-6 w-6" />
                     ) : (
-                      <Icon20Select className="h-6 w-6" />
+                      // viewBox: у иконок набора его нет, и без него смена
+                      // размера не масштабирует рисунок, а оставляет его в
+                      // собственных координатах — галочка уезжала в левый
+                      // верхний угол кнопки.
+                      <Icon20Select viewBox="0 0 20 20" className="h-6 w-6" />
                     )}
                   </IconButton>
                 ) : (
@@ -1965,7 +1998,7 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
                       title={reminderAt !== null ? 'Изменить напоминание' : 'Напомнить'}
                       className="h-10 w-10 items-center justify-center rounded-full! p-0! btn-press"
                       disabled={busy !== null}
-                      onClick={toggleReminderForm}
+                      onClick={openReminderForm}
                     >
                       <Icon24Notifications className="h-6 w-6" />
                     </IconButton>
@@ -2004,31 +2037,50 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
         )}
 
         {!dirty && isActive && showReminderForm && (
-          <div data-no-swipe className="pb-1.5">
-            <ReminderForm
-              initial={reminderAt ?? ''}
-              initialRepeat={pageNote.reminder_repeat}
-              busy={busy === 'reminder'}
-              onSubmit={onReminderSubmit}
-              onSaved={() => {
-                setShowReminderForm(false);
-              }}
-              onCancel={() => {
-                setShowReminderForm(false);
-              }}
-            />
+          /* Пикер напоминания — та же шторка-модалка, что и в панели ввода:
+             форма с повтором «По числам» выше экрана, и в потоке шапки её
+             низ («Сохранить») уезжал за край страницы, которая скролла не
+             имеет. В шторке форма скроллится сама (у Modal — max-h-85dvh),
+             а текст заметки под ней остаётся виден. z-[80] — поверх страницы
+             (z-[70]) и её меню (z-[72]). Обёртка без своих стилей — носитель
+             data-no-swipe: жест по шторке не должен тянуть страницу заметки
+             за собой (свайп вправо её закрывает), а сама модалка
+             позиционируется fixed и места в шапке не занимает. */
+          <div data-no-swipe>
+            <Modal open z="z-[80]" onClose={closeReminderForm}>
+              <div className="flex flex-col gap-1 px-1 py-2">
+                <h2 className="text-center text-sm text-muted-foreground">Напоминание</h2>
+                <ReminderForm
+                  initial={reminderAt ?? ''}
+                  initialRepeat={pageNote.reminder_repeat}
+                  initialWeekdays={pageNote.reminder_weekdays}
+                  initialMonthDays={pageNote.reminder_month_days}
+                  busy={busy === 'reminder'}
+                  onSubmit={onReminderSubmit}
+                  onSaved={closeReminderForm}
+                  onCancel={closeReminderForm}
+                />
+              </div>
+            </Modal>
           </div>
         )}
 
         {!dirty && isActive && reminderAt !== null && !showReminderForm && (
+          /* Карточка напоминания появляется тем же подъёмом (.rise-anim), что
+             и пикер, — смена «шторка → карточка» читается одним движением. */
           <div
             data-no-swipe
-            className="mb-1.5 flex flex-col gap-1.5 rounded-xl border border-border bg-muted px-3 py-2"
+            className="rise-anim mb-1.5 flex flex-col gap-1.5 rounded-xl border border-border bg-muted px-3 py-2"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 truncate text-sm" title={reminderAt}>
                 <Icon24Notifications viewBox="0 0 24 24" className="mr-1 inline h-4 w-4 align-[-2px]" />
-                {formatReminderAt(reminderAt, pageNote.reminder_repeat)}
+                {formatReminderAt(
+                  reminderAt,
+                  pageNote.reminder_repeat,
+                  pageNote.reminder_weekdays,
+                  pageNote.reminder_month_days,
+                )}
               </span>
               <Button
                 type="button"

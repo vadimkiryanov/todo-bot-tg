@@ -37,7 +37,7 @@ type TodoService interface {
 	ListTimers(userID int64) ([]model.Note, error)
 	DeleteNote(userID, noteID int64) error
 
-	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat) error
+	SetReminder(userID, noteID int64, at time.Time, repeat model.ReminderRepeat, weekdays model.WeekdaySet, monthDays model.MonthDays) error
 	ClearReminder(userID, noteID int64) error
 
 	CountNotes(userID, topicID int64, folderID *int64) (int, error)

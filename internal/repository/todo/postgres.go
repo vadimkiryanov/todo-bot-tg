@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS notes (
     priority INTEGER NOT NULL DEFAULT 0,
     reminder_at TIMESTAMPTZ,
     reminder_repeat TEXT NOT NULL DEFAULT 'once',
+    reminder_weekdays TEXT NOT NULL DEFAULT '',
+    reminder_month_days TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     archived BOOLEAN NOT NULL DEFAULT FALSE,
@@ -112,6 +114,8 @@ CREATE TABLE IF NOT EXISTS notifications (
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_at TIMESTAMPTZ;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_repeat TEXT NOT NULL DEFAULT 'once';
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_weekdays TEXT NOT NULL DEFAULT '';
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_month_days TEXT NOT NULL DEFAULT '';
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS folder_id BIGINT;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS done BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE;
@@ -303,28 +307,30 @@ func (s *PostgresStore) DeleteTopic(userID, topicID int64) error {
 
 // --- Notes ---
 
-const noteColumns = `id, user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, updated_at, archived, done, pinned, pinned_until`
+const noteColumns = `id, user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, reminder_weekdays, reminder_month_days, created_at, updated_at, archived, done, pinned, pinned_until`
 
 func (s *PostgresStore) CreateNote(note model.Note) (model.Note, error) {
 	rec := entity.NoteToRecord(note)
 	rows, err := s.pool.Query(context.Background(),
-		`INSERT INTO notes (user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, created_at, updated_at, done, pinned, pinned_until)
-		 VALUES (@user, @topic, @folder, @text, @entities, @priority, @reminder_at, @reminder_repeat, @created_at, @updated_at, @done, @pinned, @pinned_until)
+		`INSERT INTO notes (user_id, topic_id, folder_id, text, entities, priority, reminder_at, reminder_repeat, reminder_weekdays, reminder_month_days, created_at, updated_at, done, pinned, pinned_until)
+		 VALUES (@user, @topic, @folder, @text, @entities, @priority, @reminder_at, @reminder_repeat, @reminder_weekdays, @reminder_month_days, @created_at, @updated_at, @done, @pinned, @pinned_until)
 		 RETURNING `+noteColumns,
 		pgx.NamedArgs{
-			"user":            rec.UserID,
-			"topic":           rec.TopicID,
-			"folder":          rec.FolderID,
-			"text":            rec.Text,
-			"entities":        rec.Entities,
-			"priority":        rec.Priority,
-			"reminder_at":     rec.ReminderAt,
-			"reminder_repeat": rec.ReminderRepeat,
-			"created_at":      rec.CreatedAt,
-			"updated_at":      rec.UpdatedAt,
-			"done":            rec.Done,
-			"pinned":          rec.Pinned,
-			"pinned_until":    rec.PinnedUntil,
+			"user":                rec.UserID,
+			"topic":               rec.TopicID,
+			"folder":              rec.FolderID,
+			"text":                rec.Text,
+			"entities":            rec.Entities,
+			"priority":            rec.Priority,
+			"reminder_at":         rec.ReminderAt,
+			"reminder_repeat":     rec.ReminderRepeat,
+			"reminder_weekdays":   rec.ReminderWeekdays,
+			"reminder_month_days": rec.ReminderMonthDays,
+			"created_at":          rec.CreatedAt,
+			"updated_at":          rec.UpdatedAt,
+			"done":                rec.Done,
+			"pinned":              rec.Pinned,
+			"pinned_until":        rec.PinnedUntil,
 		},
 	)
 	if err != nil {
@@ -426,21 +432,23 @@ func (s *PostgresStore) UpdateNote(note model.Note) error {
 	rec := entity.NoteToRecord(note)
 	res, err := s.pool.Exec(context.Background(),
 		`UPDATE notes SET text = @text, entities = @entities, priority = @priority, reminder_at = @reminder_at,
-		 reminder_repeat = @reminder_repeat, updated_at = @updated_at, archived = @archived, done = @done, pinned = @pinned, pinned_until = @pinned_until
+		 reminder_repeat = @reminder_repeat, reminder_weekdays = @reminder_weekdays, reminder_month_days = @reminder_month_days, updated_at = @updated_at, archived = @archived, done = @done, pinned = @pinned, pinned_until = @pinned_until
 		 WHERE id = @id AND user_id = @user`,
 		pgx.NamedArgs{
-			"text":            rec.Text,
-			"entities":        rec.Entities,
-			"priority":        rec.Priority,
-			"reminder_at":     rec.ReminderAt,
-			"reminder_repeat": rec.ReminderRepeat,
-			"updated_at":      rec.UpdatedAt,
-			"archived":        rec.Archived,
-			"done":            rec.Done,
-			"pinned":          rec.Pinned,
-			"pinned_until":    rec.PinnedUntil,
-			"id":              rec.ID,
-			"user":            rec.UserID,
+			"text":                rec.Text,
+			"entities":            rec.Entities,
+			"priority":            rec.Priority,
+			"reminder_at":         rec.ReminderAt,
+			"reminder_repeat":     rec.ReminderRepeat,
+			"reminder_weekdays":   rec.ReminderWeekdays,
+			"reminder_month_days": rec.ReminderMonthDays,
+			"updated_at":          rec.UpdatedAt,
+			"archived":            rec.Archived,
+			"done":                rec.Done,
+			"pinned":              rec.Pinned,
+			"pinned_until":        rec.PinnedUntil,
+			"id":                  rec.ID,
+			"user":                rec.UserID,
 		},
 	)
 	if err != nil {

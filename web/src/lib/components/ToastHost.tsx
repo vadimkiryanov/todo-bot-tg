@@ -22,7 +22,9 @@ const LEAVE_MS = 180;
 
 const ICONS: Record<ToastKind, ReactNode> = {
   success: <Icon20Select className="h-5 w-5" />,
-  error: <Icon16Cancel className="h-5 w-5" />,
+  // viewBox: без него смена размера не масштабирует рисунок (иконка 16px
+  // в боксе 20px уезжала в левый верхний угол).
+  error: <Icon16Cancel viewBox="0 0 16 16" className="h-5 w-5" />,
   info: <Icon20QuestionMark className="h-5 w-5" />,
 };
 
