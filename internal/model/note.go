@@ -72,6 +72,12 @@ func (n *Note) SetPriority(p Priority) error {
 // ежемесячного (monthly) — набор чисел месяца; незначимые для выбранного типа
 // наборы нормализуются в пустые, чтобы в агрегате не оставалось
 // противоречивого состояния.
+//
+// Момент первого срабатывания тоже приводится к набору: если день выбранного
+// момента в набор не входит, берётся ближайший подходящий день с тем же временем
+// суток. Дата и набор приходят из разных мест (календарь клиента и чипы дней
+// недели/чисел месяца), и без сверки напоминание срабатывало бы ещё и в день
+// установки — как только время суток дойдёт до выбранного.
 func (n *Note) SetReminder(at time.Time, repeat ReminderRepeat, weekdays WeekdaySet, monthDays MonthDays) error {
 	if !repeat.valid() {
 		return errors.ErrInvalidReminderRepeat
@@ -82,11 +88,13 @@ func (n *Note) SetReminder(at time.Time, repeat ReminderRepeat, weekdays Weekday
 			return errors.ErrEmptyReminderWeekdays
 		}
 		monthDays = MonthDays{}
+		at = weekdays.FirstOnOrAfter(at)
 	case ReminderRepeatMonthly:
 		if monthDays.IsEmpty() {
 			return errors.ErrEmptyReminderMonthDays
 		}
 		weekdays = WeekdaySet{}
+		at = monthDays.FirstOnOrAfter(at)
 	default:
 		weekdays = WeekdaySet{}
 		monthDays = MonthDays{}
@@ -96,6 +104,16 @@ func (n *Note) SetReminder(at time.Time, repeat ReminderRepeat, weekdays Weekday
 	n.ReminderWeekdays = weekdays
 	n.ReminderMonthDays = monthDays
 	return nil
+}
+
+// PostponeReminder сдвигает момент ближайшего срабатывания, не трогая тип
+// повторения и наборы дней недели и чисел месяца. Ставить напоминание этим
+// методом нельзя — сверку момента с набором делает SetReminder.
+// Нужен «отложить»: отложенное срабатывание не обязано попадать в набор (можно
+// попросить «через 10 минут» и в день, которого в наборе нет) — следующее
+// плановое срабатывание планировщик снова посчитает по набору.
+func (n *Note) PostponeReminder(at time.Time) {
+	n.ReminderAt = &at
 }
 
 // ClearReminder убирает напоминание с заметки.

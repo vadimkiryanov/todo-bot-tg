@@ -580,6 +580,28 @@ func TestService_SetReminder_Weekly(t *testing.T) {
 	}
 }
 
+func TestService_SetReminder_MonthlySnapsFirstFire(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
+
+	// Дата «из календаря» — 27-е, набор чисел — 15-е: первое срабатывание должно
+	// попасть на 15-е, а не сработать в день установки, когда время дойдёт до 15:00.
+	at := time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC)
+	monthDays, _ := model.NewMonthDays([]int{15})
+	if err := svc.SetReminder(1, note.ID, at, model.ReminderRepeatMonthly, model.WeekdaySet{}, monthDays); err != nil {
+		t.Fatalf("SetReminder() error: %v", err)
+	}
+
+	got, _ := svc.GetNote(1, note.ID)
+	want := time.Date(2026, 9, 15, 15, 0, 0, 0, time.UTC)
+	if got.ReminderAt == nil || !got.ReminderAt.Equal(want) {
+		t.Errorf("ReminderAt = %v, want %v", got.ReminderAt, want)
+	}
+	if got.ReminderMonthDays.String() != "15" {
+		t.Errorf("ReminderMonthDays = %q, want %q", got.ReminderMonthDays, "15")
+	}
+}
+
 func TestService_ClearReminder(t *testing.T) {
 	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
@@ -629,6 +651,31 @@ func TestService_SnoozeReminder_KeepsRepeat(t *testing.T) {
 	got, _ := svc.GetNote(1, note.ID)
 	if got.ReminderRepeat != model.ReminderRepeatDaily {
 		t.Errorf("ReminderRepeat = %q, want %q", got.ReminderRepeat, model.ReminderRepeatDaily)
+	}
+}
+
+func TestService_SnoozeReminder_OutsideOfSet(t *testing.T) {
+	svc := newTestService(t)
+	note, _ := svc.AddNote(1, 0, nil, "Test", nil, 0)
+	weekdays, _ := model.NewWeekdaySet([]model.Weekday{model.WeekdayMonday})
+	_ = svc.SetReminder(1, note.ID, time.Now().Add(24*time.Hour), model.ReminderRepeatWeekly, weekdays, model.MonthDays{})
+
+	if err := svc.SnoozeReminder(1, note.ID, 10); err != nil {
+		t.Fatalf("SnoozeReminder() error: %v", err)
+	}
+
+	// Отложенное срабатывание не обязано попадать в набор дней недели: оно
+	// сдвигается ровно на запрошенные минуты, а не на ближайший понедельник.
+	got, _ := svc.GetNote(1, note.ID)
+	if got.ReminderAt == nil {
+		t.Fatal("ReminderAt is nil after snooze")
+	}
+	delta := time.Until(*got.ReminderAt)
+	if delta < 9*time.Minute || delta > 11*time.Minute {
+		t.Errorf("snooze delta = %v, want ~10m", delta)
+	}
+	if got.ReminderRepeat != model.ReminderRepeatWeekly || !got.ReminderWeekdays.Contains(model.WeekdayMonday) {
+		t.Errorf("повтор потерян: %q %q", got.ReminderRepeat, got.ReminderWeekdays)
 	}
 }
 
@@ -686,9 +733,10 @@ func TestService_ProcessPendingReminders_Weekly(t *testing.T) {
 	svc := newTestService(t)
 	note, _ := svc.AddNote(1, 0, nil, "Weekly", nil, 0)
 
-	// Анкер — четверг 15:00 UTC в прошлом; ближайший выбранный день (пятница)
-	// должен получить то же время суток.
-	anchor := time.Date(2020, 1, 2, 15, 0, 0, 0, time.UTC)
+	// Анкер — пятница 15:00 UTC в прошлом, то есть день уже из набора: постановка
+	// момент не сдвигает. Обработка переносит срабатывание на следующий выбранный
+	// день (понедельник), сохраняя время суток.
+	anchor := time.Date(2020, 1, 3, 15, 0, 0, 0, time.UTC)
 	weekdays, _ := model.NewWeekdaySet([]model.Weekday{model.WeekdayMonday, model.WeekdayFriday})
 	if err := svc.SetReminder(1, note.ID, anchor, model.ReminderRepeatWeekly, weekdays, model.MonthDays{}); err != nil {
 		t.Fatalf("SetReminder() error: %v", err)
@@ -706,7 +754,7 @@ func TestService_ProcessPendingReminders_Weekly(t *testing.T) {
 	if got.ReminderAt == nil {
 		t.Fatal("ReminderAt cleared, want перенос на следующий день")
 	}
-	want := time.Date(2020, 1, 3, 15, 0, 0, 0, time.UTC) // пятница
+	want := time.Date(2020, 1, 6, 15, 0, 0, 0, time.UTC) // понедельник
 	if !got.ReminderAt.Equal(want) {
 		t.Errorf("ReminderAt = %v, want %v", got.ReminderAt, want)
 	}

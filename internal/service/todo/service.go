@@ -557,6 +557,9 @@ func (s *Service) ClearReminder(userID, noteID int64) error {
 
 // SnoozeReminder откладывает напоминание на указанное число минут,
 // сохраняя тип повторения (одноразовое / ежедневное / по дням недели / по числам месяца).
+// Момент задаётся напрямую и к набору дней не приводится (в отличие от постановки
+// напоминания): отложить можно и на день, которого в наборе нет, — следующее
+// плановое срабатывание планировщик снова посчитает по набору.
 func (s *Service) SnoozeReminder(userID, noteID int64, minutes int) error {
 	unlock := s.locks.Lock(userID)
 	defer unlock()
@@ -570,9 +573,7 @@ func (s *Service) SnoozeReminder(userID, noteID int64, minutes int) error {
 	}
 
 	at := time.Now().UTC().Add(time.Duration(minutes) * time.Minute)
-	if err := note.SetReminder(at, note.ReminderRepeat, note.ReminderWeekdays, note.ReminderMonthDays); err != nil {
-		return err
-	}
+	note.PostponeReminder(at)
 	return s.noteRepo.UpdateNote(note)
 }
 

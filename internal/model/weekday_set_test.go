@@ -90,6 +90,32 @@ func TestWeekdayOf(t *testing.T) {
 	}
 }
 
+func TestWeekdaySet_FirstOnOrAfter(t *testing.T) {
+	// Старт — четверг 15:00 UTC.
+	from := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+
+	t.Run("день из набора — момент не сдвигается", func(t *testing.T) {
+		set, _ := NewWeekdaySet([]Weekday{WeekdayThursday, WeekdayMonday})
+		if got := set.FirstOnOrAfter(from); !got.Equal(from) {
+			t.Errorf("FirstOnOrAfter() = %v, want %v", got, from)
+		}
+	})
+
+	t.Run("день не из набора — ближайший выбранный день", func(t *testing.T) {
+		set, _ := NewWeekdaySet([]Weekday{WeekdayMonday, WeekdayFriday})
+		want := time.Date(2026, 8, 7, 15, 0, 0, 0, time.UTC) // пятница, время суток то же
+		if got := set.FirstOnOrAfter(from); !got.Equal(want) {
+			t.Errorf("FirstOnOrAfter() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("пустой набор — момент без изменений", func(t *testing.T) {
+		if got := (WeekdaySet{}).FirstOnOrAfter(from); !got.Equal(from) {
+			t.Errorf("FirstOnOrAfter() = %v, want %v", got, from)
+		}
+	})
+}
+
 func TestWeekdaySet_NextAfter(t *testing.T) {
 	// Старт — четверг 15:00 UTC.
 	from := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)

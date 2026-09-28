@@ -189,6 +189,86 @@ func TestNote_SetReminder_Monthly(t *testing.T) {
 	})
 }
 
+func TestNote_SetReminder_FirstFireSnappedToSet(t *testing.T) {
+	// 2026-08-06 — четверг, 2026-08-27 — тоже четверг.
+	thursday := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+
+	t.Run("monthly: числа нет в наборе — первое срабатывание в ближайшее выбранное", func(t *testing.T) {
+		// Дата из календаря (27-е) и набор чисел (15-е) приходят из разных мест:
+		// без сверки напоминание сработало бы ещё и в день установки.
+		monthDays, _ := NewMonthDays([]int{15})
+		n := &Note{}
+		if err := n.SetReminder(time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC), ReminderRepeatMonthly, WeekdaySet{}, monthDays); err != nil {
+			t.Fatalf("SetReminder() unexpected error: %v", err)
+		}
+		want := time.Date(2026, 9, 15, 15, 0, 0, 0, time.UTC) // время суток сохраняется
+		if n.ReminderAt == nil || !n.ReminderAt.Equal(want) {
+			t.Errorf("ReminderAt = %v, want %v", n.ReminderAt, want)
+		}
+	})
+
+	t.Run("monthly: число есть в наборе — момент не меняется", func(t *testing.T) {
+		monthDays, _ := NewMonthDays([]int{1, 15})
+		n := &Note{}
+		at := time.Date(2026, 9, 15, 15, 0, 0, 0, time.UTC)
+		if err := n.SetReminder(at, ReminderRepeatMonthly, WeekdaySet{}, monthDays); err != nil {
+			t.Fatalf("SetReminder() unexpected error: %v", err)
+		}
+		if n.ReminderAt == nil || !n.ReminderAt.Equal(at) {
+			t.Errorf("ReminderAt = %v, want %v", n.ReminderAt, at)
+		}
+	})
+
+	t.Run("weekly: дня нет в наборе — первое срабатывание в ближайший выбранный", func(t *testing.T) {
+		weekdays, _ := NewWeekdaySet([]Weekday{WeekdayMonday, WeekdayFriday})
+		n := &Note{}
+		if err := n.SetReminder(thursday, ReminderRepeatWeekly, weekdays, MonthDays{}); err != nil {
+			t.Fatalf("SetReminder() unexpected error: %v", err)
+		}
+		want := time.Date(2026, 8, 7, 15, 0, 0, 0, time.UTC) // пятница
+		if n.ReminderAt == nil || !n.ReminderAt.Equal(want) {
+			t.Errorf("ReminderAt = %v, want %v", n.ReminderAt, want)
+		}
+	})
+
+	t.Run("once и daily — момент не трогаем", func(t *testing.T) {
+		for _, repeat := range []ReminderRepeat{ReminderRepeatOnce, ReminderRepeatDaily} {
+			n := &Note{}
+			if err := n.SetReminder(thursday, repeat, WeekdaySet{}, MonthDays{}); err != nil {
+				t.Fatalf("SetReminder(%q) unexpected error: %v", repeat, err)
+			}
+			if n.ReminderAt == nil || !n.ReminderAt.Equal(thursday) {
+				t.Errorf("ReminderAt для %q = %v, want %v", repeat, n.ReminderAt, thursday)
+			}
+		}
+	})
+}
+
+func TestNote_PostponeReminder(t *testing.T) {
+	// Понедельник 15:00 UTC — момент из набора, чтобы отличие отложенного
+	// момента от набора было очевидным.
+	monday := time.Date(2026, 8, 10, 15, 0, 0, 0, time.UTC)
+	weekdays, _ := NewWeekdaySet([]Weekday{WeekdayMonday})
+	n := &Note{
+		ReminderAt:       &monday,
+		ReminderRepeat:   ReminderRepeatWeekly,
+		ReminderWeekdays: weekdays,
+	}
+
+	postponed := time.Date(2026, 8, 12, 12, 30, 0, 0, time.UTC) // среда
+	n.PostponeReminder(postponed)
+
+	if n.ReminderAt == nil || !n.ReminderAt.Equal(postponed) {
+		t.Errorf("ReminderAt = %v, want %v (отложенный момент не приводится к набору)", n.ReminderAt, postponed)
+	}
+	if n.ReminderRepeat != ReminderRepeatWeekly {
+		t.Errorf("ReminderRepeat = %q, want %q", n.ReminderRepeat, ReminderRepeatWeekly)
+	}
+	if !n.ReminderWeekdays.Contains(WeekdayMonday) {
+		t.Errorf("ReminderWeekdays = %q, want понедельник", n.ReminderWeekdays)
+	}
+}
+
 func TestNote_ClearReminder(t *testing.T) {
 	at := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
 	weekdays, _ := NewWeekdaySet([]Weekday{WeekdayMonday})

@@ -419,6 +419,31 @@ describe('notes store', () => {
     expect(notesStore.notes[0].reminder_month_days).toEqual([]);
   });
 
+  it('setReminder с месячным повтором не срабатывает в день установки', async () => {
+    const topicId = await setupTopic();
+    await loadNotes(topicId);
+    await createNote('напомнить по числам');
+
+    // Дата из календаря — сегодняшняя (пикер подставляет её по умолчанию), а
+    // число в наборе другое: первое срабатывание обязано уехать на это число,
+    // иначе напоминание сработало бы ещё и сегодня, когда время дойдёт до него.
+    const at = new Date(Date.now() + 3600_000);
+    const other = at.getUTCDate() === 15 ? 16 : 15;
+    await setReminder(notesStore.notes[0], at.toISOString(), 'monthly', [], [other]);
+
+    const stored = notesStore.notes[0].reminder_at;
+    if (stored === null) {
+      throw new Error('reminder_at пуст, ожидалось первое срабатывание в выбранное число');
+    }
+    const fired = new Date(stored);
+    expect(stored).not.toBe(at.toISOString());
+    expect(fired.getUTCDate()).toBe(other);
+    expect(fired.getTime()).toBeGreaterThan(at.getTime());
+    // Время суток сохраняется.
+    expect(fired.getUTCHours()).toBe(at.getUTCHours());
+    expect(fired.getUTCMinutes()).toBe(at.getUTCMinutes());
+  });
+
   it('setReminder с месячным повтором без чисел откатывается (400)', async () => {
     const topicId = await setupTopic();
     await loadNotes(topicId);

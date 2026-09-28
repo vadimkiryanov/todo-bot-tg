@@ -666,6 +666,29 @@ function nextWeeklyAfter(from: Date, weekdays: number[]): Date | null {
   return null;
 }
 
+/** Первый момент, попадающий в набор чисел месяца: сам from, если его число
+ *  выбрано, иначе ближайшее следующее (как нормализация на сервере). Без неё
+ *  напоминание сработало бы ещё и в день установки: дата в календаре клиента
+ *  выбирается отдельно от набора чисел. */
+function firstMonthlyOnOrAfter(from: Date, days: number[]): Date {
+  if (days.includes(from.getUTCDate())) return from;
+  return nextMonthlyAfter(from, days) ?? from;
+}
+
+/** Первый момент, попадающий в набор дней недели (см. firstMonthlyOnOrAfter). */
+function firstWeeklyOnOrAfter(from: Date, weekdays: number[]): Date {
+  if (weekdays.includes(utcWeekday(from))) return from;
+  return nextWeeklyAfter(from, weekdays) ?? from;
+}
+
+/** Момент первого срабатывания по типу повтора: у недельного и ежемесячного он
+ *  приводится к набору дней, у остальных берётся как есть. */
+function firstFireAt(at: Date, repeat: ReminderRepeat, weekdays: number[], monthDays: number[]): Date {
+  if (repeat === 'weekly') return firstWeeklyOnOrAfter(at, weekdays);
+  if (repeat === 'monthly') return firstMonthlyOnOrAfter(at, monthDays);
+  return at;
+}
+
 /**
  * Симуляция reminder-воркера для разработки: при запросе журнала «прозванивает»
  * просроченные напоминания локальных заметок — одноразовые снимает, ежедневные
@@ -783,7 +806,7 @@ function mockCreateNote(body: unknown): Note {
     if (repeat === 'once' && at.getTime() <= Date.now()) {
       throw new ApiError(400, 'время напоминания уже прошло');
     }
-    reminderAt = at.toISOString();
+    reminderAt = firstFireAt(at, repeat, days, monthDays).toISOString();
     reminderRepeat = repeat;
     reminderWeekdays = days;
     reminderMonthDays = monthDays;
@@ -935,7 +958,8 @@ function mockSetReminder(noteId: number, body: unknown): Note {
   if (note === undefined) {
     throw new ApiError(404, 'заметка не найдена');
   }
-  note.reminder_at = new Date(at).toISOString();
+  // Первое срабатывание приводим к набору дней — см. firstFireAt.
+  note.reminder_at = firstFireAt(new Date(at), repeat as ReminderRepeat, days, monthDays).toISOString();
   note.reminder_repeat = repeat as ReminderRepeat;
   note.reminder_weekdays = days;
   note.reminder_month_days = monthDays;

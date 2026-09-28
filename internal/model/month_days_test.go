@@ -77,6 +77,41 @@ func TestMonthDays_StringAndParse(t *testing.T) {
 	}
 }
 
+func TestMonthDays_FirstOnOrAfter(t *testing.T) {
+	from := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+
+	t.Run("число из набора — момент не сдвигается", func(t *testing.T) {
+		set, _ := NewMonthDays([]int{6, 20})
+		if got := set.FirstOnOrAfter(from); !got.Equal(from) {
+			t.Errorf("FirstOnOrAfter() = %v, want %v", got, from)
+		}
+	})
+
+	t.Run("число не из набора — ближайшее выбранное число", func(t *testing.T) {
+		set, _ := NewMonthDays([]int{1, 20})
+		want := time.Date(2026, 8, 20, 15, 0, 0, 0, time.UTC) // время суток то же
+		if got := set.FirstOnOrAfter(from); !got.Equal(want) {
+			t.Errorf("FirstOnOrAfter() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("месяц без выбранного числа пропускается", func(t *testing.T) {
+		// 2 февраля → в феврале 31-го нет, значит 31 марта.
+		set, _ := NewMonthDays([]int{31})
+		feb2 := time.Date(2026, 2, 2, 15, 0, 0, 0, time.UTC)
+		want := time.Date(2026, 3, 31, 15, 0, 0, 0, time.UTC)
+		if got := set.FirstOnOrAfter(feb2); !got.Equal(want) {
+			t.Errorf("FirstOnOrAfter() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("пустой набор — момент без изменений", func(t *testing.T) {
+		if got := (MonthDays{}).FirstOnOrAfter(from); !got.Equal(from) {
+			t.Errorf("FirstOnOrAfter() = %v, want %v", got, from)
+		}
+	})
+}
+
 func TestMonthDays_NextAfter(t *testing.T) {
 	from := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
 
