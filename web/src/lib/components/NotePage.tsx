@@ -84,6 +84,7 @@ import {
 import {
   archiveNote,
   clearReminder,
+  createNote,
   hasLoadedNote,
   removeArchivedNote,
   removeDoneNote,
@@ -95,6 +96,7 @@ import {
   togglePin,
   unarchiveNote,
   undoneNote,
+  type CreateNoteOptions,
 } from '../stores/notes';
 import { toggleNoteExpanded, useNoteViewStore } from '../stores/noteView';
 import { useSettingsStore } from '../stores/settings';
@@ -138,6 +140,11 @@ interface NotePageProps {
       ввода и «полный редактор»): поле в фокусе, панель форматирования
       на месте. */
   startEditing?: boolean;
+  /** Страница открыта черновиком: заметки на сервере ещё нет, её создаст
+      «Сохранить» (опции панели ввода — приоритет, напоминание и т.п.). */
+  createOptions?: CreateNoteOptions;
+  /** Черновик стал заметкой (после создания): родитель открывает её id. */
+  onCreated?: (note: Note) => void;
   onClose: () => void;
 }
 
@@ -246,13 +253,24 @@ const NOTE_TEXT_CLASS =
     это «# »-маркер в начале строки, в живой вёрстке — вид блока. */
 type MarkerKind = 'h1' | 'h2' | 'ol' | 'list' | 'check';
 
-export function NotePage({ note, startEditing = false, onClose }: NotePageProps) {
+export function NotePage({
+  note,
+  startEditing = false,
+  createOptions,
+  onCreated,
+  onClose,
+}: NotePageProps) {
   // Живое состояние: при store-мутациях родитель передаёт обновлённый объект
   // из списка; для «чужой» заметки (из уведомления) обновляем локально.
   const [pageNote, setPageNote] = useState<Note>(note);
   useEffect(() => {
     if (note.id === pageNote.id && note !== pageNote) setPageNote(note);
   }, [note, pageNote]);
+
+  // Страница-черновик (карандаш панели ввода): заметки на сервере ещё нет,
+  // текст пришёл из поля ввода. Создаст её «Сохранить» — до этого всё, что
+  // ходит в API по id (статус, приоритет, напоминание, удаление), недоступно.
+  const [isDraft, setIsDraft] = useState(createOptions !== undefined);
 
   // Заметка лежит в одном из списков стора? От этого зависит выбор
   // «store-мутация vs прямой API-вызов» в каждом действии.
@@ -263,18 +281,28 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
   // Правка ведётся в markdown — в нём текст уходит на сервер и он же
   // показывается, когда правка идёт «как есть» ('plain'). saved — та же
   // строка, что построена из заметки: сравнение с ней и есть «есть правки?».
-  const saved = useMemo(() => richMarkdown(pageNote.text, pageNote.entities), [pageNote]);
+  const savedFromNote = useMemo(
+    () => richMarkdown(pageNote.text, pageNote.entities),
+    [pageNote],
+  );
+  /** У черновика сохранённого текста нет: любая правка «грязная» — страница
+      сразу показывает «Отмена/Сохранить», а не док действий с карандашом. */
+  const saved = isDraft ? '' : savedFromNote;
   const [draft, setDraft] = useState<string>(() => richMarkdown(note.text, note.entities));
   /** Не-реактивная память: последнее значение, пришедшее снаружи. Пока draft
       не разошёлся с ним, внешние обновления (родитель передал обновлённую
       заметку) зеркалятся в draft; иначе локальные правки не затираются. */
   const lastSeenRef = useRef(draft);
-  const dirty = draft !== saved;
+  /** Черновик всегда «есть правки»: сохранённого вида у него нет, страница
+      сразу в режиме «Отмена/Сохранить». */
+  const dirty = isDraft || draft !== saved;
 
   useEffect(() => {
+    // У черновика saved пуст: зеркалить нечего, иначе набранное затиралось бы.
+    if (isDraft) return;
     if (draft === lastSeenRef.current && draft !== saved) setDraft(saved);
     lastSeenRef.current = saved;
-  }, [draft, saved]);
+  }, [draft, saved, isDraft]);
 
   // ── Режим редактирования (локальная настройка устройства) ────────────────
   // 'tap'    — тап по тексту сразу включает поле (как раньше);
@@ -448,12 +476,46 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
     setManualEdit(false);
   }
 
+  /** Взять поле в фокус, поставив каретку в конец текста.
+      Для живой вёрстки — фокус без «умного» выбора места + явный конец
+      (focusEditorEnd ведёт себя по-разному для блоков, списков и чекбоксов);
+      для поля с разметкой — курсор после последнего символа.
+      Фокус нужен синхронно в задаче клика: iOS/Safari не открывает клавиатуру,
+      если focus() вызван позже (после await/rAF) — это уже не жест. */
+  function focusEditorAtEnd(): void {
+    if (!rich) {
+      const ta = textareaRef.current;
+      if (ta === null) return;
+      ta.focus({ preventScroll: true });
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      return;
+    }
+    const el = richElRef.current;
+    if (el === null) return;
+    el.focus({ preventScroll: true });
+    focusEditorEnd(el);
+  }
+
   // Страница открыта сразу в режиме правки (кнопка-карандаш панели ввода):
   // правку получаем в фокус, чтобы можно было продолжать набор с клавиатуры.
-  useEffect(() => {
+  // useLayoutEffect, а не useEffect: фокус ставится ещё до отрисовки, в той же
+  // задаче, что и клик по карандашу (иначе на мобильном Safari клавиатура не
+  // появлялась). Каретка — в конец: дописывать продолжаем с конца текста.
+  // Вёрстку к этому моменту собираем сами — слой правки только что смонтирован.
+  useLayoutEffect(() => {
     if (!startEditing) return;
-    const frame = requestAnimationFrame(() => focusEditor());
+    if (rich) rebuildRich(draft);
+    focusEditorAtEnd();
+    // Страховка: если фокус не встал (вёрстка пересобралась кадром позже),
+    // добираем его в следующем кадре, снова в конец текста.
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === editorEl()) return;
+      focusEditorAtEnd();
+    });
     return () => cancelAnimationFrame(frame);
+    // Только на входе: последующие правки draft вёрстку не пересобирают
+    // (иначе каретка прыгала бы на каждый символ).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- открытие страницы
   }, [startEditing]);
 
   // iOS не сжимает вьюпорт клавиатурой: укорачиваем область текста
@@ -548,6 +610,12 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       В живую вёрстку сохранённый вид вернёт пересборка по draft. */
   function discard(): void {
     if (saving) return;
+    // У черновика сохранённого вида нет: «Отмена» — отказ от создания
+    // заметки (набранное осталось в поле ввода, панель не чистили).
+    if (isDraft) {
+      closeNow();
+      return;
+    }
     setDraft(saved);
     setError('');
   }
@@ -739,6 +807,10 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       setError('текст не может быть пустым');
       return;
     }
+    if (isDraft) {
+      await createDraft(value, closeAfter);
+      return;
+    }
     if (value === saved) {
       // Правки «схлопнулись» в сохранённый вид (например, лишние пробелы в
       // конце) — сеть не дёргаем, просто возвращаем правку к сохранённому.
@@ -765,6 +837,40 @@ export function NotePage({ note, startEditing = false, onClose }: NotePageProps)
       if (value !== draft) setDraft(value);
       exitEditing();
     } catch (e) {
+      setError(e instanceof Error ? e.message : 'ошибка');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** «Сохранить» на странице черновика (карандаш панели ввода): только здесь
+      набранное становится заметкой. closeAfter — закрыть страницу после. */
+  async function createDraft(value: string, closeAfter: boolean): Promise<void> {
+    if (saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      const created = await createNote(value, createOptions);
+      if (created === null) {
+        // Нет активного топика — создавать некуда; текст остаётся в правке.
+        setError('не удалось создать заметку');
+        return;
+      }
+      // Дальше страница живёт как обычная заметка: настоящий id, серверный
+      // текст как сохранённый вид (правка/док ведут себя как обычно).
+      const markdown = richMarkdown(created.text, created.entities);
+      setIsDraft(false);
+      setPageNote(created);
+      setDraft(markdown);
+      lastSeenRef.current = markdown;
+      onCreated?.(created);
+      if (closeAfter) {
+        closeNow();
+        return;
+      }
+      exitEditing();
+    } catch (e) {
+      // Тост с причиной уже показал стор заметок.
       setError(e instanceof Error ? e.message : 'ошибка');
     } finally {
       setSaving(false);

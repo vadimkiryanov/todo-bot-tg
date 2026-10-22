@@ -66,20 +66,47 @@ import {
   useFoldersStore,
 } from '../stores/folders';
 import { setActiveFolder, setActiveTopic, useNavigationStore } from '../stores/navigation';
+import { setNoteExpanded } from '../stores/noteView';
 import {
   clearNoteHighlight,
   loadNotes,
   peekCachedNotes,
   preloadTopicNeighbors,
   useNotesStore,
+  type ComposeDraft,
 } from '../stores/notes';
 import { useSessionStore } from '../stores/session';
 import { useSettingsStore } from '../stores/settings';
-import { loadTopics, useTopicsStore } from '../stores/topics';
+import { bumpTopicNoteCount, loadTopics, useTopicsStore } from '../stores/topics';
 import { useUiStore } from '../stores/ui';
 import type { Folder, Note, Topic } from '../types/api';
 import { suppressNextClick } from '../utils/click';
 import type { RowPhase } from '../utils/rowSwing';
+
+/** Заметка-оболочка для черновика панели ввода: id 0 — на сервере записи ещё
+    нет, а поля, которые страница показывает до сохранения (приоритет,
+    закрепление, напоминание), берутся из выставленных опций. */
+function draftNoteOf(draft: ComposeDraft): Note {
+  const nav = useNavigationStore.getState();
+  const now = new Date().toISOString();
+  return {
+    id: 0,
+    text: draft.text,
+    entities: [],
+    priority: draft.options.priority ?? 'none',
+    done: draft.options.done ?? false,
+    pinned: draft.options.pinned ?? false,
+    archived: false,
+    created_at: now,
+    updated_at: now,
+    topic_id: nav.activeTopicID ?? 0,
+    folder_id: nav.activeFolderID,
+    reminder_at: draft.options.reminder_at ?? null,
+    reminder_repeat: draft.options.reminder_repeat ?? 'once',
+    reminder_weekdays: draft.options.reminder_weekdays ?? [],
+    reminder_month_days: draft.options.reminder_month_days ?? [],
+  };
+}
 
 export function ChatView() {
   // ── Подписки на сторы (рендер-слайсы; в хэндлерах/эффектах — getState()) ──
@@ -111,9 +138,23 @@ export function ChatView() {
   // анимация закрытия страницы — держим объект до явного onClose.
   const [selectedId, setSelectedIdState] = useState<number | null>(null);
   const [selectedCache, setSelectedCache] = useState<Note | null>(null);
-  // Открывать страницу сразу в режиме редактирования (кнопка-карандаш панели
-  // ввода создаёт заметку и открывает её «как будто уже перешли в заметку»).
+  // Открывать страницу сразу в режиме редактирования с курсором в тексте:
+  // заметку открывают, чтобы продолжить её писать.
   const [selectedEdit, setSelectedEdit] = useState(false);
+  // Черновик новой заметки (карандаш панели ввода): страница уже открыта, но
+  // на сервере заметки ещё нет — её создаст «Сохранить» на самой странице.
+  const [composeDraft, setComposeDraft] = useState<ComposeDraft | null>(null);
+  // Счётчик «черновик стал заметкой»: по нему InputBar очищает поле и опции.
+  const [composeSeq, setComposeSeq] = useState(0);
+  /** Что показывает страница: открытую заметку или черновик панели ввода.
+      Один и тот же элемент дерева — после создания NotePage не перемонтируется,
+      а продолжает жить уже как заметка (см. handleComposed). Мемо: объект
+      черновика не должен меняться на каждом рендере. */
+  const draftNote = useMemo(
+    () => (composeDraft === null ? null : draftNoteOf(composeDraft)),
+    [composeDraft],
+  );
+  const pageNote = selectedCache ?? draftNote;
 
   // ВАЖНО: $state в Svelte присваивается синхронно, setState в React — нет.
   // openNote/queryForState/applyUrlIntent читают свежее значение сразу после
@@ -260,6 +301,9 @@ export function ChatView() {
     const viaPush = noteOpenedViaPushRef.current;
     noteOpenedViaPushRef.current = false;
     setSelected(null);
+    // Черновик закрыт без сохранения: заметки нет, текст остался в панели
+    // ввода (его не трогали) — можно вернуться к набору.
+    setComposeDraft(null);
     if (viaPush) {
       // Открытие создало запись истории — возвращаемся к ней: popstate сам
       // приведёт сторы (заметка уже закрыта, адреса записей совпадают).
@@ -267,6 +311,38 @@ export function ChatView() {
     }
     // Иначе заметка пришла из URL (ссылка/«вперёд») — эффект синхронизации
     // заменит адрес на состояние без note.
+  }
+
+  /** Карандаш панели ввода: открыть набранное в полном редакторе. Заметку
+      здесь НЕ создаём — иначе она появлялась бы в списке, даже если страницу
+      закрыли без сохранения. Создаст её «Сохранить» (handleComposed). */
+  function openCompose(draft: ComposeDraft): void {
+    noteOpenedViaPushRef.current = true;
+    // Страница черновика занимает то же место, что и заметка: кэш заметки
+    // очищаем, чтобы рендер взял черновик.
+    setSelectedCache(null);
+    setComposeDraft(draft);
+    window.history.pushState(null, '', window.location.pathname + queryForState());
+  }
+
+  /** «Сохранить» на странице черновика: заметка создана — страница остаётся
+      открытой, но теперь это обычная заметка (адрес получает её id). */
+  function handleComposed(note: Note): void {
+    const draft = composeDraft;
+    setComposeDraft(null);
+    if (draft !== null) {
+      // Опции панели ввода применялись к ещё не созданной заметке — счётчик
+      // топика и «развернуть» доводим здесь, как при обычной отправке.
+      if (draft.expanded) setNoteExpanded(note.id, true);
+      bumpTopicNoteCount(note.topic_id, 1);
+    }
+    // Панель ввода очищается: набранное стало заметкой.
+    setComposeSeq((n) => n + 1);
+    setSelectedCache(note);
+    // Остаёмся в просмотре (курсор уже отработал) — начало новой записи
+    // истории не нужно: replace, иначе «назад» вернул бы к пустому черновику.
+    setSelected(note.id, false);
+    window.history.replaceState(null, '', window.location.pathname + queryForState());
   }
 
   /** Папка есть в дереве загруженных папок (цепочка до корня не рвётся). */
@@ -356,6 +432,9 @@ export function ChatView() {
           noteOpenedViaPushRef.current = false;
           setSelected(null);
         }
+        // Черновик живёт только в памяти страницы: «назад» закрывает его,
+        // набранный текст остаётся в панели ввода.
+        if (composeDraft !== null) setComposeDraft(null);
         intent.noteDone = true;
       } else if (!levelChanged) {
         if (!intent.folderDone) return;
@@ -1403,9 +1482,10 @@ export function ChatView() {
               onOpenTopics={() => setTopicSheetOpen(true)}
               onOpenFolders={() => setFolderSheetOpen(true)}
               onNavigate={navigate}
-              // Кнопка-карандаш панели ввода: заметка уже создана — открываем
-              // её в полном редакторе сразу с курсором в тексте.
-              onOpenNote={(note) => openNoteObject(note)}
+              // Карандаш панели ввода: набранное открывается в полном
+              // редакторе ещё черновиком — заметку создаёт «Сохранить» там.
+              onCompose={openCompose}
+              composeDone={composeSeq}
             />
           </footer>
           {/* Поиск по заметкам — только когда есть топики: по пустому списку
@@ -1456,8 +1536,14 @@ export function ChatView() {
         />
       )}
 
-      {selectedCache !== null && (
-        <NotePage note={selectedCache} startEditing={selectedEdit} onClose={closeNotePage} />
+      {pageNote !== null && (
+        <NotePage
+          note={pageNote}
+          startEditing={selectedEdit || composeDraft !== null}
+          createOptions={composeDraft?.options}
+          onCreated={handleComposed}
+          onClose={closeNotePage}
+        />
       )}
 
       {menuNote !== null && menuRect !== null && (

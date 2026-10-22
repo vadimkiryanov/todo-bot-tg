@@ -19,15 +19,22 @@ api:
 
 # --- PostgreSQL ---
 
+# Если контейнер уже создан — просто стартуем его (данные сохраняются),
+# иначе создаём новый.
 db-up:
-	docker run -d --name todobot-pg \
-		-e POSTGRES_USER=$(DB_USER) \
-		-e POSTGRES_PASSWORD=$(DB_PASS) \
-		-e POSTGRES_DB=$(DB_NAME) \
-		-p $(DB_PORT):5432 \
-		postgres:16-alpine
+	@docker start todobot-pg 2>/dev/null || \
+		docker run -d --name todobot-pg \
+			-e POSTGRES_USER=$(DB_USER) \
+			-e POSTGRES_PASSWORD=$(DB_PASS) \
+			-e POSTGRES_DB=$(DB_NAME) \
+			-p $(DB_PORT):5432 \
+			postgres:16-alpine
 	@echo "Ждём готовности..."
-	@sleep 3
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		docker exec todobot-pg pg_isready -U $(DB_USER) -d $(DB_NAME) >/dev/null 2>&1 && break; \
+		sleep 1; \
+	done
+	@docker exec todobot-pg pg_isready -U $(DB_USER) -d $(DB_NAME)
 	@echo "Готово. DATABASE_URL=$(DATABASE_URL)"
 
 db-down:

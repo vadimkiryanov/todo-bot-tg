@@ -19,7 +19,9 @@
 // приоритет (цикл; метка — '!'/'!!'/'!!!', у «без приоритета» — тире),
 // напоминание (колокольчик, модалка), закрепление (иконка пина),
 // «развернуть» (шеврон; созданная заметка показывается на карточке целиком)
-// и справа карандаш «полный редактор» — создать заметку и открыть её в NotePage.
+// и справа карандаш «полный редактор»: набранное открывается в NotePage ещё
+// черновиком — заметку создаёт «Сохранить» уже там (закрыл без сохранения —
+// в списке ничего не появилось, текст остался в поле ввода).
 // Панель стоит раскрытой всё время, пока в поле ввода курсор, — опции можно
 // выставить и до набора текста.
 // Тап по кнопкам панели/плавающим кнопкам не уводит фокус из поля ввода —
@@ -40,14 +42,21 @@ import { Icon24SunLow } from '@telegram-apps/telegram-ui/dist/icons/24/sun_low';
 import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive';
 import { Icon28Edit } from '@telegram-apps/telegram-ui/dist/icons/28/edit';
 
-import { createNote, loadArchived, loadDone, loadTimers } from '../stores/notes';
+import {
+  createNote,
+  loadArchived,
+  loadDone,
+  loadTimers,
+  type ComposeDraft,
+  type CreateNoteOptions,
+} from '../stores/notes';
 import { loadNotifications, useNotificationsStore } from '../stores/notifications';
 import { useNavigationStore } from '../stores/navigation';
 import { setNoteExpanded } from '../stores/noteView';
 import { logout } from '../stores/session';
 import { useSettingsStore } from '../stores/settings';
 import { bumpTopicNoteCount } from '../stores/topics';
-import type { Note, Priority, ReminderRepeat } from '../types/api';
+import type { Priority, ReminderRepeat } from '../types/api';
 import { useCloseAnim } from '../utils/closeAnim';
 import { nextPriority, priorityLabel, priorityMark } from '../utils/format';
 
@@ -68,15 +77,19 @@ interface InputBarProps {
   /** Переход на экран уровня вью: '/archive', '/done', '/notifications',
       '/timers', '/login' (см. TODO(router) в шапке). */
   onNavigate?: (path: string) => void;
-  /** Открыть созданную заметку в полном редакторе («расширенный режим»). */
-  onOpenNote?: (note: Note) => void;
+  /** Карандаш панели действий: открыть набранное в полном редакторе.
+      Заметку здесь не создаём — этим занимается «Сохранить» на странице. */
+  onCompose?: (draft: ComposeDraft) => void;
+  /** Счётчик «черновик стал заметкой»: панель очищает поле и опции. */
+  composeDone?: number;
 }
 
 export function InputBar({
   onOpenTopics,
   onOpenFolders,
   onNavigate,
-  onOpenNote,
+  onCompose,
+  composeDone = 0,
 }: InputBarProps) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -144,14 +157,7 @@ export function InputBar({
   }
 
   /** Опции создания заметки из текущего состояния панели действий. */
-  function currentOptions(): {
-    priority: Priority;
-    pinned: boolean;
-    reminder_at?: string;
-    reminder_repeat?: ReminderRepeat;
-    reminder_weekdays?: number[];
-    reminder_month_days?: number[];
-  } {
+  function currentOptions(): CreateNoteOptions {
     return {
       priority,
       pinned,
@@ -179,11 +185,9 @@ export function InputBar({
   }
 
   /**
-   * Создать заметку из текущего ввода. openEditor — открыть созданную заметку
-   * в полном редакторе (кнопка-карандаш на панели действий): сразу можно
-   * дописать форматирование, как будто уже перешли в заметку.
+   * Создать заметку из текущего ввода (обычная отправка, Enter).
    */
-  async function submit(openEditor: boolean): Promise<void> {
+  async function submit(): Promise<void> {
     const value = text.trim();
     if (value === '' || sending) return;
     setSending(true);
@@ -195,30 +199,45 @@ export function InputBar({
       // топиков, а тот после создания заметки не перечитывается.
       if (created !== null) bumpTopicNoteCount(created.topic_id, 1);
       if (markExpanded && created !== null) {
-        // Заметку просили сразу развернуть — помечаем её «развёрнутой» до
-        // открытия редактора, чтобы карточка (и NotePage) показали её целиком.
+        // Заметку просили сразу развернуть — помечаем её «развёрнутой», чтобы
+        // карточка показала её целиком.
         setNoteExpanded(created.id, true);
-      }
-      if (openEditor && created !== null) {
-        // Полный редактор сам управляет фокусом — в поле ввода не возвращаем
-        // (иначе на мобильных всплывёт клавиатура под открытой заметкой).
-        onOpenNote?.(created);
       }
     } catch {
       // При ошибке текст остаётся в поле — пользователь видит и может повторить
       // (тост с причиной уже показал стор заметок).
     } finally {
       setSending(false);
-      if (!openEditor) {
-        // Сразу можно писать следующую заметку.
-        keepInputFocus();
-      }
+      // Сразу можно писать следующую заметку.
+      keepInputFocus();
     }
   }
 
   async function send(): Promise<void> {
-    await submit(false);
+    await submit();
   }
+
+  /**
+   * Карандаш панели действий: открыть набранное в полном редакторе. Заметку
+   * здесь НЕ создаём — иначе она появлялась бы в списке, даже если страницу
+   * закрыли без сохранения. Создаст её «Сохранить» на самой странице, а текст
+   * до этого остаётся в поле ввода (вернулись назад — набираем дальше).
+   * Поле может быть и пустым: страница откроется чистым черновиком — так
+   * начинают заметку сразу в расширенном редакторе (форматирование, списки).
+   */
+  function openFullEditor(): void {
+    if (sending) return;
+    onCompose?.({ text: text.trim(), options: currentOptions(), expanded });
+  }
+
+  // Черновик стал заметкой (создали на странице): очищаем поле и опции.
+  // Сравниваем со снимком счётчика — на монтировании сброса не будет.
+  const composeDoneSeen = useRef(composeDone);
+  useEffect(() => {
+    if (composeDone === composeDoneSeen.current) return;
+    composeDoneSeen.current = composeDone;
+    resetCompose();
+  }, [composeDone]);
 
   /** Тап по кнопке напоминания: открыть модалку или снять уже заданное. */
   function toggleReminderForm(): void {
@@ -560,8 +579,9 @@ export function InputBar({
               >
                 <ExpandIcon expanded={expanded} className="h-6 w-6" />
               </IconButton>
-              {/* Карандаш прижат вправо: создать заметку и сразу открыть её
-                  в полном редакторе (форматирование, заголовки, списки). */}
+              {/* Карандаш прижат вправо: открыть набранное в полном
+                  редакторе (форматирование, заголовки, списки). Заметка
+                  появится только по «Сохранить» там. */}
               <IconButton
                 type="button"
                 size="m"
@@ -570,9 +590,7 @@ export function InputBar({
                 title="Открыть в полном редакторе"
                 className="ml-auto h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! text-muted-foreground! btn-press disabled:opacity-40"
                 disabled={sending}
-                onClick={() => {
-                  void submit(true);
-                }}
+                onClick={openFullEditor}
               >
                 <Icon28Edit />
               </IconButton>
