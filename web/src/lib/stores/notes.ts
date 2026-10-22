@@ -172,6 +172,14 @@ export async function loadNotes(
     // мутации (force) результат старого запроса устарел — идём в сеть ещё раз.
     await pending.catch(() => {});
     if (!force) {
+      // Идущий запрос мог начаться, когда контекст был НЕактивным, и по
+      // завершении не записать список в стор (проверка активности в момент
+      // ответа): берём его результат из кеша сами — иначе уровень остался бы
+      // пустым до смены топика, хотя данные уже пришли.
+      const fresh = notesCache.get(key);
+      if (fresh !== undefined && isActiveContext(topicId, folderId)) {
+        useNotesStore.setState({ notes: fresh, error: null });
+      }
       if (active && !silent) {
         useNotesStore.setState({ loading: false });
       }

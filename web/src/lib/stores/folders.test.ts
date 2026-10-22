@@ -181,4 +181,33 @@ describe('folders store', () => {
     expect(navigation.activeFolderID).toBeNull();
     expect(foldersStore.all).toHaveLength(0);
   });
+
+  it('тихая загрузка соседнего топика не сбрасывает папки активного', async () => {
+    const first = await setupTopic();
+    await createFolder('A');
+    const second = await request<Topic>('POST', '/api/v1/topics', { name: 'Личное' });
+
+    // Предзагрузка соседа (silent): кеш наполняется, но показанный список
+    // активного топика не трогается — иначе topicId уходил бы в null и
+    // уровень залипал на скелетоне до смены топика (foldersReady не
+    // выполнялся), хотя заметки уже загружены.
+    await loadFolders(second.id, true);
+
+    expect(useFoldersStore.getState().topicId).toBe(first);
+    expect(foldersStore.all.map((f) => f.name)).toEqual(['A']);
+  });
+
+  it('после тихой предзагрузки возврат в топик показывает папки из кеша', async () => {
+    await setupTopic();
+    await createFolder('A');
+    const second = await request<Topic>('POST', '/api/v1/topics', { name: 'Личное' });
+    await request('POST', '/api/v1/folders', { topic_id: second.id, name: 'B' });
+    await loadFolders(second.id, true);
+
+    setActiveTopic(second.id);
+    await loadFolders(second.id);
+
+    expect(useFoldersStore.getState().topicId).toBe(second.id);
+    expect(foldersStore.all.map((f) => f.name)).toEqual(['B']);
+  });
 });

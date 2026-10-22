@@ -135,17 +135,30 @@ const foldersLoadedAt = new Map<number, number>();
     срабатывают дважды с интервалом <1 с, данные только что получены. */
 const FOLDERS_FRESH_MS = 3000;
 
-/** Загрузка всех папок активного топика. silent — тихая перезагрузка. */
+/** Показать папки топика, если он активен ПРЯМО СЕЙЧАС: после await
+    активный топик мог смениться, чужие папки на экран не попадают. */
+function showFoldersIfActive(topicId: number, folders: Folder[]): void {
+  if (useNavigationStore.getState().activeTopicID === topicId) {
+    useFoldersStore.setState({ all: folders, topicId });
+  }
+}
+
+/** Загрузка всех папок топика. silent — тихая загрузка (предзагрузка
+    соседа): наполняет кеш и НЕ трогает показанный список, если топик не
+    активен. Иначе предзагрузка соседа сбрасывала папки активного топика
+    (topicId: null) — уровень залипал на скелетоне до смены топика
+    (foldersReady не выполнялся), хотя заметки уже были загружены. */
 export async function loadFolders(topicId: number, silent = false): Promise<void> {
-  const state = useFoldersStore.getState();
   if (!silent) useFoldersStore.setState({ loading: true });
-  useFoldersStore.setState({ error: null });
-  // Сразу показываем кешированные папки топика — переключение топиков
-  // в шторке не моргает скелетоном (данные всё равно обновятся).
+  // Ошибку активного топика тихая чужая загрузка не сбрасывает.
+  const activeAtStart = useNavigationStore.getState().activeTopicID === topicId;
+  if (!silent || activeAtStart) useFoldersStore.setState({ error: null });
+  // Сразу показываем кешированные папки активного топика — переключение
+  // топиков в шторке не моргает скелетоном (данные всё равно обновятся).
   const cached = foldersByTopic.get(topicId);
   if (cached !== undefined) {
-    useFoldersStore.setState({ all: cached, topicId });
-  } else if (state.topicId !== topicId) {
+    showFoldersIfActive(topicId, cached);
+  } else if (!silent && useFoldersStore.getState().topicId !== topicId) {
     // Кеша ещё нет: чужие папки не показываем (скрываются скелетоном).
     useFoldersStore.setState({ all: [], topicId: null });
   }
@@ -162,12 +175,8 @@ export async function loadFolders(topicId: number, silent = false): Promise<void
   const pending = foldersInFlight.get(topicId);
   if (pending !== undefined) {
     await pending;
-    if (useNavigationStore.getState().activeTopicID === topicId) {
-      const fresh = foldersByTopic.get(topicId);
-      if (fresh !== undefined) {
-        useFoldersStore.setState({ all: fresh, topicId });
-      }
-    }
+    const fresh = foldersByTopic.get(topicId);
+    if (fresh !== undefined) showFoldersIfActive(topicId, fresh);
     if (!silent) useFoldersStore.setState({ loading: false });
     return;
   }
@@ -177,11 +186,16 @@ export async function loadFolders(topicId: number, silent = false): Promise<void
       const folders = await listAllFolders(topicId);
       foldersLoadedAt.set(topicId, Date.now());
       setTopicFolders(topicId, folders);
-      if (useNavigationStore.getState().activeTopicID === topicId) {
-        useFoldersStore.setState({ all: folders, topicId });
-      }
+      showFoldersIfActive(topicId, folders);
     } catch (e) {
-      useFoldersStore.setState({ error: e instanceof Error ? e.message : 'не удалось загрузить папки' });
+      // Ошибку показываем только для активного топика без кеша (со старым
+      // кешем список остаётся) — сбой предзагрузки соседа не должен
+      // помечать «не загрузились» папки открытого топика.
+      if (useNavigationStore.getState().activeTopicID === topicId && !foldersByTopic.has(topicId)) {
+        useFoldersStore.setState({
+          error: e instanceof Error ? e.message : 'не удалось загрузить папки',
+        });
+      }
     } finally {
       foldersInFlight.delete(topicId);
       if (!silent) useFoldersStore.setState({ loading: false });
