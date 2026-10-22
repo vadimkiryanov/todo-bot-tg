@@ -17,11 +17,16 @@
 // При вводе текста или с курсором в поле над инпутом стоит панель действий
 // новой заметки:
 // приоритет (цикл; метка — '!'/'!!'/'!!!', у «без приоритета» — тире),
-// напоминание (колокольчик, модалка), закрепление (иконка пина),
-// «развернуть» (шеврон; созданная заметка показывается на карточке целиком)
-// и справа карандаш «полный редактор»: набранное открывается в NotePage ещё
-// черновиком — заметку создаёт «Сохранить» уже там (закрыл без сохранения —
-// в списке ничего не появилось, текст остался в поле ввода).
+// напоминание (колокольчик, модалка) и закрепление (иконка пина);
+// за ними — «развернуть» (шеврон; созданная заметка показывается на карточке
+// целиком). Полоса кнопок прокручивается по горизонтали, если они не влезают
+// в ряд (узкий экран), а справа вне скролла закреплён карандаш
+// «полный редактор»: набранное открывается в NotePage ещё черновиком —
+// заметку создаёт «Сохранить» уже там (закрыл без сохранения — в списке
+// ничего не появилось, текст остался в поле ввода).
+// Поле ввода одной высоты независимо от длины текста: лишнее прокручивается
+// внутри. Крестик очистки лежит внутри поля справа и появляется, только когда
+// есть что очищать (чистит текст, не трогая выбранные опции).
 // Панель стоит раскрытой всё время, пока в поле ввода курсор, — опции можно
 // выставить и до набора текста.
 // Тап по кнопкам панели/плавающим кнопкам не уводит фокус из поля ввода —
@@ -36,6 +41,7 @@ import { useEffect, useRef, useState } from 'react';
 import { IconButton, List, Section } from '@telegram-apps/telegram-ui';
 import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
 import { Icon24ChevronRight } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_right';
+import { Icon24Close } from '@telegram-apps/telegram-ui/dist/icons/24/close';
 import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
 import { Icon24PersonRemove } from '@telegram-apps/telegram-ui/dist/icons/24/person_remove';
 import { Icon24SunLow } from '@telegram-apps/telegram-ui/dist/icons/24/sun_low';
@@ -173,7 +179,6 @@ export function InputBar({
   /** Сброс текста и опций после успешного создания заметки. */
   function resetCompose(): void {
     setText('');
-    resetHeight();
     setPriority('none');
     setPinned(false);
     setExpanded(false);
@@ -254,19 +259,6 @@ export function InputBar({
       event.preventDefault();
       void send();
     }
-  }
-
-  /** Авторастягивание textarea под текст (до max-h-32), как в Svelte-версии. */
-  function autoResize(): void {
-    const node = input.current;
-    if (node === null) return;
-    node.style.height = 'auto';
-    node.style.height = `${Math.min(node.scrollHeight, 128)}px`;
-  }
-
-  function resetHeight(): void {
-    const node = input.current;
-    if (node !== null) node.style.height = '';
   }
 
   function toggleMenu(): void {
@@ -523,64 +515,71 @@ export function InputBar({
           inert={!showActions}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="flex items-center gap-2 px-1 py-1">
-              <IconButton
-                type="button"
-                size="m"
-                mode={priority !== 'none' ? 'bezeled' : 'gray'}
-                aria-label={`Приоритет: ${priorityLabel(priority)}`}
-                aria-pressed={priority !== 'none'}
-                title={`Приоритет: ${priorityLabel(priority)}`}
-                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
-                onClick={() => press(() => setPriority(nextPriority(priority)))}
-              >
-                <span className="text-base font-semibold leading-none">
-                  {priorityMark(priority)}
-                </span>
-              </IconButton>
-              <IconButton
-                type="button"
-                size="m"
-                mode={reminderAt !== null ? 'bezeled' : 'gray'}
-                aria-label={reminderAt !== null ? 'Снять напоминание' : 'Добавить напоминание'}
-                aria-pressed={reminderAt !== null}
-                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
-                onClick={() => press(toggleReminderForm)}
-              >
-                <Icon24Notifications className="h-6 w-6" />
-              </IconButton>
-              <IconButton
-                type="button"
-                size="m"
-                mode={pinned ? 'bezeled' : 'gray'}
-                aria-label={pinned ? 'Открепить' : 'Закрепить'}
-                aria-pressed={pinned}
-                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
-                onClick={() => press(() => setPinned(!pinned))}
-              >
-                {/* Иконка закрепления вместо слова «Пин» (PinIcon — своя:
-                    в наборе библиотеки пина нет). */}
-                <PinIcon className="h-6 w-6" />
-              </IconButton>
-              {/* Иконка объёма — созданная заметка будет развёрнута: карточка
-                  покажет текст целиком (то же, что «Развернуть» в меню
-                  заметки). Иконка сама говорит, в каком режиме функция:
-                  сокращённо — обрезанная карточка с шевроном, целиком —
-                  карточка со всеми строками. */}
-              <IconButton
-                type="button"
-                size="m"
-                mode={expanded ? 'bezeled' : 'gray'}
-                aria-label={expanded ? 'Заметка не будет развёрнута' : 'Развернуть заметку'}
-                aria-pressed={expanded}
-                title={expanded ? 'Заметка будет развёрнута' : 'Развернуть заметку'}
-                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
-                onClick={() => press(() => setExpanded(!expanded))}
-              >
-                <ExpandIcon expanded={expanded} className="h-6 w-6" />
-              </IconButton>
-              {/* Карандаш прижат вправо: открыть набранное в полном
-                  редакторе (форматирование, заголовки, списки). Заметка
+            <div className="flex items-center gap-2 pb-2.5">
+              {/* Иконки быстрых действий прокручиваются по горизонтали: на
+                  узком экране их больше, чем помещается, а ужимать тач-цели
+                  ниже 44 px нельзя. Полосы прокрутки не видно (.no-scrollbar),
+                  но свайп пальцем и трекпад работают. Карандаш полного
+                  редактора стоит вне скролла — он всегда под рукой. */}
+              <div className="no-scrollbar -mx-1 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-1">
+                <IconButton
+                  type="button"
+                  size="m"
+                  mode={priority !== 'none' ? 'bezeled' : 'gray'}
+                  aria-label={`Приоритет: ${priorityLabel(priority)}`}
+                  aria-pressed={priority !== 'none'}
+                  title={`Приоритет: ${priorityLabel(priority)}`}
+                  className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
+                  onClick={() => press(() => setPriority(nextPriority(priority)))}
+                >
+                  <span className="text-base font-semibold leading-none">
+                    {priorityMark(priority)}
+                  </span>
+                </IconButton>
+                <IconButton
+                  type="button"
+                  size="m"
+                  mode={reminderAt !== null ? 'bezeled' : 'gray'}
+                  aria-label={reminderAt !== null ? 'Снять напоминание' : 'Добавить напоминание'}
+                  aria-pressed={reminderAt !== null}
+                  className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
+                  onClick={() => press(toggleReminderForm)}
+                >
+                  <Icon24Notifications className="h-6 w-6" />
+                </IconButton>
+                <IconButton
+                  type="button"
+                  size="m"
+                  mode={pinned ? 'bezeled' : 'gray'}
+                  aria-label={pinned ? 'Открепить' : 'Закрепить'}
+                  aria-pressed={pinned}
+                  className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
+                  onClick={() => press(() => setPinned(!pinned))}
+                >
+                  {/* Иконка закрепления вместо слова «Пин» (PinIcon — своя:
+                      в наборе библиотеки пина нет). */}
+                  <PinIcon className="h-6 w-6" />
+                </IconButton>
+                {/* Иконка объёма — созданная заметка будет развёрнута: карточка
+                    покажет текст целиком (то же, что «Развернуть» в меню
+                    заметки). Иконка сама говорит, в каком режиме функция:
+                    сокращённо — обрезанная карточка с шевроном, целиком —
+                    карточка со всеми строками. */}
+                <IconButton
+                  type="button"
+                  size="m"
+                  mode={expanded ? 'bezeled' : 'gray'}
+                  aria-label={expanded ? 'Заметка не будет развёрнута' : 'Развернуть заметку'}
+                  aria-pressed={expanded}
+                  title={expanded ? 'Заметка будет развёрнута' : 'Развернуть заметку'}
+                  className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! btn-press"
+                  onClick={() => press(() => setExpanded(!expanded))}
+                >
+                  <ExpandIcon expanded={expanded} className="h-6 w-6" />
+                </IconButton>
+              </div>
+              {/* Карандаш прижат вправо, вне скролла: открыть набранное в
+                  полном редакторе (форматирование, заголовки, списки). Заметка
                   появится только по «Сохранить» там. */}
               <IconButton
                 type="button"
@@ -588,7 +587,7 @@ export function InputBar({
                 mode="gray"
                 aria-label="Открыть в полном редакторе"
                 title="Открыть в полном редакторе"
-                className="ml-auto h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! text-muted-foreground! btn-press disabled:opacity-40"
+                className="h-11 w-11 shrink-0 items-center justify-center rounded-full! p-0! text-muted-foreground! btn-press disabled:opacity-40"
                 disabled={sending}
                 onClick={openFullEditor}
               >
@@ -623,29 +622,58 @@ export function InputBar({
           {/* Поле ввода: тап пальцем/стилусом «надувает» поле (лёгкий рост) и
               пружинисто опадает при отпускании — под пальцем видно, что нажал
               именно в поле. Отклик общий для всех полей приложения
-              (.input-press в app.css, состояние ведёт installPress). */}
-          <textarea
-            ref={input}
-            rows={1}
-            value={text}
-            placeholder="Написать заметку…"
-            onChange={(e) => {
-              setText(e.target.value);
-              autoResize();
-            }}
-            onKeyDown={onKeydown}
-            onFocus={() => setFocused(true)}
-            onBlur={(e) => {
-              // Фокус ушёл на элемент самой панели (кнопки опций, отправка):
-              // это не уход из поля, панель не складываем — иначе она
-              // схлопнулась бы прямо под пальцем в момент нажатия.
-              if (e.relatedTarget !== null && rootRef.current?.contains(e.relatedTarget) === true) {
-                return;
-              }
-              setFocused(false);
-            }}
-            className="input-press max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-muted px-4 py-3 text-base leading-5 outline-none focus:border-ring placeholder:text-muted-foreground"
-          ></textarea>
+              (.input-press в app.css, состояние ведёт installPress).
+              Высота постоянная (h-11): поле не растёт под набором, длинный
+              текст прокручивается внутри. Справа внутри поля — очистка,
+              появляется только когда есть что очищать. */}
+          <div className="relative min-w-0 flex-1">
+            <textarea
+              ref={input}
+              rows={1}
+              value={text}
+              placeholder="Написать заметку…"
+              onChange={(e) => {
+                setText(e.target.value);
+              }}
+              onKeyDown={onKeydown}
+              onFocus={() => setFocused(true)}
+              onBlur={(e) => {
+                // Фокус ушёл на элемент самой панели (кнопки опций, отправка):
+                // это не уход из поля, панель не складываем — иначе она
+                // схлопнулась бы прямо под пальцем в момент нажатия.
+                if (
+                  e.relatedTarget !== null &&
+                  rootRef.current?.contains(e.relatedTarget) === true
+                ) {
+                  return;
+                }
+                setFocused(false);
+              }}
+              className="input-press block h-11 w-full resize-none overflow-y-auto rounded-2xl border border-border bg-muted py-3 pr-10 pl-4 text-base leading-5 outline-none focus:border-ring placeholder:text-muted-foreground"
+            ></textarea>
+            {hasText && (
+              <button
+                type="button"
+                aria-label="Очистить поле"
+                title="Очистить поле"
+                className="btn-press absolute inset-y-0 right-1.5 my-auto flex h-8 w-8 items-center justify-center rounded-full"
+                onClick={() =>
+                  press(() => {
+                    setText('');
+                  })
+                }
+              >
+                {/* Крестик залит чёрным жёстко (у иконки <g fill="#000"
+                    opacity=".5">), поэтому color с кнопки до него не доходит.
+                    Красим сам svg: fill-current на группу, её прозрачность снята,
+                    цвет — здесь же, на иконке. */}
+                <Icon24Close
+                  viewBox="0 0 24 24"
+                  className="text-foreground/30 dark:text-foreground/75 [&>g]:fill-current [&>g]:opacity-100"
+                />
+              </button>
+            )}
+          </div>
           <IconButton
             type="button"
             size="m"

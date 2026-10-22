@@ -4,6 +4,9 @@
 // заморожен (уход пальца/скролл-жест не прячет меню и не скроллит список).
 // Пункты — плоские строки-Cell на компонентах @telegram-apps/telegram-ui
 // (MenuRow): своим у меню остаются только «стекло», позиция и анимация.
+// У активной заметки есть пункт «Таймер»: он открывает поверх меню ту же
+// форму напоминания, что в странице заметки, и показывает текущее значение
+// в подписи; если таймер уже стоит — рядом появляется «Снять таймер».
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as React from 'react';
 import type { ReactNode } from 'react';
@@ -12,19 +15,24 @@ import { Icon16Cancel } from '@telegram-apps/telegram-ui/dist/icons/16/cancel';
 import { Icon20Select } from '@telegram-apps/telegram-ui/dist/icons/20/select';
 import { Icon24ChevronLeft } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_left';
 import { Icon24ChevronRight } from '@telegram-apps/telegram-ui/dist/icons/24/chevron_right';
+import { Icon24Notifications } from '@telegram-apps/telegram-ui/dist/icons/24/notifications';
 import { Icon28AddCircle } from '@telegram-apps/telegram-ui/dist/icons/28/add_circle';
 import { Icon28Archive } from '@telegram-apps/telegram-ui/dist/icons/28/archive';
 
 import { ConfirmModal } from './ConfirmModal';
 import { ExpandIcon } from './ExpandIcon';
 import { MenuRow } from './MenuRow';
+import { Modal } from './Modal';
 import { PinIcon } from './PinIcon';
+import { ReminderForm } from './ReminderForm';
 import {
   archiveNote,
+  clearReminder,
   removeArchivedNote,
   removeDoneNote,
   removeNote,
   setPriority,
+  setReminder,
   toggleDone,
   togglePin,
   unarchiveNote,
@@ -36,7 +44,7 @@ import { useUiStore } from '../stores/ui';
 import type { Note } from '../types/api';
 import { useCloseAnim } from '../utils/closeAnim';
 import { lockScroll, unlockScroll } from '../utils/scroll';
-import { nextPriority, priorityLabel, priorityMark } from '../utils/format';
+import { formatReminderAt, nextPriority, priorityLabel, priorityMark } from '../utils/format';
 
 interface NoteMenuProps {
   note: Note;
@@ -61,6 +69,8 @@ export function NoteMenu({
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Приоритет остаётся открытым: busy только на своей кнопке (без общего мигания).
   const [priorityBusy, setPriorityBusy] = useState(false);
+  // Форма таймера (напоминания) поверх меню: календарь и повтор.
+  const [timerOpen, setTimerOpen] = useState(false);
 
   // Живой приоритет из списка: меню держит заметку с момента открытия, а после
   // кликов по «Приоритет» она устаревает — подпись показывала бы старое
@@ -248,6 +258,39 @@ export function NoteMenu({
           >
             Приоритет: {priorityLabel(priority)}
           </MenuRow>,
+          // Таймер (напоминание) — та же форма с календарём и повтором, что в
+          // странице заметки и панели ввода. Пункт не закрывает меню: сначала
+          // открывается форма поверх него, меню уходит только после сохранения.
+          <MenuRow
+            key="timer"
+            icon={<Icon24Notifications />}
+            onSelect={() => {
+              setTimerOpen(true);
+            }}
+          >
+            {note.reminder_at !== null
+              ? `Таймер: ${formatReminderAt(
+                  note.reminder_at,
+                  note.reminder_repeat,
+                  note.reminder_weekdays,
+                  note.reminder_month_days,
+                )}`
+              : 'Таймер'}
+          </MenuRow>,
+          ...(note.reminder_at !== null
+            ? [
+                <MenuRow
+                  key="timer-clear"
+                  icon={<Icon16Cancel viewBox="0 0 16 16" className="h-5 w-5" />}
+                  disabled={busy}
+                  onSelect={() => {
+                    void run(() => clearReminder(note));
+                  }}
+                >
+                  Снять таймер
+                </MenuRow>,
+              ]
+            : []),
           <MenuRow
             key="pin"
             icon={<PinIcon className="h-5 w-5" />}
@@ -364,6 +407,39 @@ export function NoteMenu({
           <Section>{rows}</Section>
         </List>
       </div>
+
+      {/* Форма таймера — поверх меню (z-[80]): меню остаётся под ней, а после
+          сохранения закрывается и оно — новый таймер виден в списке сразу. */}
+      {timerOpen && (
+        <Modal
+          open
+          z="z-[80]"
+          onClose={() => {
+            setTimerOpen(false);
+          }}
+        >
+          <div className="flex flex-col gap-1 px-1 py-2">
+            <h2 className="text-center text-sm text-muted-foreground">Таймер</h2>
+            <ReminderForm
+              initial={note.reminder_at ?? ''}
+              initialRepeat={note.reminder_repeat}
+              initialWeekdays={note.reminder_weekdays}
+              initialMonthDays={note.reminder_month_days}
+              busy={busy}
+              onSubmit={async (iso, repeat, weekdays, monthDays) => {
+                await setReminder(note, iso, repeat, weekdays, monthDays);
+              }}
+              onSaved={() => {
+                setTimerOpen(false);
+                requestClose();
+              }}
+              onCancel={() => {
+                setTimerOpen(false);
+              }}
+            />
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
