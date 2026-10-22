@@ -617,7 +617,7 @@ export function SwipeStrip<T>({
         });
       });
     }
-
+// 
     return () => {
       if (growthRaf !== 0) cancelAnimationFrame(growthRaf);
       if (settleTimer !== undefined) clearTimeout(settleTimer);
