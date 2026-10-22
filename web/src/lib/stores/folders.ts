@@ -61,6 +61,30 @@ export function peekCachedFolders(topicId: number): Folder[] | undefined {
   return foldersByTopic.get(topicId);
 }
 
+/** Показать активному топику его папки из кеша — без запроса. Нужно при
+    переключении топика во время анимации ленты: топик уже предзагружен как
+    соседний, уровень готов, а сеть до остановки запрещена. false — кеша нет. */
+export function showCachedFolders(topicId: number): boolean {
+  const cached = foldersByTopic.get(topicId);
+  if (cached === undefined) return false;
+  showFoldersIfActive(topicId, cached);
+  return true;
+}
+
+/** Оставить в кеше папки только перечисленных топиков (окрестность
+    активного) — дальние вытесняются, чтобы память не росла со всеми
+    посещёнными топиками. */
+export function retainFoldersCache(topicIds: ReadonlySet<number>): void {
+  let dropped = false;
+  for (const topicId of [...foldersByTopic.keys()]) {
+    if (topicIds.has(topicId)) continue;
+    foldersByTopic.delete(topicId);
+    foldersLoadedAt.delete(topicId);
+    dropped = true;
+  }
+  if (dropped) bumpFoldersCacheTick();
+}
+
 /** Узел дерева папок: папка + глубина вложенности (0 — корневая) и ветки. */
 export interface FolderTreeNode {
   folder: Folder;

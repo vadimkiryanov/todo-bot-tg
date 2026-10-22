@@ -19,6 +19,7 @@ import {
   removeDoneNote,
   removeNote,
   resetNotes,
+  retainNotesCache,
   saveText,
   setPriority,
   setReminder,
@@ -560,6 +561,49 @@ describe('notes store', () => {
     setActiveTopic(b.id);
     await loadNotes(b.id);
     expect(notesStore.notes.map((n) => n.text)).toEqual(['в B']);
+  });
+
+  it('переключение на предзагруженный сосед не делает запрос', async () => {
+    const a = await setupTopic();
+    const b = await request<Topic>('POST', '/api/v1/topics', { name: 'B' });
+    const c = await request<Topic>('POST', '/api/v1/topics', { name: 'C' });
+
+    await loadNotes(a);
+    await preloadTopicNeighbors(a, [b.id]);
+    expect(isNotesCached(b.id)).toBe(true);
+
+    // Кеш обновляется только пришедшим запросом (cacheTick). Контроль:
+    // топик без кеша запрос делает — тик растёт.
+    const beforeC = useNotesStore.getState().cacheTick;
+    setActiveTopic(c.id);
+    await loadNotes(c.id);
+    expect(useNotesStore.getState().cacheTick).toBeGreaterThan(beforeC);
+
+    // Сосед уже в свежем кеше — переключение на него запросов не порождает:
+    // кеш показывается как есть, тик не меняется.
+    const beforeB = useNotesStore.getState().cacheTick;
+    setActiveTopic(b.id);
+    await loadNotes(b.id);
+    expect(useNotesStore.getState().cacheTick).toBe(beforeB);
+    expect(notesStore.loading).toBe(false);
+  });
+
+  it('retainNotesCache вытесняет заметки топиков вне окрестности', async () => {
+    const a = await setupTopic();
+    const b = await request<Topic>('POST', '/api/v1/topics', { name: 'B' });
+    const c = await request<Topic>('POST', '/api/v1/topics', { name: 'C' });
+
+    await loadNotes(a, null, true);
+    await loadNotes(b.id, null, true);
+    await loadNotes(c.id, null, true);
+    expect(isNotesCached(a)).toBe(true);
+    expect(isNotesCached(b.id)).toBe(true);
+    expect(isNotesCached(c.id)).toBe(true);
+
+    retainNotesCache(new Set([a, b.id]));
+    expect(isNotesCached(a)).toBe(true);
+    expect(isNotesCached(b.id)).toBe(true);
+    expect(isNotesCached(c.id)).toBe(false);
   });
 
   it('saveText правит текст в архиве', async () => {

@@ -63,6 +63,8 @@ import {
   levelFolders,
   loadFolders,
   peekCachedFolders,
+  retainFoldersCache,
+  showCachedFolders,
   useFoldersStore,
 } from '../stores/folders';
 import { setActiveFolder, setActiveTopic, useNavigationStore } from '../stores/navigation';
@@ -72,6 +74,7 @@ import {
   loadNotes,
   peekCachedNotes,
   preloadTopicNeighbors,
+  retainNotesCache,
   useNotesStore,
   type ComposeDraft,
 } from '../stores/notes';
@@ -640,21 +643,24 @@ export function ChatView() {
   /** Слайд в фокусе свайпера (видимый сейчас / цель драга / программного
       переезда). Может опережать стор-активный: при быстрых свайпах целевой
       слайд едет и виден ДО onchange ленты (тот приходит на отпускании, в
-      начале доезда). Окрестность фокуса рендерится
-      (nearTopicIds) и предзагружается — слайд подъезжает наполненным, а не
-      пустой оболочкой до полной остановки анимации. */
+      начале доезда). Окрестность фокуса рендерится (nearTopicIds) из кеша —
+      сеть во время анимации не трогаем. */
   const [focusTopicIndex, setFocusTopicIndexState] = useState(-1);
   const focusTopicIndexRef = useRef(-1);
 
+  /** Лента топиков едет: select уже был, settle ещё нет. Пока анимация
+      пролистывания не закончилась, сеть не трогаем вовсе — ни контент
+      нового топика, ни его соседей: эффекты загрузки ниже ждут
+      topicMoving === false и перезапускаются, когда лента встала.
+      Состояние (а не ref) — потому что оно входит в их зависимости. */
+  const [topicMoving, setTopicMoving] = useState(false);
+
   /** Сменить фокус свайпера: окрестность нового слайда рендерится
-      (nearTopicIds) и предзагружается preloadTopicAround (свежий кеш и
-      идущие запросы делают повторные вызовы дешёвыми). */
+      (nearTopicIds). Подгрузка — только после остановки ленты. */
   function setFocusTopicIndex(index: number): void {
     if (index === focusTopicIndexRef.current) return;
     focusTopicIndexRef.current = index;
     setFocusTopicIndexState(index);
-    const topic = useTopicsStore.getState().topics[index];
-    if (topic !== undefined) preloadTopicAround(topic.id);
   }
 
   /** Слайды для рендера: окрестность (сам + соседи ±1) стор-активного И
@@ -795,14 +801,33 @@ export function ChatView() {
   /** Смена слайда ленты (отпускание драга или программный goTo) — аналог
       slideChange у Swiper: слайд известен до конца доезда. Пишем стор
       (guard: тот же топик — пропуск, иначе петля goTo ↔ onchange) и
-      выравниваем фокус — он мог уехать вперёд намерения/драга. */
+      выравниваем фокус — он мог уехать вперёд намерения/драга. Сеть — не
+      здесь: пока лента едет, запросов не делаем (topicMoving), их запустят
+      эффекты загрузки после остановки. */
   function onTopicChange(index: number): void {
     const list = useTopicsStore.getState().topics;
     const topic = list[index];
     if (topic !== undefined && topic.id !== useNavigationStore.getState().activeTopicID) {
       setActiveTopic(topic.id);
+      // Лента ещё едет — сеть запрещена, но готовый кеш показываем сразу:
+      // топик обычно уже предзагружен как соседний, спиннеру взяться неоткуда.
+      showCachedTopic(topic.id);
     }
     setFocusTopicIndex(index);
+    setTopicMoving(true);
+  }
+
+  /** Лента топиков встала (settle Embla — конец анимации пролистывания):
+      только теперь разрешаем сеть. Эффекты ниже перезапустятся на смену
+      topicMoving и загрузят папки и заметки остановившегося топика, а
+      preloadTopicAround — корни соседей. За быстрый жест через несколько
+      топиков в сеть не уходит то, мимо чего проехали. */
+  function onTopicSettled(index: number): void {
+    const topic = useTopicsStore.getState().topics[index];
+    if (topic !== undefined && topic.id !== useNavigationStore.getState().activeTopicID) {
+      setActiveTopic(topic.id);
+    }
+    setTopicMoving(false);
   }
 
   // Программная навигация (шторка «Топики», восстановление сессии, удаление
@@ -1035,17 +1060,22 @@ export function ChatView() {
   }, [sessionState]);
 
   // При выборе топика — загружаем его папки (полный список для дерева).
+  // Пока лента топиков едет — ни одного запроса: эффект перезапустится,
+  // когда слайд встанет (topicMoving === false).
   useEffect(() => {
     if (activeTopicID === null) return;
+    if (topicMoving) return;
     void loadFolders(activeTopicID);
-  }, [activeTopicID]);
+  }, [activeTopicID, topicMoving]);
 
   // При смене топика или папки — заметки уровня (кеш показывается сразу,
-  // свежесть догружается фоном).
+  // свежесть догружается фоном). Смена топика свайпом/переездом ждёт
+  // остановки ленты: во время анимации сеть не трогаем.
   useEffect(() => {
     if (activeTopicID === null) return;
+    if (topicMoving) return;
     void loadNotes(activeTopicID, activeFolderID);
-  }, [activeTopicID, activeFolderID]);
+  }, [activeTopicID, activeFolderID, topicMoving]);
 
   // Стартовый URL (глубокая ссылка/восстановление вкладки): после загрузки
   // топиков и авто-выбора активного (restoreActiveTopic) применяем параметры
@@ -1100,18 +1130,45 @@ export function ChatView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- порт $effect (один раз)
   }, []);
 
+  /** Мгновенно показать контент топика из кеша — без сети. Единственный
+      источник данных, пока лента едет: топик, к которому едем, обычно уже
+      подгружен как соседний, и уровень должен быть готов сразу, без спиннера. */
+  function showCachedTopic(topicId: number): void {
+    const cached = peekCachedNotes(topicId, null);
+    if (cached !== undefined) {
+      useNotesStore.setState({ notes: cached, loading: false, error: null });
+    }
+    showCachedFolders(topicId);
+  }
+
+  /** Сколько топиков в каждую сторону от активного держим в кеше заметок
+      и папок. Превью — только ±1, но запас ±2 делает следующий свайп
+      мгновенным; всё, что дальше, вытесняется. */
+  const CACHE_TOPICS_AWAY = 2;
+
   // Предзагрузка: подгружаем корень топика и корни его соседей слева и
-  // справа — свайп на соседний слайд не ждёт сеть. В режиме «папки в списке»
-  // превью слайда показывает и корневые папки соседа — их тоже кешируем
-  // заранее (иначе слайд соседа показывал бы плейсхолдер до первого визита).
-  // Вызывается в момент намерения (драг/отпускание: фокус уже знает цель —
-  // таб подсвечен, слайд ещё едет) и после фактической смены активного
-  // топика (эффект ниже). Повторные вызовы безопасны: свежий кеш
-  // пропускается (isNotesCached), идущий запрос не дублируется (inFlight).
+  // справа — превью следующего слайда готово из кеша. В режиме «папки в
+  // списке» превью слайда показывает и корневые папки соседа — их тоже
+  // кешируем (иначе слайд соседа показывал бы плейсхолдер до первого визита).
+  // Вызывается ТОЛЬКО когда анимация пролистывания закончилась (эффект ниже
+  // перезапускается на topicMoving === false): во время анимации сеть не
+  // трогаем. Повторные вызовы безопасны: свежий кеш пропускается
+  // (isNotesCached), идущий запрос не дублируется (inFlight).
   function preloadTopicAround(topicId: number): void {
     const list = useTopicsStore.getState().topics;
     const index = list.findIndex((t) => t.id === topicId);
     if (index < 0) return;
+
+    // Кеш держим только вокруг активного топика (по два в каждую сторону):
+    // дальние вытесняем, иначе память растёт со всеми посещёнными топиками.
+    const keep = new Set<number>();
+    for (let i = index - CACHE_TOPICS_AWAY; i <= index + CACHE_TOPICS_AWAY; i++) {
+      const item = list[i];
+      if (item !== undefined) keep.add(item.id);
+    }
+    retainNotesCache(keep);
+    retainFoldersCache(keep);
+
     const neighbors: number[] = [];
     if (index > 0) neighbors.push(list[index - 1].id);
     if (index + 1 < list.length) neighbors.push(list[index + 1].id);
@@ -1123,12 +1180,24 @@ export function ChatView() {
     }
   }
 
+  // Соседи активного топика: грузим, когда лента не едет и топики уже есть.
+  // Здесь же — смена топика без движения ленты (старт/восстановление сессии,
+  // удаление/создание топика, deep link): topicMoving при ней не поднимался,
+  // ждать остановки нечего.
   useEffect(() => {
     const topicId = activeTopicID;
-    if (topicId === null || topicsLoading) return;
+    if (topicId === null || topicsLoading || topicMoving) return;
     preloadTopicAround(topicId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- порт $effect (см. ChatView.svelte)
-  }, [activeTopicID, topicsLoading]);
+  }, [activeTopicID, topicsLoading, topicMoving]);
+
+  // Лента пересобралась (список топиков изменился) — начатое движение
+  // отменено вместе с инстансом движка: settle по нему уже не придёт.
+  // Снимаем флаг сами — эффекты загрузки перезапустятся и подтянут
+  // активный топик, иначе он остался бы со спиннером.
+  useEffect(() => {
+    setTopicMoving(false);
+  }, [topics.length]);
 
   // Подсветка «только что добавленной» заметки: держим ~3 сек и снимаем.
   const HIGHLIGHT_MS = 3000;
@@ -1434,6 +1503,9 @@ export function ChatView() {
               // внутри папки режим не применяется — там остаётся сдвиг.
               fade={swipeMode === 'fade'}
               onchange={onTopicChange}
+              // Соседи подгружаются, только когда слайд встал: во время
+              // анимации пролистывания сеть не трогаем.
+              onsettle={onTopicSettled}
               ondragmove={onTopicDragMove}
               ondragend={onTopicDragEnd}
             >

@@ -104,6 +104,14 @@ export function InputBar({
   const [focused, setFocused] = useState(false);
   /** Корень панели: по нему отличаем уход фокуса из поля от тапа по её кнопкам. */
   const rootRef = useRef<HTMLDivElement>(null);
+  /** Касание началось внутри панели. На телефоне кнопки не забирают фокус,
+      поэтому onBlur приходит с пустым relatedTarget; без этой отметки панель
+      схлопывалась бы до click и кнопка (карандаш на пустом поле, опции) не
+      нажималась бы. */
+  const pointerInside = useRef(false);
+  /** Отложенное схлопывание панели: даёт click дойти до кнопки, которая уже
+      не в фокусе. */
+  const blurTimer = useRef<number | undefined>(undefined);
 
   // Опции создания: приоритет / закреплено / развёрнуто / напоминание.
   const [priority, setPriority] = useState<Priority>('none');
@@ -161,6 +169,14 @@ export function InputBar({
     action();
     keepInputFocus();
   }
+
+  // Отложенное схлопывание не должно сработать после размонтирования панели.
+  useEffect(
+    () => () => {
+      if (blurTimer.current !== undefined) window.clearTimeout(blurTimer.current);
+    },
+    [],
+  );
 
   /** Опции создания заметки из текущего состояния панели действий. */
   function currentOptions(): CreateNoteOptions {
@@ -341,7 +357,16 @@ export function InputBar({
   const showActions = hasText || focused;
 
   return (
-    <div ref={rootRef} className="relative px-3 py-2">
+    <div
+      ref={rootRef}
+      className="relative px-3 py-2"
+      onPointerDownCapture={() => {
+        pointerInside.current = true;
+      }}
+      onClickCapture={() => {
+        pointerInside.current = false;
+      }}
+    >
       {menuOpen && (
         <>
           {/* Затемняющая подложка: тап вне меню — закрыть */}
@@ -636,7 +661,13 @@ export function InputBar({
                 setText(e.target.value);
               }}
               onKeyDown={onKeydown}
-              onFocus={() => setFocused(true)}
+              onFocus={() => {
+                if (blurTimer.current !== undefined) {
+                  window.clearTimeout(blurTimer.current);
+                  blurTimer.current = undefined;
+                }
+                setFocused(true);
+              }}
               onBlur={(e) => {
                 // Фокус ушёл на элемент самой панели (кнопки опций, отправка):
                 // это не уход из поля, панель не складываем — иначе она
@@ -645,6 +676,21 @@ export function InputBar({
                   e.relatedTarget !== null &&
                   rootRef.current?.contains(e.relatedTarget) === true
                 ) {
+                  return;
+                }
+                // На телефоне кнопки фокус не забирают: relatedTarget пуст, а
+                // blur приходит раньше click. Даём нажатию дойти до кнопки
+                // (иначе на пустом поле панель становится inert под пальцем и
+                // карандаш/опции не срабатывают), потом прячем панель.
+                if (pointerInside.current) {
+                  if (blurTimer.current !== undefined) {
+                    window.clearTimeout(blurTimer.current);
+                  }
+                  blurTimer.current = window.setTimeout(() => {
+                    blurTimer.current = undefined;
+                    pointerInside.current = false;
+                    setFocused(false);
+                  }, 300);
                   return;
                 }
                 setFocused(false);

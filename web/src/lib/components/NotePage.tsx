@@ -518,14 +518,24 @@ export function NotePage({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- открытие страницы
   }, [startEditing]);
 
-  // iOS не сжимает вьюпорт клавиатурой: укорачиваем область текста
-  // спейсером внизу колонки через visualViewport (как Modal).
+  // iOS не сжимает layout-вьюпорт клавиатурой. Страница прибита к нему
+  // (inset-0), и когда браузер подтягивает каретку к клавиатуре, он сдвигает
+  // visualViewport — шапка уезжает за верхний край. Пока клавиатура открыта,
+  // ставим страницу ровно в видимую область: верх — на visualViewport.offsetTop,
+  // высота — до клавиатуры. Тогда шапка всегда на экране, а текст заканчивается
+  // над клавиатурой без отдельного спейсера.
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [vvBox, setVvBox] = useState({ top: 0, height: 0 });
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const update = (): void => {
       setKeyboardInset(Math.max(0, window.innerHeight - vv.height));
+      setVvBox((prev) =>
+        prev.top === vv.offsetTop && prev.height === vv.height
+          ? prev
+          : { top: vv.offsetTop, height: vv.height },
+      );
     };
     update();
     vv.addEventListener('resize', update);
@@ -535,6 +545,9 @@ export function NotePage({
       vv.removeEventListener('scroll', update);
     };
   }, []);
+
+  // Клавиатура открыта — страница следует за видимой областью.
+  const keyboardOpen = keyboardInset > 0 && vvBox.height > 0;
 
   // Клавиатура открылась: замок входа в правку тапом снимаем — текст под
   // пальцем больше не удерживаем (см. entryScrollRef).
@@ -1946,7 +1959,10 @@ export function NotePage({
       className={`notepage fixed inset-0 z-[70] flex touch-pan-y flex-col bg-background ${
         !dragging ? 'notepage-settle' : ''
       }`}
-      style={{ transform }}
+      style={{
+        transform,
+        ...(keyboardOpen ? { top: vvBox.top, height: vvBox.height, bottom: 'auto' } : null),
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -2304,13 +2320,6 @@ export function NotePage({
           dangerouslySetInnerHTML={{ __html: viewHtml }}
         ></div>
       </main>
-
-      {/* Клавиатура на телефоне: спейсер ровно в высоту клавиатуры, прижатый к
-          низу колонки. Он укорачивает область текста под клавиатуру — iOS сам
-          вьюпорт не сжимает. Нижний вырез экрана сюда не добавляем: он был бы
-          лишней высотой, и текст обрывался бы полосой фона, не доходя до
-          клавиатуры (а с закрытой клавиатурой — полосой внизу страницы). */}
-      <div className="shrink-0" style={{ height: keyboardInset }} aria-hidden="true"></div>
 
       {/* Карандаш правки — плавающей кнопкой внизу слева (на месте, где раньше
           был «назад», который уехал в шапку). Видимая кнопка в обоих режимах,

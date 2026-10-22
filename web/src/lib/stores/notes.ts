@@ -155,6 +155,10 @@ export async function loadNotes(
   // Активный контекст с кешем: показываем сразу, обновление — фоном.
   if (active && cached !== undefined && !silent) {
     useNotesStore.setState({ notes: cached, error: null, loading: false });
+    // Свежий кеш — сети не нужно вовсе: топик мог быть только что
+    // предзагружен как соседний, переключение на готовый топик не должно
+    // порождать запрос. Протухший кеш догружаем фоном.
+    if (isNotesCached(topicId, folderId)) return;
     return loadNotes(topicId, folderId, true);
   }
 
@@ -243,6 +247,22 @@ export function pruneNotesCacheForTopic(topicId: number): void {
     }
   }
   bumpNotesCacheTick();
+}
+
+/** Оставить в кеше заметки только перечисленных топиков (окрестность
+    активного). Дальние контексты вытесняются: кеш не должен расти вместе
+    со всеми топиками, куда пользователь заходил. */
+export function retainNotesCache(topicIds: ReadonlySet<number>): void {
+  let dropped = false;
+  for (const key of [...notesCache.keys()]) {
+    const topicId = Number(key.slice(0, key.indexOf(':')));
+    if (!topicIds.has(topicId)) {
+      notesCache.delete(key);
+      cacheLoadedAt.delete(key);
+      dropped = true;
+    }
+  }
+  if (dropped) bumpNotesCacheTick();
 }
 
 /** Загрузка архива. silent — тихая перезагрузка. */
@@ -470,6 +490,13 @@ export async function unarchiveNote(note: Note): Promise<void> {
     setKindNotes('archived', previous);
     throw noteOpError(e, 'не удалось вернуть заметку из архива');
   }
+  // Заметка вернулась в активный список — тихо перечитываем активный
+  // уровень: свежий кеш при показе уже не ревалидируется, без этого
+  // заметки не было бы в списке до смены контекста.
+  const nav = useNavigationStore.getState();
+  if (nav.activeTopicID !== null) {
+    await loadNotes(nav.activeTopicID, nav.activeFolderID, true, true);
+  }
   toastSuccess('Возвращено из архива');
 }
 
@@ -529,13 +556,16 @@ export async function undoneNote(note: Note): Promise<void> {
   const previous = kindState('done').notes;
   setKindNotes('done', previous.filter((n) => n.id !== note.id));
   try {
-    const fromApi = await apiUpdateNote(note.id, { done: false });
-    // Вернулась в работу — вернуть её в кеш активного контекста не нужно:
-    // список перечитается при показе. Из таймеров тоже убираем.
-    void fromApi;
+    await apiUpdateNote(note.id, { done: false });
   } catch (e) {
     setKindNotes('done', previous);
     throw noteOpError(e, 'не удалось вернуть заметку в работу');
+  }
+  // Вернулась в работу — тихо перечитываем активный уровень: заметка должна
+  // быть в кеше до показа списка (свежий кеш не ревалидируется).
+  const nav = useNavigationStore.getState();
+  if (nav.activeTopicID !== null) {
+    await loadNotes(nav.activeTopicID, nav.activeFolderID, true, true);
   }
   toastSuccess('Возвращено в работу');
 }
